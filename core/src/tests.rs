@@ -164,3 +164,21 @@ fn horizons_sample_and_errors() {
         assert!(parse_horizons(text).is_err());
     }
 }
+
+#[test]
+fn horizons_combined_optional_markers_and_last_numeric_pair() {
+    for marker in ["*i", " i", "*", "", "CNAnim"] {
+        let text = format!("$$SOE\n 2027-Jan-01 05:00 {marker} 123.45 1.23\n$$EOE");
+        let track = parse_horizons(&text).unwrap();
+        assert_eq!(track.az_deg, vec![123.45]);
+        assert_eq!(track.el_deg, vec![1.23]);
+    }
+    let track = parse_horizons("$$SOE\n2027-Jan-01 05:00 999 *i 123.45 flag -1.23 trailing\n$$EOE")
+        .unwrap();
+    assert_eq!(track.az_deg, vec![123.45]);
+    assert_eq!(track.el_deg, vec![-1.23]);
+    for values in ["*i", "i 123.45", "*i NaN 1.23", "* 123.45 inf"] {
+        let text = format!("$$SOE\n2027-Jan-01 05:00 {values}\n$$EOE");
+        assert!(parse_horizons(&text).is_err());
+    }
+}

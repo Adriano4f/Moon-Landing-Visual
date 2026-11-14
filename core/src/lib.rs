@@ -199,26 +199,24 @@ pub fn parse_horizons(text: &str) -> Result<Track, String> {
         .map_err(|e| format!("Invalid date: {e}"))?
         .and_utc()
         .timestamp();
-        let angles: Result<Vec<f32>, _> = fields[2..]
+        let mut angles = fields[2..]
             .iter()
-            .filter(|s| {
-                !matches!(
-                    **s,
-                    "*" | "C" | "m" | "N" | "A" | "n" | "c" | "t" | "s" | "r"
-                )
-            })
-            .map(|s| s.parse::<f32>())
-            .collect();
-        let angles = angles.map_err(|e| format!("Invalid angle: {e}"))?;
-        if angles.len() != 2 || angles.iter().any(|v| !v.is_finite()) {
+            .rev()
+            .filter_map(|s| s.parse::<f32>().ok());
+        let el = angles.next();
+        let az = angles.next();
+        let (Some(az), Some(el)) = (az, el) else {
             return Err(format!("Expected azimuth and elevation: {line}"));
+        };
+        if !az.is_finite() || !el.is_finite() {
+            return Err(format!("Expected finite azimuth and elevation: {line}"));
         }
         if track.t.last().is_some_and(|&last| time <= last) {
             return Err("Timestamps are not increasing".into());
         }
         track.t.push(time);
-        track.az_deg.push(angles[0]);
-        track.el_deg.push(angles[1]);
+        track.az_deg.push(az);
+        track.el_deg.push(el);
     }
     if track.t.is_empty() {
         return Err("Empty ephemeris".into());
