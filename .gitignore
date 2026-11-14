@@ -1,0 +1,6 @@
+target/
+dist/
+*.tif
+*.tiff
+*.img
+*.IMG
