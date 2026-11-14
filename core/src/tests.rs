@@ -51,13 +51,51 @@ fn flat_horizon_includes_curvature() {
 fn wall_angle_and_local_azimuth() {
     let mut dem = flat();
     for c in 0..dem.w {
-        dem.z_m[5 * dem.w + c] = 100.0;
+        dem.z_m[15 * dem.w + c] = 100.0;
     }
     let horizon = horizon_from_dem(&dem, -90.0, 90.0, 4, 800.0);
     let expected = ((100.0 - 500.0_f64.powi(2) / (2.0 * MOON_RADIUS_M)) / 500.0)
         .atan()
         .to_degrees() as f32;
     assert!((horizon.h_deg[1] - expected).abs() < 1e-4);
+    assert!(horizon.h_deg[3] < 0.0);
+}
+
+#[test]
+fn north_ridge_away_from_pole_singularity() {
+    let (_, y) = to_xy(-89.0, 0.0);
+    let mut dem = Dem {
+        w: 21,
+        h: 41,
+        res_m: 100.0,
+        x_min_m: -1000.0,
+        y_max_m: y + 1000.0,
+        z_m: vec![0.0; 21 * 41],
+    };
+    for c in 0..dem.w {
+        dem.z_m[15 * dem.w + c] = 100.0;
+    }
+    let horizon = horizon_from_dem(&dem, -89.0, 0.0, 4, 800.0);
+    assert!(horizon.h_deg[0] > 10.0);
+    assert!(horizon.h_deg[2] < 0.0);
+}
+
+#[test]
+fn east_at_lon_90_points_toward_negative_y() {
+    let (x, y) = to_xy(-89.0, 90.0);
+    let mut dem = Dem {
+        w: 21,
+        h: 41,
+        res_m: 100.0,
+        x_min_m: x - 1000.0,
+        y_max_m: y + 1000.0,
+        z_m: vec![0.0; 21 * 41],
+    };
+    for c in 0..dem.w {
+        dem.z_m[15 * dem.w + c] = 100.0;
+    }
+    let horizon = horizon_from_dem(&dem, -89.0, 90.0, 4, 800.0);
+    assert!(horizon.h_deg[1] > 10.0);
     assert!(horizon.h_deg[3] < 0.0);
 }
 

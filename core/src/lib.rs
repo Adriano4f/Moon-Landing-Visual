@@ -108,7 +108,7 @@ pub fn horizon_from_dem(dem: &Dem, lat: f64, lon: f64, n_az: usize, max_dist_m: 
         let angle = (i as f64 * 360.0 / n_az as f64 - lon).to_radians();
         let mut s = step;
         while s <= max_dist_m {
-            let Some(z) = dem.height_at(x + s * angle.sin(), y + s * angle.cos()) else {
+            let Some(z) = dem.height_at(x + s * angle.sin(), y - s * angle.cos()) else {
                 break;
             };
             let dz = f64::from(z - z0) - s * s / (2.0 * MOON_RADIUS_M);
