@@ -37,8 +37,9 @@ Operators `+`, `-`, `*`, `/`, `%`, comparisons, `&&`, `||`, `!`, and compound as
 For example, after the definitions above, this is a complete function:
 
 ```rust
-fn twice(x: f64) -> f64 {
-    x * 2.0
+fn twice(x: f64) -> f64
+{
+	x * 2.0
 }
 ```
 
@@ -158,9 +159,9 @@ Let delta be the angular distance from the south pole. Then delta = pi/2 + phi. 
 
 ```text
 rho = R sin(delta) * 2R / (R + R cos(delta))
-    = 2R sin(delta) / (1 + cos(delta))
-    = 2R tan(delta / 2)
-    = 2R tan(pi/4 + phi/2)
+	= 2R sin(delta) / (1 + cos(delta))
+	= 2R tan(delta / 2)
+	= 2R tan(pi/4 + phi/2)
 x = rho sin(lambda)
 y = rho cos(lambda)
 ```
@@ -185,7 +186,7 @@ Let z00 be the top-left height, z10 top-right, z01 bottom-left, and z11 bottom-r
 ```text
 z = (1 - fy)top + fy bottom
   = (1 - fy)(1 - fx)z00 + (1 - fy)fx z10
-    + fy(1 - fx)z01 + fy fx z11
+	+ fy(1 - fx)z01 + fy fx z11
 ```
 
 The four weights sum to one. On an edge, clamping the upper neighbor index to the last sample lets the same expression work without reading outside the vector.
@@ -227,8 +228,8 @@ For curvature, take a circle of radius R and a local tangent line. Let s be hori
 ```text
 vertical radius component = sqrt(R^2 - s^2)
 drop = R - sqrt(R^2 - s^2)
-     = s^2 / (R + sqrt(R^2 - s^2))
-     approximately s^2 / (2R), when s/R is small
+	 = s^2 / (R + sqrt(R^2 - s^2))
+	 approximately s^2 / (2R), when s/R is small
 ```
 
 Strictly, s in the square-root equation is the horizontal chord projection, not arc length along the surface. If the surface arc length is l, the exact drop is R(1 - cos(l/R)); its small-angle expansion is also l^2/(2R) to leading order. The marching code uses local projected distance and the leading-order approximation.
@@ -347,26 +348,26 @@ The committed example was downloaded for 2026-12-01 through 2026-12-03 in 6-hour
 ```json
 {
   "site": {
-    "name": "Example 89.45S 222.69E",
-    "lat_deg": -89.45,
-    "lon_deg": 222.69
+	"name": "Example 89.45S 222.69E",
+	"lat_deg": -89.45,
+	"lon_deg": 222.69
   },
   "sun": {
-    "t": [
-      1796083200,
-      1796104800,
-      1796126400,
-      1796148000,
-      1796169600,
-      1796191200,
-      1796212800,
-      1796234400,
-      1796256000
-    ],
-    "az_deg": [
-      57.386894,
-      54.346596,
-      51.305817,
+	"t": [
+	  1796083200,
+	  1796104800,
+	  1796126400,
+	  1796148000,
+	  1796169600,
+	  1796191200,
+	  1796212800,
+	  1796234400,
+	  1796256000
+	],
+	"az_deg": [
+	  57.386894,
+	  54.346596,
+	  51.305817,
 ```
 
 The excerpt stops inside an array and is not a standalone JSON document. The complete file also contains Sun elevations, Earth timestamps/angles, and `"horizon": null`. Its first Sun elevation is 1.766619 degrees. The first Earth elevation is -2.054944 degrees. Without terrain, these are not yet terrain-aware visibility decisions.
@@ -471,3 +472,13 @@ trunk serve
 ```
 
 Open http://127.0.0.1:8080. The downloaded data remains a preparation artifact until the application implements data loading, plots, and the terrain panorama. Do not use this skeleton alone for mission planning.
+
+## Code style: tabs and braces on their own line
+
+`rustfmt.toml` sets `hard_tabs = true` (indent with tabs) and `brace_style` / `control_brace_style = "AlwaysNextLine"` (every `{` goes on its own line, like Allman style in C++). The two brace options only work in the nightly version of rustfmt, so install it once:
+
+```sh
+rustup toolchain install nightly --profile minimal --component rustfmt
+```
+
+Then format with `cargo +nightly fmt --all`. Plain `cargo fmt` (stable) ignores the brace options and prints a warning. `.zed/settings.json` tells Zed's rust-analyzer to call rustfmt with `+nightly`, so format-on-save in Zed uses the same style.
