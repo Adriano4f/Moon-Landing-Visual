@@ -481,4 +481,4 @@ Open http://127.0.0.1:8080. The downloaded data remains a preparation artifact u
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
-Then format with `cargo +nightly fmt --all`. Plain `cargo fmt` (stable) ignores the brace options and prints a warning. `.zed/settings.json` tells Zed's rust-analyzer to call rustfmt with `+nightly`, so format-on-save in Zed uses the same style.
+Then format with `cargo +nightly fmt --all`. Plain `cargo fmt` (stable) ignores the brace options and prints a warning.
