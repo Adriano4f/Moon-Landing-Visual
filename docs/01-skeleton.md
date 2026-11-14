@@ -403,11 +403,11 @@ Trunk.toml contains `[build]`, selecting build settings, and `filehash = false`,
 
 ## 9. Install, clone, build, test, and run
 
-A terminal runs commands. The commands below assume Git is installed and the network permits downloads from Rust's package registry and JPL. VS Code is an editor, not the compiler. rust-analyzer supplies Rust navigation, diagnostics, and completion inside the editor. `code .` opens the current directory when VS Code's command-line launcher is installed. Otherwise use File > Open Folder. Commands beginning with cargo are run at the repository root unless a cd changes that location. Cargo's `-p` selects a package; `--` separates Cargo's own arguments from arguments passed to an executable.
+A terminal runs commands. The commands below assume Git is installed and the network permits downloads from Rust's package registry and JPL. Zed is an editor, not the compiler. Zed's Rust support is built in and downloads rust-analyzer automatically for navigation, diagnostics, and completion. There is no extension to install. Open the folder in Zed with `zed .` when its command-line launcher is installed, or use File > Open. Commands beginning with cargo are run at the repository root unless a cd changes that location. Cargo's `-p` selects a package; `--` separates Cargo's own arguments from arguments passed to an executable.
 
 ### 9.1 Windows with PowerShell
 
-Install Git for Windows and VS Code from their official installers. Download and run rustup-init.exe from https://rustup.rs/. Choose the default stable MSVC toolchain. When prompted, install the Visual Studio C++ Build Tools with the desktop C++ workload and Windows SDK. This is the native linker/toolchain requirement, not a dependency on OpenSSL. Restart PowerShell after installation so the tools are on PATH, the operating system's executable search path.
+Install Git for Windows and Zed from their official installers. Download and run rustup-init.exe from https://rustup.rs/. Choose the default stable MSVC toolchain. When prompted, install the Visual Studio C++ Build Tools with the desktop C++ workload and Windows SDK. This is the native linker/toolchain requirement, not a dependency on OpenSSL. Restart PowerShell after installation so the tools are on PATH, the operating system's executable search path.
 
 Run:
 
@@ -417,8 +417,7 @@ rustup target add wasm32-unknown-unknown
 cargo install trunk
 git clone https://github.com/Adriano4f/Moon-Landing-Visual.git
 cd Moon-Landing-Visual
-code --install-extension rust-lang.rust-analyzer
-code .
+zed .
 cargo build --workspace
 cargo test -p lunar_core
 cargo clippy --workspace
@@ -452,11 +451,10 @@ git clone https://github.com/Adriano4f/Moon-Landing-Visual.git
 cd Moon-Landing-Visual
 ```
 
-Install VS Code from https://code.visualstudio.com/ if it is not already available. Then run:
+Install Zed from https://zed.dev/ if it is not already available. Then run:
 
 ```sh
-code --install-extension rust-lang.rust-analyzer
-code .
+zed .
 cargo build --workspace
 cargo test -p lunar_core
 cargo clippy --workspace
