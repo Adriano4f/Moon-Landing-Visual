@@ -1,6 +1,6 @@
 # 02: Full code walkthrough
 
-This document describes the source at commit 1ba0d7d0388b670a9f177d911900361035e5dce0. No application behavior is added here. Source quotations preserve that revision's tabs, brace placement, spelling, and numeric literals. Prose writes the lunar radius as 1,737,400 m; Rust writes the same value with underscores.
+This document describes the current source, including the geographic-north terrain-ray correction. Source quotations preserve the files' tabs, brace placement, spelling, and numeric literals. Prose writes the lunar radius as 1,737,400 m; Rust writes the same value with underscores.
 
 ## 0. Reading contract and notation
 
@@ -299,11 +299,11 @@ pub fn horizon_from_dem(dem: &Dem, lat: f64, lon: f64, n_az: usize, max_dist_m: 
 	}
 	for (i, h) in horizon.h_deg.iter_mut().enumerate()
 	{
-		let angle = (i as f64 * 360.0 / n_az as f64 - lon).to_radians();
+		let angle = (i as f64 * 360.0 / n_az as f64 + lon).to_radians();
 		let mut s = step;
 		while s <= max_dist_m
 		{
-			let Some(z) = dem.height_at(x + s * angle.sin(), y - s * angle.cos())
+			let Some(z) = dem.height_at(x + s * angle.sin(), y + s * angle.cos())
 			else
 			{
 				break;
@@ -321,15 +321,17 @@ pub fn horizon_from_dem(dem: &Dem, lat: f64, lon: f64, n_az: usize, max_dist_m: 
 2. Project the site and query its terrain height. The let-else returns the untouched sentinel profile if the site cannot be sampled.
 3. Set marching step to half a DEM cell. height_at already rejects nonpositive or non-finite spacing for a sampled site.
 4. A non-finite distance limit returns the sentinel profile. A negative or shorter-than-step limit performs no samples.
-5. enumerate assigns each mutable horizon bin its azimuth index i. Compute A = 360i/n, then angle = A - longitude, and convert to radians.
+5. enumerate assigns each mutable horizon bin its azimuth index i. Compute A = 360i/n, then angle = A + longitude, and convert to radians.
 6. Start the distance s at one step, not zero, avoiding division by zero at the observer.
-7. Sample at x+s*sin(angle), y-s*cos(angle). The negative cosine is deliberate.
+7. Sample at x+s*sin(angle), y+s*cos(angle). Both components are added to follow geographic azimuth.
 8. Stop the current ray at the first missing terrain sample or grid edge.
 9. Compute dz = z-z0-s*s/(2R). The subtraction is curvature relative to the observer's tangent plane.
 10. Convert atan(dz/s) to degrees, narrow to f32, and keep the maximum in the current bin through the mutable reference.
 11. Advance s and repeat while s is within max_dist_m. Return the populated Horizon.
 
-Under the convention required by this project, north toward the pole is N = (-sin(lambda), -cos(lambda)), and east is E = (cos(lambda), -sin(lambda)). Thus cos(A)N+sin(A)E = (sin(A-lambda), -cos(A-lambda)). This is a stated directional convention, not a general geographic redefinition of north for other coordinate systems. The pole itself has a longitude-dependent limiting basis.
+Geographic north increases latitude, away from the south pole, so N = (sin(lambda), cos(lambda)); east is E = (cos(lambda), -sin(lambda)). Thus cos(A)N+sin(A)E = (sin(A+lambda), cos(A+lambda)), matching Horizons azimuth. At longitude zero, north is positive y and east is positive x; at longitude 90 degrees, north is positive x and east is negative y. The pole itself has a longitude-dependent limiting basis.
+
+The archived hourly Horizons data place Earth's January 2027 azimuth between 129.583760 and 144.690080 degrees for the example site, near the reported 137.3-degree Earth-side bearing. The positive-y direction has A = 360 - 222.69 = 137.31 degrees under this formula. The previous mirrored formula incorrectly assigned it 42.69 degrees. The wall test in Section 5.7 checks the corrected bearing independently of the downloaded tracks.
 
 For short distances, the spherical drop is R-sqrt(R*R-s*s), approximately s*s/(2R). s is treated as local horizontal distance. Projected distance, surface arc length, and chord projection are not identical, but share the leading approximation near the pole. The algorithm assumes common height datums and neglects refraction, observer height, projection-scale correction, and features between samples. See [the basis and curvature derivations](01-skeleton.md#55-horizon_from_dem-and-the-corrected-directions).
 
@@ -722,7 +724,7 @@ fn north_ridge_away_from_pole_singularity()
 	};
 	for c in 0..dem.w
 	{
-		dem.z_m[15 * dem.w + c] = 100.0;
+		dem.z_m[5 * dem.w + c] = 100.0;
 	}
 	let horizon = horizon_from_dem(&dem, -89.0, 0.0, 4, 800.0);
 	assert!(horizon.h_deg[0] > 10.0);
@@ -732,7 +734,7 @@ fn north_ridge_away_from_pole_singularity()
 
 1. Project latitude -89 degrees, longitude zero, keeping its positive y.
 2. Construct a 21-by-41 DEM around that site with 100 m spacing. The site's y lies 1,000 m below the top, at row 10.
-3. Put a 100 m ridge at row 15, 500 m farther toward negative y, between the site and the pole.
+3. Put a 100 m ridge at row 5, 500 m farther toward positive y, geographically north and away from the south pole.
 4. March four cardinal directions to 800 m.
 5. Require the north bin to exceed 10 degrees and the south bin to stay negative.
 
@@ -773,7 +775,55 @@ fn east_at_lon_90_points_toward_negative_y()
 Together with Section 5.5, this distinguishes the local basis from fixed grid-axis assumptions.
 
 <a id="s5-7"></a>
-### 5.7 interpolation_wraps
+### 5.7 earth_side_wall_at_example_longitude
+
+```rust
+#[test]
+fn earth_side_wall_at_example_longitude()
+{
+	let lat = -89.45;
+	let lon = 222.69;
+	let (x, y) = to_xy(lat, lon);
+	let mut dem = Dem {
+		w: 21,
+		h: 21,
+		res_m: 100.0,
+		x_min_m: x - 1000.0,
+		y_max_m: y + 1000.0,
+		z_m: vec![0.0; 441],
+	};
+	for c in 0..dem.w
+	{
+		dem.z_m[5 * dem.w + c] = 100.0;
+	}
+	let horizon = horizon_from_dem(&dem, lat, lon, 720, 800.0);
+	let mut peak = 0;
+	for i in 1..horizon.h_deg.len()
+	{
+		if horizon.h_deg[i] > horizon.h_deg[peak]
+		{
+			peak = i;
+		}
+	}
+	let peak_az = peak as f64 * 360.0 / horizon.h_deg.len() as f64;
+	assert!((peak_az - (360.0 - lon)).abs() < 0.5);
+	assert!(horizon.at((360.0 - lon) as f32) > 10.0);
+	assert!(horizon.at(42.69) < 0.0);
+	assert!(horizon.at(317.31) < 0.0);
+}
+```
+
+1. Project the actual example site at latitude -89.45 degrees and longitude 222.69 degrees.
+2. Center a 21 by 21 DEM on that site with 100 m spacing. Put a 100 m wall at row 5, 500 m in positive y.
+3. Compute 720 horizon bins, one every 0.5 degrees, out to 800 m.
+4. Scan all bin values with an index loop, retaining the index of the highest angle. This uses the existing len, indexing, comparison, and assignment operations without a new iterator API.
+5. Convert that index to azimuth in degrees and require it to be within 0.5 degrees of 360 - 222.69 = 137.31 degrees.
+6. Require an interpolated horizon above 10 degrees there. Require negative elevations at 42.69 degrees, the previous mirrored bearing, and at 317.31 degrees, the opposite direction.
+
+This is an independent synthetic regression for the Earth-side orientation, not a claim that Earth's azimuth is constant throughout the month. The former formula would put the peak near 42.69 degrees and fail the test.
+
+<a id="s5-8"></a>
+### 5.8 interpolation_wraps
 
 ```rust
 #[test]
@@ -797,8 +847,8 @@ fn interpolation_wraps()
 
 This tests both seam interpolation and angles outside a single turn.
 
-<a id="s5-8"></a>
-### 5.8 visibility_and_solar_disc
+<a id="s5-9"></a>
+### 5.9 visibility_and_solar_disc
 
 ```rust
 #[test]
@@ -828,8 +878,8 @@ fn visibility_and_solar_disc()
 
 The same test checks a continuous proxy and a separate binary rule without conflating them.
 
-<a id="s5-9"></a>
-### 5.9 weighted_stats_include_gap
+<a id="s5-10"></a>
+### 5.10 weighted_stats_include_gap
 
 ```rust
 #[test]
@@ -859,8 +909,8 @@ fn weighted_stats_include_gap()
 
 The last sample's booleans do not add a fifth interval.
 
-<a id="s5-10"></a>
-### 5.10 stats_rejects_unordered_times
+<a id="s5-11"></a>
+### 5.11 stats_rejects_unordered_times
 
 ```rust
 #[test]
@@ -873,8 +923,8 @@ fn stats_rejects_unordered_times()
 
 The test and should_panic attributes both apply to this function. It supplies decreasing timestamps with correctly sized boolean arrays. stats must panic at its monotonicity assertion. A two-element array written with a repeated value supplies two true entries.
 
-<a id="s5-11"></a>
-### 5.11 horizons_sample_and_errors
+<a id="s5-12"></a>
+### 5.12 horizons_sample_and_errors
 
 New APIs from [Result](https://doc.rust-lang.org/std/result/enum.Result.html):
 
@@ -910,8 +960,8 @@ fn horizons_sample_and_errors()
 
 The second valid row also verifies separated flag tokens C and m.
 
-<a id="s5-12"></a>
-### 5.12 horizons_combined_optional_markers_and_last_numeric_pair
+<a id="s5-13"></a>
+### 5.13 horizons_combined_optional_markers_and_last_numeric_pair
 
 ```rust
 #[test]
@@ -1502,6 +1552,7 @@ The index includes every dot-call, macro call, and qualified function call found
 - `download`: [Section 7.2](#s7-2).
 - `Duration::from_secs`: [Section 7.3](#s7-3).
 - `dyn_into`: [Section 13.2](#s13-2).
+- `earth_side_wall_at_example_longitude`: [Section 5.7](#s5-7).
 - `east_at_lon_90_points_toward_negative_y`: [Section 5.6](#s5-6).
 - `eframe::egui::CentralPanel::default`: [Section 12](#s12).
 - `eframe::NativeOptions::default`: [Section 13.1](#s13-1).
@@ -1531,14 +1582,14 @@ The index includes every dot-call, macro call, and qualified function call found
 - `height_at`: [Section 4.4](#s4-4).
 - `Horizon::at`: [Section 4.2](#s4-2).
 - `horizon_from_dem`: [Section 4.5](#s4-5).
-- `horizons_combined_optional_markers_and_last_numeric_pair`: [Section 5.12](#s5-12).
-- `horizons_sample_and_errors`: [Section 5.11](#s5-11).
+- `horizons_combined_optional_markers_and_last_numeric_pair`: [Section 5.13](#s5-13).
+- `horizons_sample_and_errors`: [Section 5.12](#s5-12).
 - `insert`: [Section 7.3](#s7-3).
-- `interpolation_wraps`: [Section 5.7](#s5-7).
+- `interpolation_wraps`: [Section 5.8](#s5-8).
 - `into`: [Section 4.9](#s4-9).
 - `is_ascii_alphanumeric`: [Section 7.4](#s7-4).
 - `is_empty`: [Section 4.2](#s4-2).
-- `is_err`: [Section 5.11](#s5-11).
+- `is_err`: [Section 5.12](#s5-12).
 - `is_finite`: [Section 4.4](#s4-4).
 - `is_some_and`: [Section 4.9](#s4-9).
 - `iter`: [Section 4.7](#s4-7).
@@ -1582,7 +1633,7 @@ The index includes every dot-call, macro call, and qualified function call found
 - `serde_json::to_string_pretty`: [Section 7.3](#s7-3).
 - `Serialize`: [Section 4.1](#s4-1).
 - `set_text_content`: [Section 13.2](#s13-2).
-- `should_panic`: [Section 5.10](#s5-10).
+- `should_panic`: [Section 5.11](#s5-11).
 - `show`: [Section 12](#s12).
 - `sin`: [Section 4.3](#s4-3).
 - `skip`: [Section 7.3](#s7-3).
@@ -1593,7 +1644,7 @@ The index includes every dot-call, macro call, and qualified function call found
 - `start`: [Section 13.2](#s13-2).
 - `stats`: [Section 4.8](#s4-8).
 - `Stats::default`: [Section 4.8](#s4-8).
-- `stats_rejects_unordered_times`: [Section 5.10](#s5-10).
+- `stats_rejects_unordered_times`: [Section 5.11](#s5-11).
 - `std::collections::HashSet::new`: [Section 7.3](#s7-3).
 - `std::env::args`: [Section 7.3](#s7-3).
 - `String::as_str`: [Section 7.3](#s7-3).
@@ -1611,14 +1662,14 @@ The index includes every dot-call, macro call, and qualified function call found
 - `Track::default`: [Section 4.8](#s4-8).
 - `trim`: [Section 4.9](#s4-9).
 - `ui`: [Section 12](#s12).
-- `unwrap`: [Section 5.11](#s5-11).
+- `unwrap`: [Section 5.12](#s5-12).
 - `unwrap_or`: [Section 7.3](#s7-3).
 - `vec!`: [Section 4.5](#s4-5).
-- `visibility_and_solar_disc`: [Section 5.8](#s5-8).
+- `visibility_and_solar_disc`: [Section 5.9](#s5-9).
 - `visible`: [Section 4.7](#s4-7).
 - `wall_angle_and_local_azimuth`: [Section 5.4](#s5-4).
 - `wasm_bindgen_futures::spawn_local`: [Section 13.2](#s13-2).
 - `web_sys::window`: [Section 13.2](#s13-2).
-- `weighted_stats_include_gap`: [Section 5.9](#s5-9).
+- `weighted_stats_include_gap`: [Section 5.10](#s5-10).
 - `windows`: [Section 4.8](#s4-8).
 - `zip`: [Section 4.7](#s4-7).

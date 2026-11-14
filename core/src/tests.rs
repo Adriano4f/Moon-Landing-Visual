@@ -81,7 +81,7 @@ fn north_ridge_away_from_pole_singularity()
 	};
 	for c in 0..dem.w
 	{
-		dem.z_m[15 * dem.w + c] = 100.0;
+		dem.z_m[5 * dem.w + c] = 100.0;
 	}
 	let horizon = horizon_from_dem(&dem, -89.0, 0.0, 4, 800.0);
 	assert!(horizon.h_deg[0] > 10.0);
@@ -107,6 +107,40 @@ fn east_at_lon_90_points_toward_negative_y()
 	let horizon = horizon_from_dem(&dem, -89.0, 90.0, 4, 800.0);
 	assert!(horizon.h_deg[1] > 10.0);
 	assert!(horizon.h_deg[3] < 0.0);
+}
+
+#[test]
+fn earth_side_wall_at_example_longitude()
+{
+	let lat = -89.45;
+	let lon = 222.69;
+	let (x, y) = to_xy(lat, lon);
+	let mut dem = Dem {
+		w: 21,
+		h: 21,
+		res_m: 100.0,
+		x_min_m: x - 1000.0,
+		y_max_m: y + 1000.0,
+		z_m: vec![0.0; 441],
+	};
+	for c in 0..dem.w
+	{
+		dem.z_m[5 * dem.w + c] = 100.0;
+	}
+	let horizon = horizon_from_dem(&dem, lat, lon, 720, 800.0);
+	let mut peak = 0;
+	for i in 1..horizon.h_deg.len()
+	{
+		if horizon.h_deg[i] > horizon.h_deg[peak]
+		{
+			peak = i;
+		}
+	}
+	let peak_az = peak as f64 * 360.0 / horizon.h_deg.len() as f64;
+	assert!((peak_az - (360.0 - lon)).abs() < 0.5);
+	assert!(horizon.at((360.0 - lon) as f32) > 10.0);
+	assert!(horizon.at(42.69) < 0.0);
+	assert!(horizon.at(317.31) < 0.0);
 }
 
 #[test]

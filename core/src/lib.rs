@@ -120,11 +120,11 @@ pub fn horizon_from_dem(dem: &Dem, lat: f64, lon: f64, n_az: usize, max_dist_m: 
 	}
 	for (i, h) in horizon.h_deg.iter_mut().enumerate()
 	{
-		let angle = (i as f64 * 360.0 / n_az as f64 - lon).to_radians();
+		let angle = (i as f64 * 360.0 / n_az as f64 + lon).to_radians();
 		let mut s = step;
 		while s <= max_dist_m
 		{
-			let Some(z) = dem.height_at(x + s * angle.sin(), y - s * angle.cos())
+			let Some(z) = dem.height_at(x + s * angle.sin(), y + s * angle.cos())
 			else
 			{
 				break;

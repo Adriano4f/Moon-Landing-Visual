@@ -199,29 +199,31 @@ Assumptions: site and terrain use the same height datum; terrain is sampled over
 
 The function allocates n_az bins initialized to -90 degrees. It projects the site and reads its height z0. An outside-grid site returns the sentinel profile. The radial marching step is d/2 for DEM spacing d. A non-finite maximum distance returns without marching.
 
-For the local basis, use the coordinate convention explicitly. The radial unit vector pointing away from the pole is (sin(lambda), cos(lambda)). For the north direction specified by this project, toward the pole, negate it:
+For the local basis, use geographic north, as Horizons does. North increases latitude and therefore points away from the south pole. Since rho increases with latitude, the north unit vector is (sin(lambda), cos(lambda)). East follows increasing east-positive longitude:
 
 ```text
-N = (-sin(lambda), -cos(lambda))
+N = (sin(lambda), cos(lambda))
 E = d/dlambda (sin(lambda), cos(lambda))
   = (cos(lambda), -sin(lambda))
-N dot E = -sin(lambda)cos(lambda) + cos(lambda)sin(lambda) = 0
+N dot E = sin(lambda)cos(lambda) - cos(lambda)sin(lambda) = 0
 |N| = |E| = 1
 ```
 
-Azimuth A uses north with coefficient cos(A) and east with coefficient sin(A). Apply angle subtraction identities component by component:
+Azimuth A uses north with coefficient cos(A) and east with coefficient sin(A). Apply angle addition identities component by component:
 
 ```text
 D = cos(A)N + sin(A)E
-Dx = -cos(A)sin(lambda) + sin(A)cos(lambda)
-   = sin(A - lambda)
-Dy = -cos(A)cos(lambda) - sin(A)sin(lambda)
-   = -cos(A - lambda)
-x(s) = x0 + s sin(A - lambda)
-y(s) = y0 - s cos(A - lambda)
+Dx = cos(A)sin(lambda) + sin(A)cos(lambda)
+   = sin(A + lambda)
+Dy = cos(A)cos(lambda) - sin(A)sin(lambda)
+   = cos(A + lambda)
+x(s) = x0 + s sin(A + lambda)
+y(s) = y0 + s cos(A + lambda)
 ```
 
-At longitude zero, north decreases y. At longitude 90 degrees, east decreases y. The negative sign in y(s) is essential. The source implements it directly, not by changing the projection.
+At longitude zero, north increases y and east increases x. At longitude 90 degrees, north increases x and east decreases y. The source uses angle A + longitude and adds both ray components, without changing the projection.
+
+Horizons provides an independent orientation check: at latitude -89.45 degrees and longitude 222.69 degrees, the archived hourly Earth azimuths within January 2027 span 129.583760 to 144.690080 degrees, near the reported 137.3-degree Earth-side bearing. A ray in the positive-y direction has A + longitude = 360 degrees, so A = 360 - 222.69 = 137.31 degrees. This is the map direction toward longitude zero and agrees with the observed Earth-side sector. The former mirrored formula instead placed that direction at 42.69 degrees. A synthetic wall regression test checks the corrected 137.31-degree peak; Earth's varying position is not asserted to be exactly on positive y at every time.
 
 For curvature, take a circle of radius R and a local tangent line. Let s be horizontal distance along that tangent direction. A same-radius point below it satisfies a right triangle:
 
@@ -292,13 +294,14 @@ The test module imports its parent's names with super. The flat helper construct
 1. pole_and_bilinear_grid checks that projection at the south pole is zero, that midpoint interpolation gives 3.0 for corner heights 0, 2, 4, 6, that an edge sample is accepted, and that outside/non-finite coordinates are rejected.
 2. flat_horizon_includes_curvature checks all eight ray bins against atan(-50/(2R)). The 50 m distance is half the 100 m grid spacing. It also checks an outside-grid site and zero requested bins.
 3. wall_angle_and_local_azimuth puts a 100 m wall at y = -500 m. With the limiting longitude-90 basis at the pole, this is east. Its expected angle includes the 500 m curvature correction. The opposite ray stays negative. This checks magnitude but, alone, would not resolve the pole's geographic singularity.
-4. north_ridge_away_from_pole_singularity places the site at latitude -89 degrees, longitude zero. The grid is centered around the actual projected site and has enough extent to contain it. A ridge 500 m toward smaller y is between the site and the pole. The north bin must exceed 10 degrees while the south bin remains negative.
+4. north_ridge_away_from_pole_singularity places the site at latitude -89 degrees, longitude zero. The grid is centered around the actual projected site and has enough extent to contain it. A ridge 500 m toward larger y lies geographically north, away from the south pole. The north bin must exceed 10 degrees while the south bin remains negative.
 5. east_at_lon_90_points_toward_negative_y uses latitude -89 degrees, longitude 90 degrees. A ridge toward smaller y must appear east, not west. This independently checks the east basis away from the pole.
-6. interpolation_wraps checks one full turn, a negative azimuth, an angle beyond a full turn, and the empty-profile sentinel.
-7. visibility_and_solar_disc checks half visibility at the center threshold, saturation on both sides, a binary margin test, and empty input.
-8. weighted_stats_include_gap uses intervals of 1, 1, 4, and 1 hours. Two hours are sunny, two have Earth visibility, and one has both. The two consecutive dark intervals sum to a five-hour night. It also checks empty and singleton input.
-9. stats_rejects_unordered_times expects a panic for descending timestamps.
-10. horizons_sample_and_errors checks real-format sample angles and timestamps, optional flags, missing markers, empty bodies, malformed rows, and unavailable angles.
+6. earth_side_wall_at_example_longitude places a wall 500 m in positive y from the example site at latitude -89.45 degrees, longitude 222.69 degrees. The peak among 720 bins must lie within 0.5 degrees of 137.31 degrees. The interpolated horizon there exceeds 10 degrees, while the former mirrored bearing 42.69 degrees and the opposite bearing 317.31 degrees remain negative.
+7. interpolation_wraps checks one full turn, a negative azimuth, an angle beyond a full turn, and the empty-profile sentinel.
+8. visibility_and_solar_disc checks half visibility at the center threshold, saturation on both sides, a binary margin test, and empty input.
+9. weighted_stats_include_gap uses intervals of 1, 1, 4, and 1 hours. Two hours are sunny, two have Earth visibility, and one has both. The two consecutive dark intervals sum to a five-hour night. It also checks empty and singleton input.
+10. stats_rejects_unordered_times expects a panic for descending timestamps.
+11. horizons_sample_and_errors checks real-format sample angles and timestamps, optional flags, missing markers, empty bodies, malformed rows, and unavailable angles.
 
 Floating-point formula checks use tolerances rather than assuming every algebraic rearrangement rounds identically. These tests validate synthetic terrain and parsing. They do not certify a real DEM's reference frame or scientific suitability.
 
