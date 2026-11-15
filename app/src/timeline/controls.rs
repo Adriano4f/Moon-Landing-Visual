@@ -5,12 +5,14 @@ impl Timeline
 	pub fn controls(&mut self, ui: &mut egui::Ui, cursor: &mut i64)
 	{
 		ui.horizontal_wrapped(|ui| {
-			ui.strong(self.options.period.label());
+			ui.strong("Period");
+			ui.label(self.options.period.label());
 			globe::help::question(ui, &format!(
 				"Percentages cover the chosen period using {} samples; Sun means sunlight and Earth means a clear direct link.",
 				self.options.step.label(),
 			));
 		});
+		ui.add(egui::Separator::default().spacing(2.0));
 		let mut seconds = *cursor as f64;
 		let inline_time = ui.available_width() >= 560.0;
 		ui.horizontal_wrapped(|ui| {
@@ -23,6 +25,7 @@ impl Timeline
 					self.validation=None;
 				}
 			}
+			ui.add(egui::Separator::default().vertical().spacing(6.0));
 			let step = if self.options.step == Step::Month { "1 month" } else { self.options.step.label() };
 			egui::ComboBox::from_id_salt("timeline-step")
 				.width(110.0)
@@ -35,6 +38,7 @@ impl Timeline
 				});
 			if inline_time
 			{
+				ui.add(egui::Separator::default().vertical().spacing(6.0));
 				ui.spacing_mut().slider_width = 90.0;
 				ui.add(egui::Slider::new(&mut seconds, self.options.period.start as f64..=self.options.period.end as f64)
 					.show_value(false).step_by(1.0).text("Time"));
@@ -47,6 +51,7 @@ impl Timeline
 				.show_value(false).step_by(1.0).text("Time"));
 		}
 		*cursor = seconds.round() as i64;
+		ui.add(egui::Separator::default().spacing(2.0));
 		self.period_controls(ui, cursor);
 		*cursor = (*cursor).clamp(self.options.period.start, self.options.period.end);
 	}

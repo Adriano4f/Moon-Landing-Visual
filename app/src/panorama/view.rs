@@ -78,7 +78,7 @@ fn technical(ui: &mut egui::Ui, data: &SiteData, time:i64, range:Range<usize>)
 	}
 	else
 	{
-		(ui.available_height() - 320.0).clamp(80.0, 260.0)
+		(ui.available_height() - 340.0).clamp(80.0, 260.0)
 	};
 	// Fix azimuth bounds while allowing elevation to fit terrain/track extrema; C++ plotting builder.
 	Plot::new("panorama")
