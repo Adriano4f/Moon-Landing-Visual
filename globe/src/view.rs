@@ -61,7 +61,7 @@ impl Globe
 			ui.small("Moon overview");
 			help::question(ui, "Drag to turn the Moon; pinch or scroll to zoom. Click a marker to select it; the globe is an illustration.");
 		});
-		// Display 2k before starting an optional upgrade; never blank the existing renderer while waiting.
+		// Display the initial pair before starting an optional upgrade; keep the current Moon while waiting.
 		if self
 			.renderer
 			.lock()
@@ -84,10 +84,10 @@ impl Globe
 		}
 	}
 
-	fn scene_lighting(&mut self, ui: &mut egui::Ui) -> Option<Lighting>
+	pub(super) fn light_sources(&mut self) -> Option<[[f32; 3]; 2]>
 	{
 		// Copy the selected site's actual directions, never infer illumination from availability flags; C++ optional transform.
-		let directions = self
+		let selected = self
 			.scene
 			.iter()
 			.find(|s| s.id == self.selected)
@@ -100,6 +100,17 @@ impl Globe
 					moon_fixed(s.lat_deg, s.lon_deg, earth)?,
 				])
 			});
+		// The initial epoch is never reused for a later missing track or changed scientific time; C++ one-shot fallback.
+		if selected.is_some()
+		{
+			self.startup_light = None;
+		}
+		selected.or(self.startup_light)
+	}
+
+	fn scene_lighting(&mut self, ui: &mut egui::Ui) -> Option<Lighting>
+	{
+		let directions = self.light_sources();
 		// Holding this mode reveals real libration rather than artificial animation; C++ conditional camera update.
 		if self.earth_view
 			&& let Some([_, earth]) = directions
@@ -174,7 +185,7 @@ impl Globe
 				// Copy the optional diagnostic or increment a shared ownership count, not GPU resources; C++ value copy/shared_ptr copy.
 				.clone()
 				// Compute the fallback only when absent; C++ checks optional before calling a fallback lambda.
-				.unwrap_or_else(|| format!("Loading Moon {}k...", self.tier));
+				.unwrap_or_else(|| format!("Loading Moon {}...", assets::label(self.tier)));
 			// Paint the pending/error message on the black panel; C++ immediate-mode UIs similarly submit a label each frame.
 			ui.label(label);
 		}
@@ -462,7 +473,7 @@ impl Globe
 		// Announce a real lit draw, not merely decoded textures with pending sky data; C++ frame diagnostic.
 		if lighting.is_some() && !renderer.visible_announced
 		{
-			let status = format!("Moon visible: {}k", renderer.tier);
+			let status = format!("Moon visible: {}", assets::label(renderer.tier));
 			#[cfg(target_arch = "wasm32")]
 			web_sys::console::log_1(&status.into());
 			#[cfg(not(target_arch = "wasm32"))]

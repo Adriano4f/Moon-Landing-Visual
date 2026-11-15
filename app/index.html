@@ -4,8 +4,10 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Karaya Explorer</title>
-	<link data-trunk rel="rust">
+	<link data-trunk rel="rust" data-cargo-profile="web-release" data-wasm-opt="z" data-wasm-opt-params="--strip-debug --strip-producers">
 	<link data-trunk rel="copy-dir" href="assets">
+	<link data-trunk rel="copy-file" href="../globe/assets/albedo_preview.jpg" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/normal_preview.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_2k.jpg" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/normal_2k.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_4k.jpg" data-target-path="assets/globe">

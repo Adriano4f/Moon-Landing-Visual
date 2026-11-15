@@ -16,7 +16,7 @@ The scientific and rendering preparation pipelines are independent:
 2. NASA CGI Moon Kit imagery and relief feed the globe asset tools. These bake color and object-space normal textures at three resolutions. The independent `globe` crate loads those textures and renders an illustrative sphere.
 3. `prep --ephemeris` obtains reference-observer apparent directions and ranges from Horizons. It reconstructs compact apparent Moon-centered positions, validates their decoded values against all seven independent prepared tracks, and writes a portable binary with a JSON provenance/validation sidecar. `lunar_core::ephemeris` converts these positions to arbitrary observer coordinates without I/O.
 
-At runtime, `app` loads the small site catalog and lazily loads prepared JSON. It validates the scientific arrays, computes availability through `lunar_core`, manages the shared epoch and radio margin, and draws the panorama and summary cards. It passes only site metadata, current directions and visibility flags into `globe`. No TIFF, DEM tile or terrain ray tracing enters the application or browser. The portable ephemeris is deployed as an external asset and is not fetched by the current interface, so it adds no startup network request.
+At runtime, `app` embeds the small site catalog and a validated 56-byte initial ephemeris record for 2027-01-01 00:00 UTC. It shows real initial Sun/Earth directions with that explicit date, then starts the selected site's JSON only after the first lit Moon draw. No terrain or availability result is invented while it loads. The selected track permanently replaces the initial light. The application validates scientific arrays, computes availability through `lunar_core`, manages the shared epoch and radio margin, and draws the panorama and summary cards. It passes site metadata, current directions and visibility flags into `globe`. No TIFF, DEM tile or terrain ray tracing enters the application or browser. The complete portable ephemeris remains external and is not fetched at startup.
 
 | Component | Responsibility | Principal modules |
 |:--|:--|:--|
@@ -221,20 +221,23 @@ The shader derives texture gradients from the continuous normalized 3D direction
 
 ### 8.2. Tiers and progressive loading
 
-Browser and native startup request 2k first. A real lit draw is announced before a higher selected tier starts. Desktop browser default is 4k, phone default is 2k, and native default is 8k, subject to GPU texture-size limits and explicit selection. Native decoding runs on worker threads. Browser decoding uses `HtmlImageElement.decode()` asynchronously and uploads the browser image directly through WebGL, rather than decoding it through the WASM image library.
+Browser startup uses a 512 by 256 preview; native retains 2k first. Its albedo is downsampled in linear light and its averaged object-space normals are renormalized. The two preview files total 193,091 bytes, compared with 2,975,280 bytes for the browser's 2k pair. A real lit draw precedes the selected site JSON and higher selected tier. Desktop browser default is 4k, phone default is 2k, and native default is 8k, subject to GPU texture-size limits and explicit selection. Native decoding runs on worker threads. Browser decoding uses `HtmlImageElement.decode()` asynchronously and uploads the browser image directly through WebGL, rather than decoding it through the WASM image library.
 
-An existing renderer retains its old texture pair while an upgrade decodes. At most one replacement image uploads per frame; both replacements must succeed before the pair becomes active. Failed downloads, decoding or uploads retain the last successful Moon and expose a diagnostic. The first pair still requires initialization and upload before any Moon can be displayed. Mesh and shader objects are reused across upgrades.
+The browser-only `web-release` profile uses size optimization, LTO, one codegen unit and aborting panics, with optimization level 3 retained for `lunar_core`. Trunk applies `wasm-opt -Oz` and strips debug/name and producer metadata after wasm-bindgen. Renamed Latin, punctuation and geometric-symbol font subsets preserve interface glyph metrics; original licenses accompany the assets. Native fonts and release settings are unchanged. Final WASM size is 3,823,377 bytes, or 1,292,561 bytes with local gzip level 6.
+
+An existing renderer retains its old texture pair while an upgrade decodes. At most one replacement image uploads per frame; both replacements must succeed before the pair becomes active. Failed downloads, decoding or uploads retain the last successful Moon and expose a diagnostic. A failed initial picture releases the site-data gate instead of disabling the independent scientific graph. The first pair still requires initialization and upload before any Moon can be displayed. Mesh and shader objects are reused across upgrades.
 
 Browser normals are lossless WebP copies of the native PNG values. Sizes are 2,250,260; 8,878,268; and 29,849,182 bytes, reducing the PNG transfer by 16.8%, 16.5% and 18.8%, respectively. Decoded RGB values and additional angular error match the PNGs exactly; this does not remove the preceding RGB8 quantization.
 
-Cold-cache local uncompressed HTTP measurements in desktop Chrome with software WebGL were:
+Cold HTTP-cache desktop Chrome measurements use software WebGL, 1440 by 1000 pixels and device scale 2. Fast 4G means 500,000 download bytes/s, 750,000 upload bytes/s and 20 ms latency. Readiness follows a real lit draw plus two animation frames. The baseline is deployed Pages; current results use a local gzip server, not a same-server before/after experiment:
 
-| Network | Earlier first/full 8k, s | First 2k, s | Final 4k, s |
-|:--|--:|--:|--:|
-| Unthrottled | 4.41 | 1.87 | 4.13 |
-| Fast 4G | 37.89 | 7.82 | 17.26 |
+| Network | Pages baseline first/full 4k, s | Current gzip first/full 4k, s |
+|:--|--:|--:|
+| Unthrottled | 1.919 / 5.020 | 0.944 / 3.010 |
+| Fast 4G | 11.800 / 37.222 | 3.724 / 30.099 |
+| 12.8 Mbps, 40 ms | 4.942 / 14.347 | 1.742 / 11.330 |
 
-Transferred bytes decreased from 54,821,519 to 22,003,623. Final resolutions differ, so this is a startup/default-quality tradeoff, not a same-quality speedup. Browser-native decoding avoids the WASM decode path, but GPU upload and mipmap generation remain synchronous driver work. The measured worst frame gap was about 0.70 s on software WebGL; cold Fast 4G startup does not meet a universal 1 to 2 s target.
+Resource Timing totals were 17,068,424 baseline bytes and 13,786,859 current local-gzip bytes. Both finish at 4k, but the new initial picture is coarser. Pages compression is verified by different encoded/decoded WASM and JSON lengths. Selected-site requests start after the first draw; full ephemeris and DEM requests remain zero. The strict first-Moon target below 3 s is not met: initial JS, WASM and preview images nearly exhaust the connection's three-second transfer budget before rendering. GPU upload and mipmap generation remain synchronous; maximum local-gzip frame gaps were 583.3 to 666.6 ms. Faster startup is not evidence of stall-free rendering.
 
 ### 8.3. Hapke shading and display transform
 

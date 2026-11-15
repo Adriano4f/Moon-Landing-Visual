@@ -127,10 +127,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-egui = "0.37"
+egui = { version = "0.37", default-features = false }
 egui_glow = "0.37"
 bytemuck = "1.25"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ehttp = "0.7"
@@ -164,6 +167,25 @@ pub(crate) struct Loading
 	pub images: [Option<Result<TextureImage, String>>; 2],
 	// An optional terminal loading/upload diagnostic; C++ optional<string>.
 	pub error: Option<String>,
+}
+
+// Keep native overview quality while reducing the browser's critical-path bytes; C++ target policy.
+pub(crate) fn first_tier() -> u32
+{
+	if cfg!(target_arch = "wasm32") { 0 } else { 2 }
+}
+
+// Zero denotes a private 512-pixel preview, never a selectable zero-resolution texture; C++ label helper.
+pub(crate) fn label(tier: u32) -> String
+{
+	if tier == 0
+	{
+		"512px".into()
+	}
+	else
+	{
+		format!("{tier}k")
+	}
 }
 
 // Select one supported tier or return a diagnostic; C++ expected<unsigned,string> replaces Result.
@@ -275,15 +297,23 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 		error: None,
 	}));
 	// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-	let normal = if cfg!(target_arch = "wasm32")
+	let suffix = if tier == 0
 	{
-		format!("normal_{tier}k.webp")
+		"preview".into()
 	}
 	else
 	{
-		format!("normal_{tier}k.png")
+		format!("{tier}k")
 	};
-	for (index, filename) in [format!("albedo_{tier}k.jpg"), normal]
+	let normal = if cfg!(target_arch = "wasm32")
+	{
+		format!("normal_{suffix}.webp")
+	}
+	else
+	{
+		format!("normal_{suffix}.png")
+	};
+	for (index, filename) in [format!("albedo_{suffix}.jpg"), normal]
 		// Consume this array into an iterator; C++ iterates its owned local elements.
 		.into_iter()
 		// Attach each element's zero-based index; C++ an indexed range or explicit counter.
@@ -368,6 +398,17 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+	#[test]
+	fn initial_and_selected_tier_labels()
+	{
+		assert_eq!(first_tier(), 2);
+		assert_eq!(label(0), "512px");
+		for tier in [2, 4, 8]
+		{
+			assert_eq!(label(tier), format!("{tier}k"));
+		}
+		assert!(select(8192, false, Some("0")).is_err());
+	}
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
 	#[test]
 	// Exercise normal, clamped, invalid, pending, failed, and completed loader states; C++ would use test assertions.
@@ -1154,9 +1195,9 @@ pub struct Globe
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 	loading: Arc<Mutex<assets::Loading>>,
-	// Selected size label 2/4/8, with width equal to 1,024 times the label; C++ uint32_t.
+	// Selected size label 2/4/8, or zero for the private 512-pixel browser preview; C++ uint32_t.
 	tier: u32,
-	// Requested final detail is independent of the first visible 2k pair; C++ unsigned members.
+	// Requested final detail is independent of the first visible preview; C++ unsigned members.
 	target_tier: u32,
 	max_tier: u32,
 	// Optional illustrative parallel Sun rays; C++ bool.
@@ -1164,6 +1205,8 @@ pub struct Globe
 	// Interactive presentation state is independent of ephemeris time; C++ value members.
 	scene: Vec<Marker>,
 	selected: usize,
+	// A caller-supplied real initial epoch, cleared on the first complete selected track; C++ optional pair.
+	startup_light: Option<[[f32; 3]; 2]>,
 	yaw: f32,
 	tilt: f32,
 	zoom: f32,
@@ -1185,12 +1228,10 @@ mod scene_tests
 	// Reuse the production state and aggregate definitions; C++ qualified test access.
 	use super::*;
 
-	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
-	#[test]
-	fn scene_identity_empty_and_invalid()
+	fn unloaded() -> Globe
 	{
 		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
-		let mut globe = Globe {
+		Globe {
 			renderer: Arc::new(Mutex::new(None)),
 			loading: Arc::new(Mutex::new(assets::Loading {
 				images: [None, None],
@@ -1202,6 +1243,7 @@ mod scene_tests
 			surface_rays: false,
 			scene: vec![],
 			selected: 0,
+			startup_light: None,
 			yaw: 0.0,
 			tilt: 0.0,
 			zoom: 1.0,
@@ -1211,7 +1253,64 @@ mod scene_tests
 			fill: false,
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
+		}
+	}
+
+	#[test]
+	fn initial_light_is_validated_and_never_reused_after_real_tracks()
+	{
+		let mut globe = unloaded();
+		assert!(!globe.has_visible_moon());
+		assert!(globe.light_sources().is_none());
+		for bad in [[0.0; 3], [f32::NAN, 0.0, 1.0], [f32::INFINITY, 0.0, 1.0]]
+		{
+			assert!(globe.set_startup_light(bad, [0.0, 0.0, 1.0]).is_err());
+			assert!(globe.light_sources().is_none());
+		}
+		globe
+			.set_startup_light([0.0, 0.0, 2.0], [3.0, 0.0, 0.0])
+			.unwrap();
+		assert_eq!(
+			globe.light_sources(),
+			Some([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+		);
+		let direction = BodyDirection {
+			az_deg: 0.0,
+			el_deg: 90.0,
+			visible: false,
 		};
+		globe.set_scene(
+			vec![Marker {
+				id: 0,
+				name: "Real track".into(),
+				lat_deg: 0.0,
+				lon_deg: 0.0,
+				directions: Some([direction; 2]),
+			}],
+			0,
+		);
+		assert!(globe.light_sources().is_some());
+		assert!(globe.startup_light.is_none());
+		globe.set_scene(vec![], 0);
+		assert!(globe.light_sources().is_none());
+	}
+
+	#[test]
+	fn failed_initial_images_do_not_claim_a_draw()
+	{
+		let globe = unloaded();
+		assert!(!globe.has_load_error());
+		assert!(!globe.has_visible_moon());
+		globe.loading.lock().error = Some("Unavailable initial images".into());
+		assert!(globe.has_load_error());
+		assert!(!globe.has_visible_moon());
+	}
+
+	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
+	#[test]
+	fn scene_identity_empty_and_invalid()
+	{
+		let mut globe = unloaded();
 		// Keep the valid identifier deliberately different from its vector index; C++ aggregate fixture.
 		let valid = Marker {
 			id: 17,
@@ -1275,8 +1374,8 @@ impl Globe
 			renderer: Arc::new(Mutex::new(None)),
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			surface_rays: false,
-			loading: assets::load(2, None),
-			tier: 2,
+			loading: assets::load(assets::first_tier(), None),
+			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(
 				unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) },
@@ -1286,6 +1385,7 @@ impl Globe
 			// Default to the current Earth line of sight, without artificial spin or tilt; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
+			startup_light: None,
 			yaw: 0.0,
 			tilt: 0.0,
 			zoom: 1.0,
@@ -1296,6 +1396,39 @@ impl Globe
 			last_time: None,
 			focus: None,
 		})
+	}
+
+	/// Supply real Moon-fixed directions while the first scientific track is pending.
+	pub fn set_startup_light(&mut self, sun: [f32; 3], earth: [f32; 3]) -> Result<(), String>
+	{
+		// Reject invalid vectors before changing the previous valid state; C++ checked normalized copy.
+		let mut pair = [sun, earth];
+		for direction in &mut pair
+		{
+			let norm = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+			if !norm.is_finite() || norm < 1e-6
+			{
+				return Err("Invalid initial lighting direction".into());
+			}
+			*direction = direction.map(|v| v / norm);
+		}
+		self.startup_light = Some(pair);
+		Ok(())
+	}
+
+	/// Report the first drawn, physically lit Moon rather than a decoded image or empty callback.
+	pub fn has_visible_moon(&self) -> bool
+	{
+		self.renderer
+			.lock()
+			.as_ref()
+			.is_some_and(|renderer| renderer.visible_announced)
+	}
+
+	/// Expose a failed visual load without preventing independent scientific data loading.
+	pub fn has_load_error(&self) -> bool
+	{
+		self.loading.lock().error.is_some()
 	}
 
 	// Copy metadata for every marker and scientific directions only for requested sites; C++ scene value transfer.
@@ -1644,8 +1777,11 @@ mod panorama;
 // Compile the angular sky-strip painter; C++ project drawing module.
 mod sky;
 // Keep grouped presentation settings outside scientific orchestration; C++ module declaration.
+#[cfg(any(target_arch = "wasm32", test))]
+mod fonts;
 mod layout;
 mod menu;
+mod startup;
 mod theme;
 
 // Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
@@ -1702,6 +1838,8 @@ impl MoonApp
 			.ok_or("The Moon requires the glow renderer")?;
 		// Use readable light text on dark panels consistently across platforms; C++ UI theme setter.
 		cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark);
+		#[cfg(target_arch = "wasm32")]
+		fonts::install(&cc.egui_ctx);
 		// Parse exact published metadata before initializing any lazy track loads; C++ checked JSON decode.
 		let catalog: Vec<Entry> =
 			serde_json::from_str(include_str!("../../sites.json")).map_err(|e| e.to_string())?;
@@ -1711,15 +1849,15 @@ impl MoonApp
 			return Err("Empty site catalog".into());
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
-		panoramas[0] = Some(panorama::Panorama::new(
-			cc.egui_ctx.clone(),
-			data::FILE.into(),
-		));
+		let panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
+		let mut globe = globe::Globe::new(gl)?;
+		let [sun, earth] =
+			startup::directions(include_bytes!("../assets/data/moon-ephemeris.initial.bin"))?;
+		globe.set_startup_light(sun, earth)?;
 		// Move independently owned models into the app; C++ aggregate initialization.
 		Ok(Self {
 			// Propagate renderer initialization errors; C++ expected error forwarding.
-			globe: globe::Globe::new(gl)?,
+			globe,
 			// Start one asynchronous data request, not one per frame; C++ copy the shared UI context handle.
 			catalog,
 			panoramas,
@@ -1732,6 +1870,14 @@ impl MoonApp
 	// Render the selected scientific view while preserving the shared epoch; C++ member function.
 	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
 	{
+		if self.time.is_none()
+		{
+			globe::help::annotated(
+				ui,
+				"Sky preview: 2027-01-01 00:00 UTC",
+				"Real initial Sun and Earth directions. Terrain and availability results appear after the selected site's data loads.",
+			);
+		}
 		if let Some(p) = &mut self.panoramas[self.selected]
 		{
 			if let Some(time) = self.time
@@ -1969,8 +2115,10 @@ fn main()
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Karaya Explorer</title>
-	<link data-trunk rel="rust">
+	<link data-trunk rel="rust" data-cargo-profile="web-release" data-wasm-opt="z" data-wasm-opt-params="--strip-debug --strip-producers">
 	<link data-trunk rel="copy-dir" href="assets">
+	<link data-trunk rel="copy-file" href="../globe/assets/albedo_preview.jpg" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/normal_preview.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_2k.jpg" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/normal_2k.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_4k.jpg" data-target-path="assets/globe">
@@ -2957,7 +3105,7 @@ impl Globe
 			ui.small("Moon overview");
 			help::question(ui, "Drag to turn the Moon; pinch or scroll to zoom. Click a marker to select it; the globe is an illustration.");
 		});
-		// Display 2k before starting an optional upgrade; never blank the existing renderer while waiting.
+		// Display the initial pair before starting an optional upgrade; keep the current Moon while waiting.
 		if self
 			.renderer
 			.lock()
@@ -2980,10 +3128,10 @@ impl Globe
 		}
 	}
 
-	fn scene_lighting(&mut self, ui: &mut egui::Ui) -> Option<Lighting>
+	pub(super) fn light_sources(&mut self) -> Option<[[f32; 3]; 2]>
 	{
 		// Copy the selected site's actual directions, never infer illumination from availability flags; C++ optional transform.
-		let directions = self
+		let selected = self
 			.scene
 			.iter()
 			.find(|s| s.id == self.selected)
@@ -2996,6 +3144,17 @@ impl Globe
 					moon_fixed(s.lat_deg, s.lon_deg, earth)?,
 				])
 			});
+		// The initial epoch is never reused for a later missing track or changed scientific time; C++ one-shot fallback.
+		if selected.is_some()
+		{
+			self.startup_light = None;
+		}
+		selected.or(self.startup_light)
+	}
+
+	fn scene_lighting(&mut self, ui: &mut egui::Ui) -> Option<Lighting>
+	{
+		let directions = self.light_sources();
 		// Holding this mode reveals real libration rather than artificial animation; C++ conditional camera update.
 		if self.earth_view
 			&& let Some([_, earth]) = directions
@@ -3070,7 +3229,7 @@ impl Globe
 				// Copy the optional diagnostic or increment a shared ownership count, not GPU resources; C++ value copy/shared_ptr copy.
 				.clone()
 				// Compute the fallback only when absent; C++ checks optional before calling a fallback lambda.
-				.unwrap_or_else(|| format!("Loading Moon {}k...", self.tier));
+				.unwrap_or_else(|| format!("Loading Moon {}...", assets::label(self.tier)));
 			// Paint the pending/error message on the black panel; C++ immediate-mode UIs similarly submit a label each frame.
 			ui.label(label);
 		}
@@ -3358,7 +3517,7 @@ impl Globe
 		// Announce a real lit draw, not merely decoded textures with pending sky data; C++ frame diagnostic.
 		if lighting.is_some() && !renderer.visible_announced
 		{
-			let status = format!("Moon visible: {}k", renderer.tier);
+			let status = format!("Moon visible: {}", assets::label(renderer.tier));
 			#[cfg(target_arch = "wasm32")]
 			web_sys::console::log_1(&status.into());
 			#[cfg(not(target_arch = "wasm32"))]
@@ -3532,7 +3691,7 @@ impl Globe
 			ui,
 			format!(
 				"Showing {} | requested {}k",
-				displayed.map_or("loading".into(), |t| format!("{t}k")),
+				displayed.map_or("loading".into(), assets::label),
 				self.target_tier
 			),
 			"Showing is the detail visible now. Requested detail replaces it only when ready.",
@@ -3551,6 +3710,11 @@ impl MoonApp
 {
 	pub(super) fn update_sites(&mut self, ui: &mut egui::Ui)
 	{
+		// Let the real preview reach the screen before competing for download bandwidth; C++ readiness gate.
+		if !self.globe.has_visible_moon() && !self.globe.has_load_error()
+		{
+			return;
+		}
 		// Load only the selected site, or the remaining sites when all-rays is explicitly requested; C++ lazy cache initialization.
 		for i in 0..self.catalog.len()
 		{
@@ -3558,7 +3722,14 @@ impl MoonApp
 			{
 				self.panoramas[i] = Some(panorama::Panorama::new(
 					ui.ctx().clone(),
-					filename(&self.catalog[i].name),
+					if i == 0
+					{
+						data::FILE.into()
+					}
+					else
+					{
+						filename(&self.catalog[i].name)
+					},
 				));
 			}
 			// Check this state or input before acting; C++ conditional branch.
@@ -4038,6 +4209,8 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `aspect_ratio`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assert!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `assert_eq!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `assets::first_tier`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `assets::label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `assets::load`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assets::preferences`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assets::select`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4187,6 +4360,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `extend`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `failed_initial_images_do_not_claim_a_draw`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `field::illuminated_points`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `fill`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `filter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -4220,6 +4394,8 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `Globe::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `guides`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
+- `has_load_error`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `has_visible_moon`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `heading`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `height`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `help::annotated`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4235,6 +4411,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `include_bytes!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `include_str!`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `include_y`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `initial_light_is_validated_and_never_reused_after_real_tracks`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `initialize`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `inner_margin`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `inner_width`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -4264,6 +4441,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `legend`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `Legend::default`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `len`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `light_sources`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `light_uniforms`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `lighting_controls`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `line`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -4313,6 +4491,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `ok_or`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `on_hover_text`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `open`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `or`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `or_else`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `orbit_input`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `paint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4388,6 +4567,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `set_margin_fraction`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `set_max_width`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `set_scene`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `set_startup_light`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `set_text_content`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `set_theme`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `set_time`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -4459,6 +4639,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `uniform_3_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_matrix_3_f32_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_matrix_4_f32_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `unloaded`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `unwrap`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `unwrap_err`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `unwrap_or`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)

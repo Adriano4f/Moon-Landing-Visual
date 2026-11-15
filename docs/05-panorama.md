@@ -43,7 +43,7 @@ A stable widget identity lets egui associate this frame's description with its p
 
 CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
 
-Implementation: [app/src/lib.rs:210](../app/src/lib.rs#L210), [app/src/panorama/view.rs:6](../app/src/panorama/view.rs#L6).
+Implementation: [app/src/lib.rs:223](../app/src/lib.rs#L223), [app/src/panorama/view.rs:6](../app/src/panorama/view.rs#L6).
 
 ## 4. Asynchronous loading and ownership
 
@@ -121,7 +121,7 @@ $$
 
 The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
 
-Implementation: [globe/src/math.rs:289](../globe/src/math.rs#L289), [globe/src/math.rs:301](../globe/src/math.rs#L301), [globe/src/lib.rs:247](../globe/src/lib.rs#L247).
+Implementation: [globe/src/math.rs:289](../globe/src/math.rs#L289), [globe/src/math.rs:301](../globe/src/math.rs#L301), [globe/src/lib.rs:339](../globe/src/lib.rs#L339).
 
 ## 8. Panorama API index and C++ equivalents
 
@@ -998,11 +998,12 @@ lunar_core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
-eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11"] }
 egui_plot = "0.38"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ehttp = "0.7"

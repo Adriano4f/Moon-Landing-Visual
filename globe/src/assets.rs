@@ -22,6 +22,25 @@ pub(crate) struct Loading
 	pub error: Option<String>,
 }
 
+// Keep native overview quality while reducing the browser's critical-path bytes; C++ target policy.
+pub(crate) fn first_tier() -> u32
+{
+	if cfg!(target_arch = "wasm32") { 0 } else { 2 }
+}
+
+// Zero denotes a private 512-pixel preview, never a selectable zero-resolution texture; C++ label helper.
+pub(crate) fn label(tier: u32) -> String
+{
+	if tier == 0
+	{
+		"512px".into()
+	}
+	else
+	{
+		format!("{tier}k")
+	}
+}
+
 // Select one supported tier or return a diagnostic; C++ expected<unsigned,string> replaces Result.
 pub(crate) fn select(max: i32, mobile: bool, forced: Option<&str>) -> Result<u32, String>
 {
@@ -131,15 +150,23 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 		error: None,
 	}));
 	// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-	let normal = if cfg!(target_arch = "wasm32")
+	let suffix = if tier == 0
 	{
-		format!("normal_{tier}k.webp")
+		"preview".into()
 	}
 	else
 	{
-		format!("normal_{tier}k.png")
+		format!("{tier}k")
 	};
-	for (index, filename) in [format!("albedo_{tier}k.jpg"), normal]
+	let normal = if cfg!(target_arch = "wasm32")
+	{
+		format!("normal_{suffix}.webp")
+	}
+	else
+	{
+		format!("normal_{suffix}.png")
+	};
+	for (index, filename) in [format!("albedo_{suffix}.jpg"), normal]
 		// Consume this array into an iterator; C++ iterates its owned local elements.
 		.into_iter()
 		// Attach each element's zero-based index; C++ an indexed range or explicit counter.
@@ -224,6 +251,17 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+	#[test]
+	fn initial_and_selected_tier_labels()
+	{
+		assert_eq!(first_tier(), 2);
+		assert_eq!(label(0), "512px");
+		for tier in [2, 4, 8]
+		{
+			assert_eq!(label(tier), format!("{tier}k"));
+		}
+		assert!(select(8192, false, Some("0")).is_err());
+	}
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
 	#[test]
 	// Exercise normal, clamped, invalid, pending, failed, and completed loader states; C++ would use test assertions.

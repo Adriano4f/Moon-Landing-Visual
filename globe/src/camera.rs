@@ -123,7 +123,7 @@ impl Globe
 			ui,
 			format!(
 				"Showing {} | requested {}k",
-				displayed.map_or("loading".into(), |t| format!("{t}k")),
+				displayed.map_or("loading".into(), assets::label),
 				self.target_tier
 			),
 			"Showing is the detail visible now. Requested detail replaces it only when ready.",

@@ -5,8 +5,11 @@ mod panorama;
 // Compile the angular sky-strip painter; C++ project drawing module.
 mod sky;
 // Keep grouped presentation settings outside scientific orchestration; C++ module declaration.
+#[cfg(any(target_arch = "wasm32", test))]
+mod fonts;
 mod layout;
 mod menu;
+mod startup;
 mod theme;
 
 // Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
@@ -63,6 +66,8 @@ impl MoonApp
 			.ok_or("The Moon requires the glow renderer")?;
 		// Use readable light text on dark panels consistently across platforms; C++ UI theme setter.
 		cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark);
+		#[cfg(target_arch = "wasm32")]
+		fonts::install(&cc.egui_ctx);
 		// Parse exact published metadata before initializing any lazy track loads; C++ checked JSON decode.
 		let catalog: Vec<Entry> =
 			serde_json::from_str(include_str!("../../sites.json")).map_err(|e| e.to_string())?;
@@ -72,15 +77,15 @@ impl MoonApp
 			return Err("Empty site catalog".into());
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
-		panoramas[0] = Some(panorama::Panorama::new(
-			cc.egui_ctx.clone(),
-			data::FILE.into(),
-		));
+		let panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
+		let mut globe = globe::Globe::new(gl)?;
+		let [sun, earth] =
+			startup::directions(include_bytes!("../assets/data/moon-ephemeris.initial.bin"))?;
+		globe.set_startup_light(sun, earth)?;
 		// Move independently owned models into the app; C++ aggregate initialization.
 		Ok(Self {
 			// Propagate renderer initialization errors; C++ expected error forwarding.
-			globe: globe::Globe::new(gl)?,
+			globe,
 			// Start one asynchronous data request, not one per frame; C++ copy the shared UI context handle.
 			catalog,
 			panoramas,
@@ -93,6 +98,14 @@ impl MoonApp
 	// Render the selected scientific view while preserving the shared epoch; C++ member function.
 	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
 	{
+		if self.time.is_none()
+		{
+			globe::help::annotated(
+				ui,
+				"Sky preview: 2027-01-01 00:00 UTC",
+				"Real initial Sun and Earth directions. Terrain and availability results appear after the selected site's data loads.",
+			);
+		}
 		if let Some(p) = &mut self.panoramas[self.selected]
 		{
 			if let Some(time) = self.time

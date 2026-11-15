@@ -104,6 +104,8 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `aspect_ratio`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `assert!`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `assert_eq!`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `assets::first_tier`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `assets::label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `assets::load`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `assets::preferences`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `assets::select`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -227,6 +229,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `extend`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `failed_initial_images_do_not_claim_a_draw`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `field::illuminated_points`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `filename`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `fill`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
@@ -236,6 +239,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `fixed_decimals`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `flat_map`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `fold`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `fonts::install`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `format`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `format!`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `frame`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
@@ -256,6 +260,8 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `globe::moon_fixed`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `Globe::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
+- `has_load_error`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `has_visible_moon`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `heading`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `height`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `help::annotated`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
@@ -267,8 +273,10 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `horizontal_wrapped`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `hovered`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `hypot`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `include_bytes!`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `include_str!`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `include_y`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `initial_light_is_validated_and_never_reused_after_real_tracks`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `initialize`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `inner_margin`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `input`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -278,6 +286,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `into_iter`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `is_ascii_alphanumeric`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `is_empty`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `is_err`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `is_finite`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `is_new_shader_interface`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `is_none`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
@@ -295,6 +304,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `legend`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `Legend::default`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `len`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `light_sources`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `light_uniforms`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `lighting_controls`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `line`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
@@ -337,6 +347,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `ok`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `ok_or`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `on_exit`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `or`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `or_else`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `orbit_input`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `paint`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -401,6 +412,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `serde_json::to_vec`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `set_margin_fraction`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `set_scene`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `set_startup_light`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `set_style`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `set_theme`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `set_time`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
@@ -426,6 +438,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `sphere`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `split`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `sqrt`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `startup::directions`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `std::array::from_fn`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `std::env::var`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `strong`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
@@ -465,6 +478,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `uniform_3_f32`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `uniform_matrix_3_f32_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `uniform_matrix_4_f32_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `unloaded`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `unwrap`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `unwrap_or`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `unwrap_or_else`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -1182,9 +1196,9 @@ pub struct Globe
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 	loading: Arc<Mutex<assets::Loading>>,
-	// Selected size label 2/4/8, with width equal to 1,024 times the label; C++ uint32_t.
+	// Selected size label 2/4/8, or zero for the private 512-pixel browser preview; C++ uint32_t.
 	tier: u32,
-	// Requested final detail is independent of the first visible 2k pair; C++ unsigned members.
+	// Requested final detail is independent of the first visible preview; C++ unsigned members.
 	target_tier: u32,
 	max_tier: u32,
 	// Optional illustrative parallel Sun rays; C++ bool.
@@ -1192,6 +1206,8 @@ pub struct Globe
 	// Interactive presentation state is independent of ephemeris time; C++ value members.
 	scene: Vec<Marker>,
 	selected: usize,
+	// A caller-supplied real initial epoch, cleared on the first complete selected track; C++ optional pair.
+	startup_light: Option<[[f32; 3]; 2]>,
 	yaw: f32,
 	tilt: f32,
 	zoom: f32,
@@ -1213,12 +1229,10 @@ mod scene_tests
 	// Reuse the production state and aggregate definitions; C++ qualified test access.
 	use super::*;
 
-	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
-	#[test]
-	fn scene_identity_empty_and_invalid()
+	fn unloaded() -> Globe
 	{
 		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
-		let mut globe = Globe {
+		Globe {
 			renderer: Arc::new(Mutex::new(None)),
 			loading: Arc::new(Mutex::new(assets::Loading {
 				images: [None, None],
@@ -1230,6 +1244,7 @@ mod scene_tests
 			surface_rays: false,
 			scene: vec![],
 			selected: 0,
+			startup_light: None,
 			yaw: 0.0,
 			tilt: 0.0,
 			zoom: 1.0,
@@ -1239,7 +1254,64 @@ mod scene_tests
 			fill: false,
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
+		}
+	}
+
+	#[test]
+	fn initial_light_is_validated_and_never_reused_after_real_tracks()
+	{
+		let mut globe = unloaded();
+		assert!(!globe.has_visible_moon());
+		assert!(globe.light_sources().is_none());
+		for bad in [[0.0; 3], [f32::NAN, 0.0, 1.0], [f32::INFINITY, 0.0, 1.0]]
+		{
+			assert!(globe.set_startup_light(bad, [0.0, 0.0, 1.0]).is_err());
+			assert!(globe.light_sources().is_none());
+		}
+		globe
+			.set_startup_light([0.0, 0.0, 2.0], [3.0, 0.0, 0.0])
+			.unwrap();
+		assert_eq!(
+			globe.light_sources(),
+			Some([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+		);
+		let direction = BodyDirection {
+			az_deg: 0.0,
+			el_deg: 90.0,
+			visible: false,
 		};
+		globe.set_scene(
+			vec![Marker {
+				id: 0,
+				name: "Real track".into(),
+				lat_deg: 0.0,
+				lon_deg: 0.0,
+				directions: Some([direction; 2]),
+			}],
+			0,
+		);
+		assert!(globe.light_sources().is_some());
+		assert!(globe.startup_light.is_none());
+		globe.set_scene(vec![], 0);
+		assert!(globe.light_sources().is_none());
+	}
+
+	#[test]
+	fn failed_initial_images_do_not_claim_a_draw()
+	{
+		let globe = unloaded();
+		assert!(!globe.has_load_error());
+		assert!(!globe.has_visible_moon());
+		globe.loading.lock().error = Some("Unavailable initial images".into());
+		assert!(globe.has_load_error());
+		assert!(!globe.has_visible_moon());
+	}
+
+	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
+	#[test]
+	fn scene_identity_empty_and_invalid()
+	{
+		let mut globe = unloaded();
 		// Keep the valid identifier deliberately different from its vector index; C++ aggregate fixture.
 		let valid = Marker {
 			id: 17,
@@ -1303,8 +1375,8 @@ impl Globe
 			renderer: Arc::new(Mutex::new(None)),
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			surface_rays: false,
-			loading: assets::load(2, None),
-			tier: 2,
+			loading: assets::load(assets::first_tier(), None),
+			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(
 				unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) },
@@ -1314,6 +1386,7 @@ impl Globe
 			// Default to the current Earth line of sight, without artificial spin or tilt; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
+			startup_light: None,
 			yaw: 0.0,
 			tilt: 0.0,
 			zoom: 1.0,
@@ -1324,6 +1397,39 @@ impl Globe
 			last_time: None,
 			focus: None,
 		})
+	}
+
+	/// Supply real Moon-fixed directions while the first scientific track is pending.
+	pub fn set_startup_light(&mut self, sun: [f32; 3], earth: [f32; 3]) -> Result<(), String>
+	{
+		// Reject invalid vectors before changing the previous valid state; C++ checked normalized copy.
+		let mut pair = [sun, earth];
+		for direction in &mut pair
+		{
+			let norm = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+			if !norm.is_finite() || norm < 1e-6
+			{
+				return Err("Invalid initial lighting direction".into());
+			}
+			*direction = direction.map(|v| v / norm);
+		}
+		self.startup_light = Some(pair);
+		Ok(())
+	}
+
+	/// Report the first drawn, physically lit Moon rather than a decoded image or empty callback.
+	pub fn has_visible_moon(&self) -> bool
+	{
+		self.renderer
+			.lock()
+			.as_ref()
+			.is_some_and(|renderer| renderer.visible_announced)
+	}
+
+	/// Expose a failed visual load without preventing independent scientific data loading.
+	pub fn has_load_error(&self) -> bool
+	{
+		self.loading.lock().error.is_some()
 	}
 
 	// Copy metadata for every marker and scientific directions only for requested sites; C++ scene value transfer.

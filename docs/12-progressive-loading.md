@@ -2,11 +2,17 @@
 
 ## 1. What changed
 
-The first visible globe always uses the 2k texture pair. Only after a real, lit draw does the optional higher-quality request start. Desktop browsers default to 4k, phones to 2k, and native to 8k. View / camera contains a Texture detail selector with its own question-mark explanation. `?moon_tier=8` or native `MOON_TIER=8` explicitly requests 8k; hardware texture-size limits still apply.
+The browser first displays a 512 by 256 texture pair. Native startup retains the 2k pair. Only after a real, lit draw do the selected site's JSON and optional higher-quality textures start. Desktop browsers default to 4k, phones to 2k, and native to 8k. View / camera contains a Texture detail selector with its own question-mark explanation. `?moon_tier=8` or native `MOON_TIER=8` explicitly requests 8k; hardware texture-size limits still apply.
+
+The preview uses an embedded 56-byte, one-record ephemeris for 2027-01-01 00:00 UTC, derived reproducibly from the validated complete series. Its date is shown explicitly. It supplies real Moon-fixed Sun and Earth directions, not terrain visibility or invented horizon results. The selected track permanently replaces this initial state when ready. A later missing track cannot revive the initial epoch. The complete eight-year ephemeris and DEMs remain absent from startup traffic.
+
+`globe/assets/preview.py` averages the existing 2k albedo in linear light before JPEG encoding. It averages object-space normal vectors and renormalizes them before lossless WebP encoding. The files contain 29,555 and 163,536 bytes, respectively, totaling 193,091 bytes instead of the first 2k pair's 2,975,280 bytes. This is a coarse first picture, not additional terrain information. Selected 2k, 4k and 8k assets are unchanged.
+
+The browser's `web-release` Cargo profile uses size optimization, LTO, one codegen unit and aborting panics; `lunar_core` retains optimization level 3. Trunk runs `wasm-opt -Oz`, stripping names and producer metadata only after wasm-bindgen has consumed target-feature metadata. Native release settings are unchanged. Browser font subsets retain Latin text, punctuation, geometric symbols and interface metrics; native fonts remain complete. See `app/assets/fonts/README.md` for source fonts, licenses and deterministic regeneration.
 
 Native PNG/JPEG decoding remains on worker threads. Browser image requests instead use `HtmlImageElement.decode()`: the browser performs decoding, not the Rust image decoder in the WASM event callback. `glow` 0.17 uploads the decoded DOM image directly. `SendWrapper` checks creation-thread access without an unsafe Send implementation; no worker may dereference these DOM images.
 
-The first pair initializes the renderer. An upgrade retains its shader, geometry and old textures, uploads at most one replacement image per frame, and exposes the new pair only after both uploads succeed. HTTP, decoding and GL failures retain the last successful Moon and display a diagnostic. A failed initial pair requires reloading the page. Camera, time and scientific data are not reset by an upgrade.
+The first pair initializes the renderer. An upgrade retains its shader, geometry and old textures, uploads at most one replacement image per frame, and exposes the new pair only after both uploads succeed. HTTP, decoding and GL failures retain the last successful Moon and display a diagnostic. A failed initial pair requires reloading the page, but releases the data-loading gate so the independent terrain graph and scientific results remain usable. Camera, time and scientific data are not reset by an upgrade.
 
 ## 2. Lossless browser normals
 
@@ -20,22 +26,41 @@ Run `python3 globe/assets/web_normals.py` after preparing the native PNGs. Pillo
 
 All three lossless round trips changed zero channels, so the additional angular error is exactly zero. A separate Chrome canvas comparison of the complete 2k PNG/WebP pair also found zero differences across 8,388,608 RGBA channels. Albedo JPEGs and the original native PNGs are unchanged. Browser color-space conversion is disabled during upload; normals remain linear data and albedo still uses sRGB GPU storage.
 
-## 3. Cold-cache desktop measurements
+## 3. Historical 2k-first measurements
 
-Chrome used the same local HTTP server, 1440 by 1000 viewport, device scale 1 and software WebGL before and after. Caches were disabled. Fast 4G means 1,600,000 download bytes/s, 750,000 upload bytes/s and 40 ms latency. This server does not gzip the WASM or scientific JSON; these numbers are not a measurement of GitHub Pages compression or the user's GPU.
+The earlier comparison used the same local HTTP server, 1440 by 1000 viewport, device scale 1 and software WebGL before and after. Caches were disabled. The throttled connection used 1,600,000 download bytes/s, 750,000 upload bytes/s and 40 ms latency. This server did not gzip WASM or scientific JSON. Its 12.8 Mbps connection must not be confused with the stricter 4 Mbps case below.
 
 Readiness means a real lit draw, followed by two animation frames, not merely an image download. Before the change, first and final quality were both 8k. Afterward, first quality is 2k and the default final quality is 4k, so the final-quality columns do not compare equal resolution. Bytes include JS, WASM, the selected site's full scientific JSON and all requested textures, including the initial pair.
 
 | Network | Before first/final | After first 2k | After final 4k | Before/after total bytes |
 |:--|--:|--:|--:|--:|
 | Unthrottled | 4.41 s | 1.87 s | 4.13 s | 54,821,519 / 22,003,623 |
-| Fast 4G | 37.89 s | 7.82 s | 17.26 s | 54,821,519 / 22,003,623 |
+| 12.8 Mbps, 40 ms | 37.89 s | 7.82 s | 17.26 s | 54,821,519 / 22,003,623 |
 
-The first-Moon target of about one to two seconds is met here only without throttling. Cold Fast 4G remains slower because the uncompressed WASM, scientific JSON and first texture pair exceed 10 MB together. Main-thread WASM image decoding is eliminated, but GPU upload/mipmap generation is not free: the largest animation-frame gap after the first Moon was approximately 0.70 s on software WebGL. Upload staging halves the earlier approximately 1.4 s worst gap but does not establish stall-free rendering. Further GPU upload work or smaller/compressed bootstrap data remains necessary for that stronger goal.
+The first-Moon target of about one to two seconds was met only without throttling. Uncompressed WASM, scientific JSON and the first texture pair exceeded 10 MB together. Main-thread WASM image decoding was eliminated, but GPU upload/mipmap generation remained synchronous: the largest animation-frame gap was approximately 0.70 s on software WebGL.
+
+### 3.1. Measured critical path and current preview
+
+Cold HTTP-cache Chrome measurements use a 1440 by 1000 viewport, device scale 2 and software WebGL. Fast 4G is explicitly 500,000 download bytes/s, 750,000 upload bytes/s and 20 ms latency. A separate 12.8 Mbps, 40 ms case preserves the earlier connection for comparison. Readiness is the real lit draw followed by two animation frames. Total bytes below sum Resource Timing transfer sizes.
+
+The deployed 2k-first baseline requested a 1,787,505-byte encoded WASM module, then the 616,257-byte encoded selected JSON and 2,975,280-byte first texture pair together. No ephemeris or DEM request occurred. The 4k pair added 11,673,441 bytes. Pages served compressed WASM and JSON, as their encoded and decoded lengths differed: 1,787,505 / 4,577,844 and 616,257 / 2,718,617 bytes.
+
+| Transport | Network | First Moon, s | Full 4k, s | Total bytes |
+|:--|:--|--:|--:|--:|
+| Deployed 2k-first baseline | Unthrottled | 1.919 | 5.020 | 17,068,424 |
+| Deployed 2k-first baseline | Fast 4G | 11.800 | 37.222 | 17,068,424 |
+| Deployed 2k-first baseline | 12.8 Mbps, 40 ms | 4.942 | 14.347 | 17,068,424 |
+| Current local gzip transport | Unthrottled | 0.944 | 3.010 | 13,786,859 |
+| Current local gzip transport | Fast 4G | 3.724 | 30.099 | 13,786,859 |
+| Current local gzip transport | 12.8 Mbps, 40 ms | 1.742 | 11.330 | 13,786,859 |
+
+The current rows use a local HTTP server with gzip level 6 for JS, WASM and JSON, not a second Pages deployment. They characterize the new critical path but are not a same-server before/after experiment. The final WASM is 3,823,377 decoded bytes and 1,292,561 gzip bytes. Startup site requests begin after the first real draw; complete ephemeris and DEM requests remain zero.
+
+The strict first-Moon budget below 3 s is not met in this software-WebGL run. JS, WASM and preview textures alone nearly exhaust its 1.5 MB three-second transfer budget, before initialization and rendering. GPU uploads and mipmap generation also remain synchronous: maximum measured frame gaps were 583.3 to 666.6 ms. These results establish faster startup, not stall-free rendering or attainment of the stricter target.
 
 ## 4. Checks and limitations
 
-Browser checks cover default 2k-to-4k ordering, Pixel 7 staying at 2k, native browser decoding, real illuminated draws, and an injected missing 4k normal that leaves the 2k Moon visible. Pixel 7 means emulation, not physical hardware. The 8k option remains a large explicit download and requires considerable decoder/GPU memory. Progressive replacement temporarily retains both old and new texture pairs. A texture-size limit is not a memory guarantee.
+Browser checks cover preview-before-site-data ordering, desktop 4k and Pixel 7 2k targets, browser-native decoding, real illuminated draws, and missing-upgrade handling. Pixel 7 means emulation, not physical hardware. The 8k option remains a large explicit download and requires considerable decoder/GPU memory. Progressive replacement temporarily retains both old and new texture pairs. A texture-size limit is not a memory guarantee.
 
 The polar schematic fallback, scientific terrain silhouette, Horizons time samples, visibility predicates, light directions and site selection are unchanged.
 
@@ -66,6 +91,25 @@ pub(crate) struct Loading
 	pub images: [Option<Result<TextureImage, String>>; 2],
 	// An optional terminal loading/upload diagnostic; C++ optional<string>.
 	pub error: Option<String>,
+}
+
+// Keep native overview quality while reducing the browser's critical-path bytes; C++ target policy.
+pub(crate) fn first_tier() -> u32
+{
+	if cfg!(target_arch = "wasm32") { 0 } else { 2 }
+}
+
+// Zero denotes a private 512-pixel preview, never a selectable zero-resolution texture; C++ label helper.
+pub(crate) fn label(tier: u32) -> String
+{
+	if tier == 0
+	{
+		"512px".into()
+	}
+	else
+	{
+		format!("{tier}k")
+	}
 }
 
 // Select one supported tier or return a diagnostic; C++ expected<unsigned,string> replaces Result.
@@ -177,15 +221,23 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 		error: None,
 	}));
 	// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-	let normal = if cfg!(target_arch = "wasm32")
+	let suffix = if tier == 0
 	{
-		format!("normal_{tier}k.webp")
+		"preview".into()
 	}
 	else
 	{
-		format!("normal_{tier}k.png")
+		format!("{tier}k")
 	};
-	for (index, filename) in [format!("albedo_{tier}k.jpg"), normal]
+	let normal = if cfg!(target_arch = "wasm32")
+	{
+		format!("normal_{suffix}.webp")
+	}
+	else
+	{
+		format!("normal_{suffix}.png")
+	};
+	for (index, filename) in [format!("albedo_{suffix}.jpg"), normal]
 		// Consume this array into an iterator; C++ iterates its owned local elements.
 		.into_iter()
 		// Attach each element's zero-based index; C++ an indexed range or explicit counter.
@@ -270,6 +322,17 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+	#[test]
+	fn initial_and_selected_tier_labels()
+	{
+		assert_eq!(first_tier(), 2);
+		assert_eq!(label(0), "512px");
+		for tier in [2, 4, 8]
+		{
+			assert_eq!(label(tier), format!("{tier}k"));
+		}
+		assert!(select(8192, false, Some("0")).is_err());
+	}
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
 	#[test]
 	// Exercise normal, clamped, invalid, pending, failed, and completed loader states; C++ would use test assertions.
@@ -407,6 +470,210 @@ if __name__ == "__main__":
     main()
 ```
 
+### 5.3. app/src/fonts.rs
+
+```rust
+use eframe::egui::{Context, FontData, FontDefinitions, FontFamily, FontTweak};
+
+// Preserve interface glyph metrics without embedding unused scripts; C++ font registry setup.
+pub(super) fn install(ctx: &Context)
+{
+	let mut fonts = FontDefinitions::empty();
+	for (name, bytes, scale) in [
+		(
+			"body",
+			include_bytes!("../assets/fonts/karaya-ui.ttf").as_slice(),
+			1.0,
+		),
+		(
+			"mono",
+			include_bytes!("../assets/fonts/karaya-mono.ttf").as_slice(),
+			1.0,
+		),
+		(
+			"egui-icons",
+			include_bytes!("../assets/fonts/egui-icons.ttf").as_slice(),
+			0.9,
+		),
+	]
+	{
+		fonts.font_data.insert(
+			name.into(),
+			FontData::from_static(bytes)
+				.tweak(FontTweak {
+					scale,
+					..Default::default()
+				})
+				.into(),
+		);
+	}
+	fonts.families.insert(
+		FontFamily::Proportional,
+		vec!["body".into(), "egui-icons".into(), "mono".into()],
+	);
+	fonts.families.insert(
+		FontFamily::Monospace,
+		vec!["mono".into(), "body".into(), "egui-icons".into()],
+	);
+	ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+	use eframe::egui::{FontId, RawInput};
+
+	#[test]
+	fn interface_symbols_empty_and_unknown_glyphs()
+	{
+		let ctx = Context::default();
+		install(&ctx);
+		let mut output = ctx.run_ui(RawInput::default(), |ui| {
+			ui.fonts_mut(|fonts| {
+				for family in [FontFamily::Proportional, FontFamily::Monospace]
+				{
+					let id = FontId::new(15.0, family);
+					assert!(fonts.has_glyphs(&id, "Karaya Gläser 0° 50% ● ■ × ← → … − ·"));
+					assert!(fonts.has_glyphs(&id, ""));
+					assert!(!fonts.has_glyph(&id, '\u{10ffff}'));
+				}
+			});
+		});
+		output.textures_delta.clear();
+	}
+}
+```
+
+### 5.4. app/src/startup.rs
+
+```rust
+use lunar_core::ephemeris::Ephemeris;
+
+// Decode one validated initial epoch without fetching the complete eight-year series; C++ checked tiny record.
+pub(super) fn directions(bytes: &[u8]) -> Result<[[f32; 3]; 2], String>
+{
+	let initial = Ephemeris::decode(bytes)?;
+	if initial.start_utc != 1798761600 || initial.step_s != 3600 || initial.samples.len() != 1
+	{
+		return Err("Initial sky must contain only 2027-01-01 00:00 UTC".into());
+	}
+	Ok(initial.samples[0].map(|body| body.direction))
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn initial_record_matches_complete_series_and_rejects_bad_data()
+	{
+		let bytes = include_bytes!("../assets/data/moon-ephemeris.initial.bin");
+		assert_eq!(bytes.len(), 56);
+		let full = Ephemeris::decode(include_bytes!("../assets/data/moon-ephemeris.bin")).unwrap();
+		assert_eq!(
+			directions(bytes).unwrap(),
+			full.samples[0].map(|body| body.direction)
+		);
+		assert!(directions(&[]).is_err());
+		assert!(directions(include_bytes!("../assets/data/moon-ephemeris.bin")).is_err());
+		let mut wrong_epoch = *bytes;
+		wrong_epoch[8..16].copy_from_slice(&(full.start_utc + 3600).to_le_bytes());
+		assert!(directions(&wrong_epoch).is_err());
+		let mut corrupt = *bytes;
+		corrupt[24..28].copy_from_slice(&f32::NAN.to_le_bytes());
+		assert!(directions(&corrupt).is_err());
+	}
+}
+```
+
+### 5.5. globe/assets/preview.py
+
+```python
+"""Derive a 512 by 256 first frame from the existing 2k scientific-display assets."""
+from pathlib import Path
+import numpy as np
+from PIL import Image
+
+
+def average(image):
+    values = np.asarray(image, dtype=np.float64) / 255.0
+    if values.shape != (1024, 2048, 3) or not np.isfinite(values).all():
+        raise ValueError('Expected a finite 2k RGB image')
+    return values.reshape(256, 4, 512, 4, 3).mean(axis=(1, 3))
+
+
+def normal_preview(image):
+    vectors = average(image) * 2.0 - 1.0
+    lengths = np.linalg.norm(vectors, axis=2, keepdims=True)
+    if np.any(lengths < 1e-6):
+        raise ValueError('Degenerate mean normal')
+    return Image.fromarray(np.rint((vectors / lengths + 1.0) * 127.5).astype(np.uint8))
+
+
+def main():
+    directory = Path(__file__).parent
+    source = np.asarray(Image.open(directory/'albedo_2k.jpg'), dtype=np.float64)/255.0
+    linear = np.where(source <= 0.04045, source/12.92, ((source+0.055)/1.055)**2.4)
+    mean = linear.reshape(256, 4, 512, 4, 3).mean(axis=(1, 3))
+    srgb = np.where(mean <= 0.0031308, mean*12.92, 1.055*mean**(1/2.4)-0.055)
+    Image.fromarray(np.rint(srgb*255).astype(np.uint8)).save(directory/'albedo_preview.jpg', quality=87, subsampling=0, optimize=True)
+    normal_preview(Image.open(directory/'normal_2k.png')).save(directory/'normal_preview.webp', lossless=True, method=6)
+    for name in ['albedo_preview.jpg', 'normal_preview.webp']:
+        print(name, (directory/name).stat().st_size)
+
+
+if __name__ == '__main__':
+    main()
+```
+
+### 5.6. app/assets/fonts/subset.py
+
+```python
+"""Build small, renamed interface fonts from epaint_default_fonts 0.37 originals."""
+from pathlib import Path
+import argparse
+import shutil
+from fontTools import subset
+from fontTools.ttLib import TTFont
+
+
+def build(source, target, name):
+    font = TTFont(source, recalcTimestamp=False)
+    options = subset.Options()
+    options.recalc_timestamp = False
+    options.drop_tables += ['TTFA']
+    options.name_IDs = ['*']
+    options.name_languages = ['*']
+    worker = subset.Subsetter(options=options)
+    worker.populate(unicodes=list(range(32, 256)) + list(range(0x2000, 0x2070)) + [ord(c) for c in '●■←→↑↓↔↕▶▼◀▲−'])
+    worker.subset(font)
+    for record in font['name'].names:
+        if record.nameID in (1, 2, 3, 4, 6, 16, 17):
+            value = 'Regular' if record.nameID in (2, 17) else name
+            record.string = value.encode(record.getEncoding())
+    font.save(target)
+    print(target.name, target.stat().st_size)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('source', type=Path, help='epaint_default_fonts 0.37 fonts directory')
+    source = parser.parse_args().source
+    output = Path(__file__).parent
+    build(source/'Ubuntu-Light.ttf', output/'karaya-ui.ttf', 'KarayaUI')
+    build(source/'Hack-Regular.ttf', output/'karaya-mono.ttf', 'KarayaMono')
+    for filename in ['egui-icons.ttf', 'egui-icons.txt', 'UFL.txt', 'Hack-Regular.txt']:
+        shutil.copyfile(source/filename, output/filename)
+
+
+if __name__ == '__main__':
+    main()
+```
+
 ## 6. API index
 
 `preferences` and `select` choose the requested final tier. `load` schedules native workers or browser-native image decoding. `Loading::take` distinguishes pending, failed and completed pairs. `Renderer::new` owns initial GL construction. `begin_upgrade` preserves visible textures, `advance_upgrade` stages replacement uploads, and `upload_browser_texture` passes the browser image to GL. `Globe::camera_controls` exposes the requested detail and the actually displayed tier.
+
+`first_tier` and `label` distinguish the private preview from selectable final tiers. `startup::directions` validates the one-record epoch. `Globe::set_startup_light`, `light_sources` and `has_visible_moon` maintain the one-shot initial light and post-draw loading gate. `fonts::install` registers browser subsets; `subset.py::build` preserves glyph data while renaming the fonts. `preview.py::average` and `normal_preview` derive coarse vectors. `prep::ephemeris::initial_sample` uses the existing checked binary encoder.

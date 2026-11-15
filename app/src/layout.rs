@@ -5,6 +5,11 @@ impl MoonApp
 {
 	pub(super) fn update_sites(&mut self, ui: &mut egui::Ui)
 	{
+		// Let the real preview reach the screen before competing for download bandwidth; C++ readiness gate.
+		if !self.globe.has_visible_moon() && !self.globe.has_load_error()
+		{
+			return;
+		}
 		// Load only the selected site, or the remaining sites when all-rays is explicitly requested; C++ lazy cache initialization.
 		for i in 0..self.catalog.len()
 		{
@@ -12,7 +17,14 @@ impl MoonApp
 			{
 				self.panoramas[i] = Some(panorama::Panorama::new(
 					ui.ctx().clone(),
-					filename(&self.catalog[i].name),
+					if i == 0
+					{
+						data::FILE.into()
+					}
+					else
+					{
+						filename(&self.catalog[i].name)
+					},
 				));
 			}
 			// Check this state or input before acting; C++ conditional branch.

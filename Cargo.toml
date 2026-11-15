@@ -1,3 +1,14 @@
 [workspace]
 members = ["core", "prep", "globe", "app"]
 resolver = "3"
+
+[profile.web-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+[profile.web-release.package.lunar_core]
+opt-level = 3

@@ -4,7 +4,7 @@
 
 `core/src/ephemeris.rs` supplies I/O-free finite-distance sky geometry for arbitrary lunar latitude, east longitude and radial altitude. `prep --ephemeris` prepares the compact input from the [NASA/JPL Horizons API](https://ssd-api.jpl.nasa.gov/doc/horizons.html). The current application still uses its original seven prepared tracks and dates; arbitrary-point terrain and timeline controls are not part of this foundation. The new asset is copied into the static distribution but is not requested at startup.
 
-The committed `app/assets/data/moon-ephemeris.bin` contains Sun and Earth positions every hour from 2027-01-01 00:00 UTC through 2035-01-01 00:00 UTC, inclusive: 70,129 samples per body. `moon-ephemeris.meta.json` records its frame, method, byte count and per-site validation maxima. Original API responses remain in the external cache, including their DE441 source diagnostics. The independently prepared catalog tracks, terrain profiles and rounded-coordinate baseline are unchanged.
+The committed `app/assets/data/moon-ephemeris.bin` contains Sun and Earth positions every hour from 2027-01-01 00:00 UTC through 2035-01-01 00:00 UTC, inclusive: 70,129 samples per body. `moon-ephemeris.meta.json` records its frame, method, byte count and per-site validation maxima. Preparation also writes `moon-ephemeris.initial.bin`, a 56-byte versioned file containing exactly its first epoch. The application embeds that real initial Sun/Earth pair for a dated preview, without fetching the complete series or inventing terrain visibility. Original API responses remain in the external cache, including their DE441 source diagnostics. The independently prepared catalog tracks, terrain profiles and rounded-coordinate baseline are unchanged.
 
 ## 2. Query strategy and reproduction
 
@@ -144,6 +144,7 @@ Unit tests cover analytic zenith, geographic-north tangent, finite-distance para
 - `i64::from`: [annotated core/src/ephemeris.rs](#71-coresrcephemerisrs), [annotated prep/src/ephemeris.rs](#73-prepsrcephemerisrs)
 - `i64::from_le_bytes`: [annotated core/src/ephemeris.rs](#71-coresrcephemerisrs)
 - `i64::try_from`: [annotated core/src/ephemeris.rs](#71-coresrcephemerisrs)
+- `initial_sample_normal_empty_and_invalid`: [annotated prep/src/ephemeris.rs](#73-prepsrcephemerisrs)
 - `Instant::now`: [annotated prep/src/ephemeris.rs](#73-prepsrcephemerisrs)
 - `into`: [annotated core/src/ephemeris.rs](#71-coresrcephemerisrs), [annotated prep/src/ephemeris.rs](#73-prepsrcephemerisrs)
 - `into_iter`: [annotated core/src/ephemeris.rs](#71-coresrcephemerisrs), [annotated prep/src/ephemeris.rs](#73-prepsrcephemerisrs)
@@ -682,6 +683,11 @@ pub fn run() -> Result<(), Box<dyn Error>>
 	let output = Path::new(&args[0]);
 	fs::write(output.with_extension("bin.part"), &bytes)?;
 	fs::rename(output.with_extension("bin.part"), output)?;
+	// Reuse exactly the validated first sample for the application's initial picture; C++ tiny derived artifact.
+	fs::write(
+		output.with_extension("initial.bin"),
+		initial_sample(&decoded)?,
+	)?;
 	let metadata = serde_json::json!({
 		"format": "MLVEPH01", "frame": "Moon MEAN_ME, X=90E Y=north Z=0E", "time_scale": "UTC",
 		"start": "2027-01-01T00:00:00Z", "stop": "2035-01-01T00:00:00Z", "step_s": 3600,
@@ -703,6 +709,22 @@ pub fn run() -> Result<(), Box<dyn Error>>
 		clock.elapsed().as_secs_f64()
 	);
 	Ok(())
+}
+
+// Encode a normal versioned file rather than maintaining a second ad-hoc parser; C++ checked subset serialization.
+fn initial_sample(data: &Ephemeris) -> Result<Vec<u8>, String>
+{
+	Ephemeris {
+		start_utc: data.start_utc,
+		step_s: data.step_s,
+		samples: vec![
+			*data
+				.samples
+				.first()
+				.ok_or("Missing initial ephemeris sample")?,
+		],
+	}
+	.encode()
 }
 
 // Date construction is internal and restricted to 2027 through 2035; C++ calendar helper.
@@ -976,6 +998,29 @@ fn validate_site(data: &Ephemeris, reference: Reference) -> Result<Validation, S
 mod tests
 {
 	use super::*;
+	#[test]
+	fn initial_sample_normal_empty_and_invalid()
+	{
+		let body = BodyPosition {
+			direction: [0.0, 0.0, 1.0],
+			distance_m: 3e8,
+		};
+		let mut data = Ephemeris {
+			start_utc: year_start(2027),
+			step_s: 3600,
+			samples: vec![[body; 2]; 2],
+		};
+		let bytes = initial_sample(&data).unwrap();
+		assert_eq!(bytes.len(), 56);
+		let decoded = Ephemeris::decode(&bytes).unwrap();
+		assert_eq!(decoded.samples, data.samples[..1]);
+		assert_eq!(decoded.start_utc, data.start_utc);
+		assert_eq!(decoded.step_s, data.step_s);
+		data.step_s = 0;
+		assert!(initial_sample(&data).is_err());
+		data.samples.clear();
+		assert!(initial_sample(&data).is_err());
+	}
 	// Build an analytic zenith reference, independent of finite-distance reductions; C++ test aggregate.
 	fn reference() -> Reference
 	{

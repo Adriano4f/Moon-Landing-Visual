@@ -90,6 +90,11 @@ pub fn run() -> Result<(), Box<dyn Error>>
 	let output = Path::new(&args[0]);
 	fs::write(output.with_extension("bin.part"), &bytes)?;
 	fs::rename(output.with_extension("bin.part"), output)?;
+	// Reuse exactly the validated first sample for the application's initial picture; C++ tiny derived artifact.
+	fs::write(
+		output.with_extension("initial.bin"),
+		initial_sample(&decoded)?,
+	)?;
 	let metadata = serde_json::json!({
 		"format": "MLVEPH01", "frame": "Moon MEAN_ME, X=90E Y=north Z=0E", "time_scale": "UTC",
 		"start": "2027-01-01T00:00:00Z", "stop": "2035-01-01T00:00:00Z", "step_s": 3600,
@@ -111,6 +116,22 @@ pub fn run() -> Result<(), Box<dyn Error>>
 		clock.elapsed().as_secs_f64()
 	);
 	Ok(())
+}
+
+// Encode a normal versioned file rather than maintaining a second ad-hoc parser; C++ checked subset serialization.
+fn initial_sample(data: &Ephemeris) -> Result<Vec<u8>, String>
+{
+	Ephemeris {
+		start_utc: data.start_utc,
+		step_s: data.step_s,
+		samples: vec![
+			*data
+				.samples
+				.first()
+				.ok_or("Missing initial ephemeris sample")?,
+		],
+	}
+	.encode()
 }
 
 // Date construction is internal and restricted to 2027 through 2035; C++ calendar helper.
@@ -384,6 +405,29 @@ fn validate_site(data: &Ephemeris, reference: Reference) -> Result<Validation, S
 mod tests
 {
 	use super::*;
+	#[test]
+	fn initial_sample_normal_empty_and_invalid()
+	{
+		let body = BodyPosition {
+			direction: [0.0, 0.0, 1.0],
+			distance_m: 3e8,
+		};
+		let mut data = Ephemeris {
+			start_utc: year_start(2027),
+			step_s: 3600,
+			samples: vec![[body; 2]; 2],
+		};
+		let bytes = initial_sample(&data).unwrap();
+		assert_eq!(bytes.len(), 56);
+		let decoded = Ephemeris::decode(&bytes).unwrap();
+		assert_eq!(decoded.samples, data.samples[..1]);
+		assert_eq!(decoded.start_utc, data.start_utc);
+		assert_eq!(decoded.step_s, data.step_s);
+		data.step_s = 0;
+		assert!(initial_sample(&data).is_err());
+		data.samples.clear();
+		assert!(initial_sample(&data).is_err());
+	}
 	// Build an analytic zenith reference, independent of finite-distance reductions; C++ test aggregate.
 	fn reference() -> Reference
 	{
