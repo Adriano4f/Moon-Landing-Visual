@@ -126,48 +126,34 @@ pub(crate) fn logo(ui: &mut egui::Ui)
 // Keep panel layout code close to its own controls; C++ out-of-class member definitions.
 impl MoonApp
 {
-	// Render a fixed desktop sidebar or a phone drawer without squeezing the canvas; C++ responsive container.
+	// Render the settings as a floating overlay so the canvas keeps the full width; C++ responsive container.
 	pub(crate) fn settings(&mut self, root: &mut egui::Ui, phone: bool)
 	{
 		// Retain a context handle for floating windows while panels borrow the root; C++ shared UI handle.
 		let ctx = root.ctx().clone();
-		// The compact brand stays visible when the phone menu is closed; C++ top-panel callback.
+		// The compact brand and menu toggle stay visible when the menu is closed; C++ top-panel callback.
 		egui::Panel::top("brand").show(root, |ui| { ui.horizontal(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			logo(ui);
 			// Apply the UI event only when requested; C++ conditional branch.
-			if phone && ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
+			if ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			question(ui, "Compare lunar south pole sites by how often they see the Sun and Earth.");
 		}); });
-		// A floating phone drawer leaves the stacked main view at its natural width; C++ modal-free settings window.
-		if phone
-		{
-			// Bind this frame's presentation value; C++ local initialization.
-			let mut open = self.menu_open;
-			egui::Window::new("Menu")
-				.id(egui::Id::unique("phone-menu"))
-				.open(&mut open)
-				.collapsible(false)
-				.default_pos([8.0, 66.0])
-				.default_width(300.0)
-				.max_width(320.0)
-				.max_height((ctx.content_rect().height() - 90.0).max(100.0))
-				.vscroll(true)
-				.show(&ctx, |ui| self.menu_contents(ui));
-			// Persist the presentation change between frames; C++ member assignment.
-			self.menu_open = open;
-		}
-		else
-		{
-			// A bounded sidebar gives the main views the remaining desktop width; C++ side-container callback.
-			egui::Panel::left("settings")
-				.default_size(290.0)
-				.size_range(280.0..=340.0)
-				.show(root, |ui| {
-					egui::ScrollArea::vertical().show(ui, |ui| self.menu_contents(ui));
-				});
-		}
+		// A floating menu overlays the main views on every screen size instead of reserving a sidebar; C++ modal-free settings window.
+		let mut open = self.menu_open;
+		egui::Window::new("Menu")
+			.id(egui::Id::unique("settings-menu"))
+			.open(&mut open)
+			.collapsible(false)
+			.default_pos([8.0, 66.0])
+			.default_width(300.0)
+			.max_width(if phone { 320.0 } else { 340.0 })
+			.max_height((ctx.content_rect().height() - 90.0).max(100.0))
+			.vscroll(true)
+			.show(&ctx, |ui| self.menu_contents(ui));
+		// Persist the presentation change between frames; C++ member assignment.
+		self.menu_open = open;
 	}
 
 	// Group controls by the question a visitor is trying to answer; C++ member function.

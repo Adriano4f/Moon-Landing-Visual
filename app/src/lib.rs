@@ -51,7 +51,7 @@ pub struct MoonApp
 	all_rays: bool,
 	// Preserve a UTC epoch independently of each view's sample index; C++ optional<int64_t>.
 	time: Option<i64>,
-	// Persist only whether the phone drawer is open; C++ bool member.
+	// Persist only whether the floating menu is open; C++ bool member.
 	menu_open: bool,
 	// Published catalog length; a custom point, if any, is the entry after them.
 	published: usize,
@@ -328,7 +328,7 @@ impl eframe::App for MoonApp
 		self.update_custom(ui.ctx());
 		self.update_sites(ui);
 		self.synchronize_scene();
-		// Draw settings before the central view so desktop width and phone drawer are independent; C++ responsive panel call.
+		// Draw the brand bar and floating menu before the central view; C++ responsive panel call.
 		let phone = ui.ctx().content_rect().width() < 760.0;
 		theme::apply(ui.ctx(), phone);
 		ui.set_style(ui.ctx().style_of(eframe::egui::Theme::Dark));
