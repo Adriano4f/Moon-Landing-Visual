@@ -69,8 +69,34 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 	result
 }
 
+// Display label with longitude in -180..180.
+fn name(tile: &Tile) -> String
+{
+	let lon = if tile.lon_deg > 180.0
+	{
+		tile.lon_deg - 360.0
+	}
+	else
+	{
+		tile.lon_deg
+	};
+	format!("Custom point ({:.2}, {:.2})", tile.lat_deg, lon)
+}
+
 impl Custom
 {
+	// A finished point restored from the session cache; its panorama already holds the data.
+	pub fn restored(tile: Tile, timeline: timeline::Shared) -> Self
+	{
+		Self {
+			name: name(&tile),
+			tile,
+			pending: Arc::new(Mutex::new(None)),
+			timeline,
+			stage: Stage::Finished,
+		}
+	}
+
 	pub fn start(ctx: &egui::Context, lat: f64, lon: f64, timeline: timeline::Shared) -> Self
 	{
 		let tile = anypoint::tile_of(lat, lon);
@@ -79,16 +105,8 @@ impl Custom
 			.map(|url| fetch(ctx, url))
 			.collect();
 		timeline::request(&timeline, ctx);
-		let lon_signed = if tile.lon_deg > 180.0
-		{
-			tile.lon_deg - 360.0
-		}
-		else
-		{
-			tile.lon_deg
-		};
 		Self {
-			name: format!("Custom point ({:.2}, {:.2})", tile.lat_deg, lon_signed),
+			name: name(&tile),
 			tile,
 			pending: Arc::new(Mutex::new(None)),
 			timeline,
@@ -214,6 +232,13 @@ impl Custom
 		}
 		Ok(())
 	}
+}
+
+// A finished custom point kept for the session while another tile is shown.
+pub(crate) struct Cached
+{
+	pub tile: Tile,
+	pub view: crate::panorama::Panorama,
 }
 
 #[cfg(test)]

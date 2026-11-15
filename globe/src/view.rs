@@ -41,6 +41,8 @@ impl Globe
 			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
 		}
 		self.queue_gl(ui, rect, view, lighting);
+		self.paint_grid(ui, rect, view);
+		self.paint_tiles(ui, rect, view);
 		let clicked = self.paint_markers(ui, &response, rect, view);
 		self.paint_tile(ui, rect, view);
 		self.surface_pick(&response, rect, view, clicked.is_some());

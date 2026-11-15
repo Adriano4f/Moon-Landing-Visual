@@ -56,6 +56,8 @@ pub struct MoonApp
 	// Published catalog length; a custom point, if any, is the entry after them.
 	published: usize,
 	custom: Option<custom::Custom>,
+	// Finished custom points other than the current one, for this session.
+	cached: Vec<custom::Cached>,
 	timeline: timeline::Shared,
 }
 
@@ -102,25 +104,50 @@ impl MoonApp
 			menu_open: false,
 			published,
 			custom: None,
+			cached: Vec::new(),
 			timeline: std::sync::Arc::new(eframe::egui::mutex::Mutex::new(timeline::Timeline::default())),
 		})
 	}
 	// Start a job for a new globe click, advance the running job, and highlight its tile.
 	fn update_custom(&mut self, ctx: &eframe::egui::Context)
 	{
+		self.globe.set_grid(|lat, lon| {
+			let t = lunar_core::anypoint::tile_of(lat, lon);
+			[t.lat_deg, t.lon_deg, t.half_lat_deg, t.half_lon_deg]
+		});
 		if let Some((lat, lon)) = self.globe.take_pick()
 		{
 			let tile = lunar_core::anypoint::tile_of(lat, lon);
 			if self.custom.as_ref().is_none_or(|c| c.tile.id != tile.id)
 			{
-				let job = custom::Custom::start(ctx, lat, lon, std::sync::Arc::clone(&self.timeline));
+				// Keep a finished current point; unfinished or failed ones are dropped.
+				let old = self.panoramas.get_mut(self.published).and_then(Option::take);
+				if let (Some(c), Some(mut view)) = (self.custom.take(), old)
+					&& view.sun_pct().is_some()
+				{
+					self.cached.push(custom::Cached { tile: c.tile, view });
+				}
+				let timeline = std::sync::Arc::clone(&self.timeline);
+				let (job, view) = match self.cached.iter().position(|c| c.tile.id == tile.id)
+				{
+					Some(i) =>
+					{
+						let c = self.cached.swap_remove(i);
+						(custom::Custom::restored(c.tile, timeline), c.view)
+					}
+					None =>
+					{
+						let job = custom::Custom::start(ctx, lat, lon, std::sync::Arc::clone(&timeline));
+						let view = panorama::Panorama::with_pending(job.pending.clone(), timeline);
+						(job, view)
+					}
+				};
 				let entry = Entry {
 					name: job.name.clone(),
 					lat_deg: job.tile.lat_deg,
 					lon_deg: job.tile.lon_deg,
 					source: String::new(),
 				};
-				let view = panorama::Panorama::with_pending(job.pending.clone(), std::sync::Arc::clone(&self.timeline));
 				self.catalog.truncate(self.published);
 				self.panoramas.truncate(self.published);
 				self.catalog.push(entry);
@@ -146,6 +173,19 @@ impl MoonApp
 				]
 			});
 		self.globe.set_tile(tile);
+		let corners = |t: &lunar_core::anypoint::Tile| [t.lat_deg, t.lon_deg, t.half_lat_deg, t.half_lon_deg];
+		let current = self
+			.custom
+			.as_ref()
+			.zip(self.panoramas.get_mut(self.published).and_then(Option::as_mut));
+		let done = self
+			.cached
+			.iter_mut()
+			.map(|c| (&c.tile, &mut c.view))
+			.chain(current.map(|(c, v)| (&c.tile, v)))
+			.filter_map(|(t, v)| Some((corners(t), v.sun_pct()?)))
+			.collect();
+		self.globe.set_tiles(done);
 	}
 
 	// Render the selected scientific view while preserving the shared epoch; C++ member function.

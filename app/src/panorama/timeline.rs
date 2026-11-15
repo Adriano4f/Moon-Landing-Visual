@@ -9,6 +9,13 @@ impl Panorama
 		self.timeline.lock().options
 	}
 
+	/// Percent of the shown period with any Sun, once data is loaded.
+	pub(crate) fn sun_pct(&mut self) -> Option<f32>
+	{
+		self.refresh_summary();
+		self.summary_key.map(|_| self.summary.pct_sun as f32)
+	}
+
 	pub(super) fn refresh_summary(&mut self)
 	{
 		let options = self.options();

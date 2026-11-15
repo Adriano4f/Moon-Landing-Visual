@@ -129,6 +129,9 @@ pub struct Globe
 	// Last surface click off any marker, and the highlighted tile (lat, lon, half lat, half lon).
 	pick: Option<(f64, f64)>,
 	tile: Option<[f64; 4]>,
+	// Finished tiles and their Sun percentage, plus the app's tile grid.
+	tiles: Vec<([f64; 4], f32)>,
+	grid: Option<fn(f64, f64) -> [f64; 4]>,
 }
 
 // Exercise scene validation without opening an OpenGL context; C++ isolated test namespace.
@@ -166,6 +169,8 @@ mod scene_tests
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
 			pick: None,
 			tile: None,
+			tiles: Vec::new(),
+			grid: None,
 		}
 	}
 
@@ -311,6 +316,8 @@ impl Globe
 			focus: None,
 			pick: None,
 			tile: None,
+			tiles: Vec::new(),
+			grid: None,
 		})
 	}
 
