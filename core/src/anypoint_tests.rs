@@ -1,0 +1,458 @@
+use super::*;
+
+fn word(v: u16, little: bool) -> Vec<u8>
+{
+	if little
+	{
+		v.to_le_bytes().to_vec()
+	}
+	else
+	{
+		v.to_be_bytes().to_vec()
+	}
+}
+
+fn long(v: u32, little: bool) -> Vec<u8>
+{
+	if little
+	{
+		v.to_le_bytes().to_vec()
+	}
+	else
+	{
+		v.to_be_bytes().to_vec()
+	}
+}
+
+fn fixture(little: bool, tiled: bool, heights: &[f32; 9], nodata: &str) -> Vec<u8>
+{
+	let mut tags: Vec<(u16, u16, Vec<u8>)> = vec![
+		(256, 4, long(3, little)),
+		(257, 4, long(3, little)),
+		(258, 3, word(32, little)),
+		(259, 3, word(1, little)),
+		(262, 3, word(1, little)),
+		(277, 3, word(1, little)),
+		(339, 3, word(3, little)),
+		(42113, 2, format!("{nodata}\0").into_bytes()),
+	];
+	let mut chunks = Vec::new();
+	if tiled
+	{
+		tags.push((322, 4, long(2, little)));
+		tags.push((323, 4, long(2, little)));
+		for y in [0, 2]
+		{
+			for x in [0, 2]
+			{
+				let mut chunk = Vec::new();
+				for r in 0..2
+				{
+					for c in 0..2
+					{
+						let value = if y + r < 3 && x + c < 3
+						{
+							heights[(y + r) * 3 + x + c]
+						}
+						else
+						{
+							f32::NAN
+						};
+						chunk.extend(long(value.to_bits(), little));
+					}
+				}
+				chunks.push(chunk);
+			}
+		}
+	}
+	else
+	{
+		tags.push((278, 4, long(2, little)));
+		chunks = heights
+			.chunks(6)
+			.map(|v| v.iter().flat_map(|f| long(f.to_bits(), little)).collect())
+			.collect();
+	}
+	let offsets_tag = if tiled { 324 } else { 273 };
+	tags.push((offsets_tag, 4, vec![0; chunks.len() * 4]));
+	tags.push((
+		if tiled { 325 } else { 279 },
+		4,
+		chunks
+			.iter()
+			.flat_map(|c| long(c.len() as u32, little))
+			.collect(),
+	));
+	let extra = tags
+		.iter()
+		.filter(|(_, _, b)| b.len() > 4)
+		.map(|(_, _, b)| b.len())
+		.sum::<usize>();
+	let mut offset = 8 + 2 + tags.len() * 12 + 4 + extra;
+	let offsets = tags.iter_mut().find(|t| t.0 == offsets_tag).unwrap();
+	offsets.2.clear();
+	for chunk in &chunks
+	{
+		offsets.2.extend(long(offset as u32, little));
+		offset += chunk.len();
+	}
+	let mut bytes = if little
+	{
+		b"II".to_vec()
+	}
+	else
+	{
+		b"MM".to_vec()
+	};
+	bytes.extend(word(42, little));
+	bytes.extend(long(8, little));
+	bytes.extend(word(tags.len() as u16, little));
+	let mut extra_bytes: Vec<u8> = Vec::new();
+	let start = 8 + 2 + tags.len() * 12 + 4;
+	for (tag, kind, data) in &tags
+	{
+		bytes.extend(word(*tag, little));
+		bytes.extend(word(*kind, little));
+		let size = if *kind == 3
+		{
+			2
+		}
+		else if *kind == 4
+		{
+			4
+		}
+		else
+		{
+			1
+		};
+		bytes.extend(long((data.len() / size) as u32, little));
+		if data.len() <= 4
+		{
+			bytes.extend(data);
+			bytes.extend(vec![0; 4 - data.len()]);
+		}
+		else
+		{
+			bytes.extend(long((start + extra_bytes.len()) as u32, little));
+			extra_bytes.extend(data);
+		}
+	}
+	bytes.extend(long(0, little));
+	bytes.extend(extra_bytes);
+	bytes.extend(chunks.into_iter().flatten());
+	bytes
+}
+
+fn test_window() -> Window
+{
+	Window {
+		projection: Projection::Geographic,
+		bbox: [-1.5, -1.5, 1.5, 1.5],
+	}
+}
+
+#[test]
+fn tiles_cover_globe_with_unique_ids()
+{
+	assert!((10_000..11_000).contains(&tile_count()));
+	let mut id = 0;
+	for band in 0..90
+	{
+		for c in 0..cells(band)
+		{
+			let tile = tile_of(
+				-89.0 + f64::from(band) * 2.0,
+				(f64::from(c) + 0.5) * 360.0 / f64::from(cells(band)),
+			);
+			assert_eq!(tile.id, id);
+			assert!(tile.lon_deg >= 0.0 && tile.lon_deg < 360.0);
+			assert_eq!(tile.half_lat_deg, 1.0);
+			id += 1;
+		}
+	}
+	assert_eq!(id, tile_count());
+	assert_eq!(tile_of(0.0, -1.0), tile_of(0.0, 359.0));
+	assert_eq!(tile_of(90.0, 360.0), tile_of(100.0, 0.0));
+	assert_eq!(tile_of(-90.0, 0.0).lat_deg, -89.0);
+	assert_eq!(tile_of(f64::NAN, f64::INFINITY), tile_of(0.0, 0.0));
+}
+
+#[test]
+fn requests_choose_projection_and_split_seams()
+{
+	for (lat, lon, count, name) in [
+		(0.0, 23.5, 2, "Global_256"),
+		(-89.4398, 222.83, 2, "SPole"),
+		(90.0, 0.0, 2, "NPole"),
+		(0.0, 180.0, 4, "Global_256"),
+		(0.0, 0.0, 2, "Global_256"),
+	]
+	{
+		let urls = terrain_requests(lat, lon);
+		assert_eq!(urls.len(), count);
+		for url in urls
+		{
+			assert!(url.starts_with("https://trek.nasa.gov/"));
+			assert!(url.contains(name));
+			assert!(url.contains("size=1024%2C1024"));
+			assert!(url.contains("pixelType=F32&compression=none"));
+			assert!(url.contains("adjustAspectRatio=false"));
+		}
+	}
+	for lon in [-180.0, -179.9, 179.9, 180.0, 540.0]
+	{
+		for w in windows(79.0, lon)
+		{
+			assert!(w.bbox[0] >= -180.0 && w.bbox[2] <= 180.0);
+			assert!(w.bbox[0] < w.bbox[2]);
+			assert!(w.bbox[1] >= -90.0 && w.bbox[3] <= 90.0);
+		}
+	}
+	assert!(terrain_requests(f64::NAN, 0.0).is_empty());
+	assert!(terrain_requests(91.0, 0.0).is_empty());
+	assert!(terrain_requests(0.0, f64::INFINITY).is_empty());
+}
+
+#[test]
+fn decodes_strips_tiles_and_both_byte_orders()
+{
+	let values = [-123.0, 1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0];
+	for little in [true, false]
+	{
+		for tiled in [true, false]
+		{
+			let bytes = fixture(little, tiled, &values, "nan");
+			let r = decode(&bytes, test_window()).unwrap();
+			assert_eq!(r.values, values);
+			assert_eq!(r.sample(0.0, 0.0).unwrap().z_m, 7.0);
+			assert_eq!(r.sample(0.5, 0.5).unwrap().z_m, 5.0);
+			assert!(r.sample(3.0, 0.0).is_none());
+			assert!(decode(&bytes[..bytes.len() - 1], test_window()).is_err());
+		}
+	}
+}
+
+#[test]
+fn nodata_and_invalid_tiffs()
+{
+	for value in [f32::NAN, -9999.0, f32::INFINITY]
+	{
+		let mut values = [7.0; 9];
+		values[4] = value;
+		let r = decode(&fixture(true, false, &values, "-9999"), test_window()).unwrap();
+		assert!(r.sample(0.0, 0.0).is_none());
+		assert_eq!(r.sample(1.0, -1.0).unwrap().z_m, 7.0);
+	}
+	assert!(decode(&[], test_window()).is_err());
+	assert!(decode(b"{\"error\":500}", test_window()).is_err());
+	let bytes = fixture(true, true, &[0.0; 9], "nan");
+	for n in 0..bytes.len()
+	{
+		assert!(decode(&bytes[..n], test_window()).is_err());
+	}
+	let mut bytes = fixture(true, false, &[0.0; 9], "nan");
+	bytes[2] = 43;
+	assert!(decode(&bytes, test_window()).is_err());
+	let mut bytes = fixture(true, false, &[0.0; 9], "nan");
+	bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+	assert!(decode(&bytes, test_window()).is_err());
+}
+
+#[test]
+fn incremental_job_and_errors()
+{
+	let bytes = fixture(true, false, &[100.0; 9], "nan");
+	let tiffs = vec![bytes.clone(), bytes];
+	let mut job = HorizonJob::new(0.0, 23.5, 16, 2.0, &tiffs).unwrap();
+	assert_eq!(job.surface_m(), 100.0);
+	assert_eq!(job.progress(), 0.0);
+	assert!(job.step(0).unwrap().is_none());
+	assert!(job.step(3).unwrap().is_none());
+	assert_eq!(job.progress(), 3.0 / 16.0);
+	let h = job.step(usize::MAX).unwrap().unwrap();
+	assert_eq!(job.progress(), 1.0);
+	assert_eq!(h.h_deg.len(), 16);
+	assert!(h.h_deg.iter().all(|v| v.is_finite() && *v < 0.0));
+	assert_eq!(job.step(0).unwrap().unwrap().h_deg, h.h_deg);
+	let mut full = HorizonJob::new(0.0, 23.5, 16, 2.0, &tiffs).unwrap();
+	assert_eq!(full.step(16).unwrap().unwrap().h_deg, h.h_deg);
+	let mut missing_ray = HorizonJob::new(0.0, 23.5, 16, 2.0, &tiffs).unwrap();
+	for raster in &mut missing_ray.rasters
+	{
+		raster.values.fill(f32::NAN);
+	}
+	assert!(missing_ray.step(1).is_err());
+	assert_eq!(missing_ray.progress(), 0.0);
+	for (lat, n, height, data) in [
+		(91.0, 16, 2.0, tiffs.as_slice()),
+		(0.0, 0, 2.0, tiffs.as_slice()),
+		(0.0, 16, -1.0, tiffs.as_slice()),
+		(0.0, 16, 2.0, &[][..]),
+	]
+	{
+		assert!(HorizonJob::new(lat, 23.5, n, height, data).is_err());
+	}
+	let missing = fixture(true, false, &[f32::NAN; 9], "nan");
+	assert!(HorizonJob::new(0.0, 23.5, 16, 2.0, &[missing.clone(), missing]).is_err());
+	let mut fallback = decode(&fixture(true, false, &[f32::NAN; 9], "nan"), test_window()).unwrap();
+	let coarse = decode(&fixture(true, false, &[123.0; 9], "nan"), test_window()).unwrap();
+	assert_eq!(
+		sample(&[fallback, coarse], 0.0, 0.0).unwrap().unwrap().z_m,
+		123.0
+	);
+	// A valid origin with no off-origin coverage must fail, not yield a flat horizon.
+	fallback = decode(&fixture(true, false, &[f32::NAN; 9], "nan"), test_window()).unwrap();
+	fallback.values[4] = 0.0;
+	assert!(terrain_ray(
+		HorizonRay {
+			lat: 0.0,
+			lon: 0.0,
+			z0: 2.0,
+			near: 1.0,
+			limit: 100.0,
+			angular: 0.01
+		},
+		0.0,
+		&mut |p, l| sample(std::slice::from_ref(&fallback), p, l)
+	)
+	.is_err());
+}
+
+#[test]
+fn polar_axes()
+{
+	let (x, y) = Projection::South.xy(-89.0, 0.0);
+	assert!(x.abs() < 1e-9 && y > 0.0);
+	let (x, y) = Projection::North.xy(89.0, 90.0);
+	assert!(x > 0.0 && y.abs() < 1e-9);
+	let (x, y) = Projection::North.xy(89.0, 0.0);
+	assert!(x.abs() < 1e-9 && y < 0.0);
+}
+
+#[test]
+fn polar_jobs_match_geographic_ray_sampler()
+{
+	let bytes = fixture(
+		true,
+		true,
+		&[-10.0, 1000.0, 35.0, 100.0, 20.0, 3.0, 0.0, 800.0, 50.0],
+		"nan",
+	);
+	for (lat, lon) in [
+		(-89.4398, 222.83),
+		(89.4398, 222.83),
+		(-90.0, 0.0),
+		(90.0, 180.0),
+		(-80.0, 90.0),
+		(80.0, 270.0),
+	]
+	{
+		let tiffs = [bytes.clone(), bytes.clone()];
+		let rasters = windows(lat, lon)
+			.into_iter()
+			.zip(&tiffs)
+			.map(|(w, b)| decode(b, w).unwrap())
+			.collect::<Vec<_>>();
+		let expected = crate::horizon_from_terrain(lat, lon, 16, 2.0, Some(LIMIT_M), |p, l| {
+			sample(&rasters, p, l)
+		})
+		.unwrap();
+		let mut job = HorizonJob::new(lat, lon, 16, 2.0, &tiffs).unwrap();
+		let actual = job.step(16).unwrap().unwrap();
+		for (a, e) in actual.h_deg.iter().zip(expected.h_deg)
+		{
+			assert!((a - e).abs() < 1e-4, "{lat},{lon}: {a} != {e}");
+		}
+	}
+}
+
+/// Run with: cargo test -p lunar_core --release network_check -- --ignored --nocapture
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "Downloads Moon Trek TIFFs using curl"]
+fn network_check()
+{
+	use std::{
+		process::Command,
+		time::{Duration, Instant},
+	};
+	let reference: serde_json::Value = serde_json::from_str(include_str!(
+		"../../app/assets/data/connecting-ridge-c1.json"
+	))
+	.unwrap();
+	for (label, lat, lon) in [("C1", -89.4398, 222.83), ("equator", 0.0, 23.5)]
+	{
+		let mut tiffs = Vec::new();
+		for url in terrain_requests(lat, lon)
+		{
+			let result = Command::new("curl")
+				.args([
+					"--fail",
+					"--silent",
+					"--show-error",
+					"--location",
+					"--max-time",
+					"120",
+					&url,
+				])
+				.output()
+				.unwrap();
+			assert!(
+				result.status.success(),
+				"{}",
+				String::from_utf8_lossy(&result.stderr)
+			);
+			println!("{label}: downloaded {} bytes", result.stdout.len());
+			tiffs.push(result.stdout);
+		}
+		let start = Instant::now();
+		let mut job = HorizonJob::new(lat, lon, N_AZ, 2.0, &tiffs).unwrap();
+		let surface = job.surface_m();
+		let mut worst = Duration::ZERO;
+		let horizon = loop
+		{
+			let frame = Instant::now();
+			let result = job.step(20).unwrap();
+			worst = worst.max(frame.elapsed());
+			if let Some(horizon) = result
+			{
+				break horizon;
+			}
+		};
+		let min = horizon.h_deg.iter().copied().fold(f32::INFINITY, f32::min);
+		let max = horizon
+			.h_deg
+			.iter()
+			.copied()
+			.fold(f32::NEG_INFINITY, f32::max);
+		println!("{label}: surface={surface:.3} m, horizon=[{min:.6}, {max:.6}] deg, job={:.3} s, worst 20 bins={:.3} ms (native release)", start.elapsed().as_secs_f64(), worst.as_secs_f64() * 1000.0);
+		assert!(min.is_finite() && max.is_finite() && min > -20.0 && max < 45.0);
+		if label == "C1"
+		{
+			let site = &reference["site"];
+			assert_eq!(site["lat_deg"].as_f64().unwrap(), lat);
+			assert_eq!(site["lon_deg"].as_f64().unwrap(), lon);
+			assert_eq!(
+				reference["terrain"]["observer_height_m"].as_f64().unwrap(),
+				2.0
+			);
+			assert_eq!(
+				reference["terrain"]["reference_radius_m"].as_f64().unwrap(),
+				MOON_RADIUS_M
+			);
+			let h = reference["horizon"]["h_deg"].as_array().unwrap();
+			let reference_h = Horizon {
+				h_deg: h.iter().map(|v| v.as_f64().unwrap() as f32).collect(),
+			};
+			let errors: Vec<f64> = horizon
+				.h_deg
+				.iter()
+				.enumerate()
+				.map(|(i, &v)| f64::from(v - reference_h.at(i as f32 * 360.0 / N_AZ as f32)))
+				.collect();
+			let max_error = errors.iter().copied().map(f64::abs).fold(0.0, f64::max);
+			let rms = (errors.iter().map(|v| v * v).sum::<f64>() / errors.len() as f64).sqrt();
+			println!("C1 vs reference ({} bins): max={max_error:.6} deg, RMS={rms:.6} deg; reference surface={} m, observer=2 m", reference_h.h_deg.len(), reference["terrain"]["surface_height_m"]);
+		}
+	}
+}

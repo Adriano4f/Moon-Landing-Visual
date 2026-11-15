@@ -1,6 +1,8 @@
 // Expose portable any-site ephemeris geometry and binary decoding; C++ scientific module.
 pub mod ephemeris;
 
+pub mod anypoint;
+
 // Parse UTC table timestamps without accessing a clock; C++ chrono calendar parser.
 use chrono::NaiveDateTime;
 // Generate portable JSON adapters without performing I/O here; C++ serialization traits.
@@ -172,28 +174,53 @@ pub struct TerrainSample
 /// Great-circle destination with a geographic north/east tangent basis, also at the pole.
 pub fn destination(lat: f64, lon: f64, az: f64, distance_m: f64) -> (f64, f64)
 {
-	// Form latitude, longitude, bearing and arc trigonometry once; C++ sin/cos pairs.
-	let (sp, cp) = lat.to_radians().sin_cos();
-	let (sl, cl) = lon.to_radians().sin_cos();
-	let (sa, ca) = az.to_radians().sin_cos();
-	let (sb, cb) = (distance_m / MOON_RADIUS_M).sin_cos();
-	// r*cos(beta) + (north*cos(A)+east*sin(A))*sin(beta); C++ Cartesian components.
-	let x = cp * cl * cb + (-sp * cl * ca - sl * sa) * sb;
-	let y = cp * sl * cb + (-sp * sl * ca + cl * sa) * sb;
-	let z = sp * cb + cp * ca * sb;
-	// atan2 avoids asin's near-pole conditioning and enforces finite longitude; C++ std::atan2/hypot.
-	(z.atan2(x.hypot(y)).to_degrees(), y.atan2(x).to_degrees())
+	GreatCircle::new(lat, lon, az).destination(distance_m)
+}
+
+struct GreatCircle
+{
+	origin: [f64; 3],
+	tangent: [f64; 3],
+}
+
+impl GreatCircle
+{
+	fn new(lat: f64, lon: f64, az: f64) -> Self
+	{
+		let (sp, cp) = lat.to_radians().sin_cos();
+		let (sl, cl) = lon.to_radians().sin_cos();
+		let (sa, ca) = az.to_radians().sin_cos();
+		Self {
+			origin: [cp * cl, cp * sl, sp],
+			tangent: [-sp * cl * ca - sl * sa, -sp * sl * ca + cl * sa, cp * ca],
+		}
+	}
+
+	fn xyz(&self, distance_m: f64) -> [f64; 3]
+	{
+		let (sb, cb) = (distance_m / MOON_RADIUS_M).sin_cos();
+		std::array::from_fn(|i| self.origin[i] * cb + self.tangent[i] * sb)
+	}
+
+	fn destination(&self, distance_m: f64) -> (f64, f64)
+	{
+		let [x, y, z] = self.xyz(distance_m);
+		(z.atan2(x.hypot(y)).to_degrees(), y.atan2(x).to_degrees())
+	}
 }
 
 /// Exact radial-tangent elevation in degrees; observer_z includes instrument height.
 pub fn spherical_elevation(z: f64, observer_z: f64, beta: f64) -> f64
 {
+	let (vertical, horizontal) = spherical_components(z, observer_z, beta);
+	vertical.atan2(horizontal).to_degrees()
+}
+
+fn spherical_components(z: f64, observer_z: f64, beta: f64) -> (f64, f64)
+{
 	// Rewrite cos(beta)-1 to avoid cancellation for meter-scale baselines; C++ double expression.
 	let vertical = z - observer_z - 2.0 * (MOON_RADIUS_M + z) * (beta / 2.0).sin().powi(2);
-	// atan2 retains the correct quadrant unlike atan(vertical/horizontal); C++ std::atan2.
-	vertical
-		.atan2((MOON_RADIUS_M + z) * beta.sin())
-		.to_degrees()
+	(vertical, (MOON_RADIUS_M + z) * beta.sin())
 }
 
 /// Sample 0..360 geographic bearings to the first unavailable point on each ray.
@@ -426,25 +453,34 @@ fn terrain_ray(
 	sample: &mut impl FnMut(f64, f64) -> Result<Option<TerrainSample>, String>,
 ) -> Result<f32, String>
 {
+	let path = GreatCircle::new(ray.lat, ray.lon, az);
+	terrain_ray_samples(ray, az, &mut |s| {
+		let (lat, lon) = path.destination(s);
+		sample(lat, lon)
+	})
+}
+
+fn terrain_ray_samples(
+	ray: HorizonRay,
+	az: f64,
+	sample: &mut impl FnMut(f64) -> Result<Option<TerrainSample>, String>,
+) -> Result<f32, String>
+{
 	let HorizonRay {
-		lat,
-		lon,
 		z0,
 		near,
 		limit,
 		angular,
+		..
 	} = ray;
-	let mut value = -90.0_f32;
-	let h = &mut value;
+	let mut best: Option<(f64, f64)> = None;
 	// Start off the observer so atan2 never evaluates the coincident point; C++ loop variable.
 	let mut s = near;
 	// Trace until the requested compatibility limit or continuous DEM edge; C++ while.
 	while s <= limit
 	{
-		// Advance on the sphere before projecting in the sampler; C++ structured binding.
-		let (p, l) = destination(lat, lon, az, s);
 		// Propagate decoding errors; only absent data terminates a ray; C++ expected/optional extraction.
-		let Some(point) = sample(p, l)?
+		let Some(point) = sample(s)?
 		else
 		{
 			break;
@@ -457,8 +493,21 @@ fn terrain_ray(
 		{
 			return Err("Invalid terrain sample".into());
 		}
-		// Retain the largest exact spherical elevation seen on this ray; C++ std::max.
-		*h = h.max(spherical_elevation(point.z_m, z0, s / MOON_RADIUS_M) as f32);
+		// Horizontal components are positive before the antipode; compare slopes without atan2.
+		let (vertical, horizontal) = spherical_components(point.z_m, z0, s / MOON_RADIUS_M);
+		if best.is_none_or(|(v, h)| {
+			if h > 0.0 && horizontal > 0.0
+			{
+				vertical * h > v * horizontal
+			}
+			else
+			{
+				vertical.atan2(horizontal) > v.atan2(h)
+			}
+		})
+		{
+			best = Some((vertical, horizontal));
+		}
 		// Grow only up to half a local pixel: do not skip resolved narrow radial features; C++ min/max.
 		let next = s + (s * angular).max(near).min(point.resolution_m / 2.0);
 		// A broken callback must not stall a finite ray forever; C++ monotonic-progress guard.
@@ -469,14 +518,13 @@ fn terrain_ray(
 		// Advance only after validating floating-point progress; C++ assignment.
 		s = next;
 	}
-	// Fail closed if a ray has no noncoincident sample; C++ sentinel check.
-	if *h == -90.0
-	{
-		return Err(format!("No terrain samples at azimuth {az}"));
-	}
-	Ok(*h)
+	// A ray needs at least one noncoincident sample.
+	let (vertical, horizontal) =
+		best.ok_or_else(|| format!("No terrain samples at azimuth {az}"))?;
+	Ok(vertical.atan2(horizontal).to_degrees() as f32)
 }
 
+#[derive(Clone, Copy)]
 struct HorizonRay
 {
 	lat: f64,
