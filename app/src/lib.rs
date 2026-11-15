@@ -53,6 +53,8 @@ pub struct MoonApp
 	time: Option<i64>,
 	// Persist only whether the floating menu is open; C++ bool member.
 	menu_open: bool,
+	guide_open: bool,
+	guide_dismissal_pending: bool,
 	// Published catalog length; a custom point, if any, is the entry after them.
 	published: usize,
 	custom: Option<custom::Custom>,
@@ -102,6 +104,8 @@ impl MoonApp
 			all_rays: false,
 			time: None,
 			menu_open: false,
+			guide_open: menu::guide_visible(cc.storage),
+			guide_dismissal_pending: false,
 			published,
 			custom: None,
 			cached: Vec::new(),
@@ -323,7 +327,7 @@ mod tests
 impl eframe::App for MoonApp
 {
 	// Rebuild responsive UI each frame; C++ virtual draw callback.
-	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
+	fn ui(&mut self, ui: &mut eframe::egui::Ui, frame: &mut eframe::Frame)
 	{
 		self.update_custom(ui.ctx());
 		self.update_sites(ui);
@@ -334,6 +338,12 @@ impl eframe::App for MoonApp
 		ui.set_style(ui.ctx().style_of(eframe::egui::Theme::Dark));
 		self.settings(ui, phone);
 		self.central_view(ui);
+		self.welcome(ui.ctx());
+		if std::mem::take(&mut self.guide_dismissal_pending)
+			&& let Some(storage) = frame.storage_mut()
+		{
+			menu::dismiss_guide(storage);
+		}
 	}
 
 	// Destroy GPU resources while the framework still has a current context; C++ virtual shutdown callback.

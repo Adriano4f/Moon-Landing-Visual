@@ -7,6 +7,19 @@ use globe::help::question;
 // Access the owning application without duplicating scientific state; C++ parent class declaration.
 use crate::MoonApp;
 
+const GUIDE_DISMISSED: &str = "karaya-guide-dismissed";
+
+pub(super) fn guide_visible(storage: Option<&dyn eframe::Storage>) -> bool
+{
+	storage.and_then(|s| s.get_string(GUIDE_DISMISSED)).as_deref() != Some("true")
+}
+
+pub(super) fn dismiss_guide(storage: &mut dyn eframe::Storage)
+{
+	storage.set_string(GUIDE_DISMISSED, "true".into());
+	storage.flush();
+}
+
 // Summarize the verified linked reference, retaining secondary-source attribution; C++ metadata formatter.
 fn source_link(source: &str) -> Option<(String, &str)>
 {
@@ -49,6 +62,52 @@ fn source_link(source: &str) -> Option<(String, &str)>
 mod tests
 {
 	use super::*;
+
+	#[derive(Default)]
+	struct Memory
+	{
+		value: Option<String>,
+		flushed: bool,
+	}
+
+	impl eframe::Storage for Memory
+	{
+		fn get_string(&self, key: &str) -> Option<String>
+		{
+			assert_eq!(key, GUIDE_DISMISSED);
+			self.value.clone()
+		}
+
+		fn set_string(&mut self, key: &str, value: String)
+		{
+			assert_eq!(key, GUIDE_DISMISSED);
+			self.value = Some(value);
+		}
+
+		fn remove_string(&mut self, key: &str)
+		{
+			assert_eq!(key, GUIDE_DISMISSED);
+			self.value = None;
+		}
+
+		fn flush(&mut self)
+		{
+			self.flushed = true;
+		}
+	}
+
+	#[test]
+	fn guide_dismissal_is_persisted_and_missing_or_invalid_storage_shows_help()
+	{
+		let mut storage = Memory::default();
+		assert!(guide_visible(None));
+		assert!(guide_visible(Some(&storage)));
+		storage.value = Some("invalid".into());
+		assert!(guide_visible(Some(&storage)));
+		dismiss_guide(&mut storage);
+		assert!(storage.flushed);
+		assert!(!guide_visible(Some(&storage)));
+	}
 
 	#[test]
 	fn short_verified_citations_and_missing_metadata()
@@ -138,7 +197,10 @@ impl MoonApp
 			// Apply the UI event only when requested; C++ conditional branch.
 			if ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Compare lunar south pole sites by how often they see the Sun and Earth.");
+			if ui.button("?").on_hover_text("How to use").clicked()
+			{
+				self.guide_open = true;
+			}
 		}); });
 		// A floating menu overlays the main views on every screen size instead of reserving a sidebar; C++ modal-free settings window.
 		let mut open = self.menu_open;
@@ -146,14 +208,65 @@ impl MoonApp
 			.id(egui::Id::unique("settings-menu"))
 			.open(&mut open)
 			.collapsible(false)
+			.movable(true)
+			.constrain_to(ctx.content_rect().shrink(8.0))
 			.default_pos([8.0, 66.0])
-			.default_width(300.0)
-			.max_width(if phone { 320.0 } else { 340.0 })
+			.default_width(if phone { 300.0 } else { 440.0 })
+			.default_height((ctx.content_rect().height() - 90.0).max(100.0))
+			.min_width(if phone { 96.0 } else { 420.0 })
+			.max_width(if phone { 320.0 } else { (ctx.content_rect().width() - 48.0).min(460.0) })
 			.max_height((ctx.content_rect().height() - 90.0).max(100.0))
 			.vscroll(true)
-			.show(&ctx, |ui| self.menu_contents(ui));
+			.show(&ctx, |ui| {
+				if !phone
+				{
+					ui.spacing_mut().item_spacing = egui::vec2(14.0, 12.0);
+				}
+				self.menu_contents(ui);
+			});
 		// Persist the presentation change between frames; C++ member assignment.
 		self.menu_open = open;
+	}
+
+	pub(crate) fn change_options(&mut self, ui: &egui::Ui)
+	{
+		if !self.menu_open
+		{
+			let position = egui::pos2(ui.max_rect().right() - 148.0, ui.max_rect().top() + 4.0);
+			egui::Area::new(egui::Id::unique("change-options"))
+				.fixed_pos(position)
+				.show(ui.ctx(), |ui| {
+					if ui.button("Change options").clicked()
+					{
+						self.menu_open = true;
+					}
+				});
+		}
+	}
+
+	pub(crate) fn welcome(&mut self, ctx: &egui::Context)
+	{
+		if self.guide_open
+		{
+			egui::Modal::new(egui::Id::unique("welcome-guide")).show(ctx, |ui| {
+				ui.set_width((ctx.content_rect().width() - 56.0).clamp(1.0, 360.0));
+				ui.heading("How to use");
+				for step in [
+					"1. Pick a site, or click the Moon.",
+					"2. Choose a period, date and step.",
+					"3. Read Sun/Earth % and the graph.",
+					"4. Use Change options for settings.",
+				]
+				{
+					ui.label(step);
+				}
+				if ui.button("Got it").clicked()
+				{
+					self.guide_open = false;
+					self.guide_dismissal_pending = true;
+				}
+			});
+		}
 	}
 
 	// Group controls by the question a visitor is trying to answer; C++ member function.
@@ -162,13 +275,15 @@ impl MoonApp
 		// Wrap every explanation to the sidebar width; C++ local text policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 		self.site_time_sections(ui);
+		ui.add(egui::Separator::default().spacing(0.0));
 		section(
 			ui,
-			"More options",
+			"Display & more",
 			false,
 			"Optional camera, lighting, ray and Earth link settings.",
 			|ui| self.advanced_sections(ui),
 		);
+		ui.add_space(6.0);
 		section(
 			ui,
 			"Explanations",
@@ -366,10 +481,13 @@ impl MoonApp
 				});
 			},
 		);
+		ui.add(egui::Separator::default().spacing(0.0));
+		ui.strong("View");
 		self.globe.view_controls(ui);
+		ui.add(egui::Separator::default().spacing(0.0));
 		section(
 			ui,
-			"Time",
+			"Time & period",
 			true,
 			"",
 			|ui| {

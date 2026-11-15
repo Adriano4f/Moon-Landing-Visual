@@ -115,6 +115,7 @@ impl MoonApp
 		let size = eframe::egui::vec2(ui.available_width(), (available.y * 0.4).clamp(300.0, 360.0));
 		// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
 		ui.allocate_ui(size, |ui| {
+			self.change_options(ui);
 			// Check this state or input before acting; C++ conditional branch.
 			if let Some(id) = self.globe.show(ui)
 			{
@@ -155,6 +156,7 @@ impl MoonApp
 		let mut globe_ui = ui.new_child(egui::UiBuilder::new().id_salt("globe-panel")
 			.max_rect(left).layout(egui::Layout::top_down(egui::Align::Min)));
 		globe_ui.set_clip_rect(left);
+		self.change_options(&globe_ui);
 		if let Some(selected) = self.globe.show(&mut globe_ui)
 		{
 			self.selected = selected;

@@ -37,7 +37,7 @@ impl Timeline
 				}
 			}
 		});
-		self.period_controls(ui);
+		ui.collapsing("Custom dates", |ui| self.period_controls(ui));
 		*cursor = (*cursor).clamp(self.options.period.start, self.options.period.end);
 	}
 
