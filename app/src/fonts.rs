@@ -1,6 +1,6 @@
 use eframe::egui::{Context, FontData, FontDefinitions, FontFamily, FontTweak};
 
-// Preserve interface glyph metrics without embedding unused scripts; C++ font registry setup.
+/// Preserve interface glyph metrics without embedding unused scripts.
 pub(super) fn install(ctx: &Context)
 {
 	let mut fonts = FontDefinitions::empty();

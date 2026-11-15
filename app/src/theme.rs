@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, Color32, CornerRadius, FontId, Stroke, TextStyle};
 
-// Apply presentation only when the responsive size changes; C++ idempotent style initialization.
+/// Apply presentation only when the responsive size changes.
 pub(crate) fn apply(ctx: &egui::Context, phone: bool)
 {
 	let height = if phone { 44.0 } else { 36.0 };
@@ -29,7 +29,6 @@ pub(crate) fn apply(ctx: &egui::Context, phone: bool)
 	});
 }
 
-// Reserve blue for interaction, retaining semantic Sun/Earth and status colors; C++ palette setup.
 fn palette(visuals: &mut egui::Visuals)
 {
 	let accent = Color32::from_rgb(124, 193, 244);

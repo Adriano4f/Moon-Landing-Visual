@@ -51,5 +51,3 @@ cargo run -p prep --release -- --ephemeris app/assets/data/moon-ephemeris.bin /h
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds `app/` with Trunk and deploys `app/dist` to GitHub Pages.
 
 Credits: NASA/JPL, PGDA/LOLA, NASA SVS (Ernie Wright), LROC/ASU and the cited site authors. No project-wide license file is currently provided; asset attribution and bundled font licenses remain in [`globe/assets/README.md`](globe/assets/README.md) and [`app/assets/fonts/`](app/assets/fonts/).
-
-Detailed tutorials and learning documentation are preserved on the [`learn` branch](https://github.com/Adriano4f/Moon-Landing-Visual/tree/learn).

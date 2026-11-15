@@ -11,9 +11,9 @@ use crate::{
 };
 
 pub const N_AZ: usize = 720;
-// Pixels per side; 512² F32 is about 1 MB per request.
+/// Pixels per side; 512² F32 is about 1 MB per request.
 const SIZE: usize = 512;
-// Polar fine windows keep their native 5-30 m spacing.
+/// Polar fine windows keep their native 5-30 m spacing.
 const POLAR_FINE_SIZE: usize = 1024;
 const LIMIT_M: f64 = 250_000.0;
 const SERVICE: &str = "https://trek.nasa.gov/moon/trekarcgis/rest/services";

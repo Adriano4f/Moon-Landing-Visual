@@ -8,19 +8,17 @@ use lunar_core::ephemeris::{Ephemeris, topocentric};
 use lunar_core::{Horizon, Site, Track};
 use std::sync::Arc;
 
-// One asynchronous byte download; None while in flight.
 type Slot = Arc<Mutex<Option<Result<Vec<u8>, String>>>>;
 
-// Same three-year UTC span as the published sites, so summaries are comparable.
+/// Same three-year UTC span as the published sites, so summaries are comparable.
 const START_UTC: i64 = 1_798_761_600;
 const END_UTC: i64 = 1_893_456_000;
-// Instrument height above terrain, as for the published sites.
+/// Instrument height above terrain, as for the published sites.
 const MAST_M: f64 = 2.0;
-// Bins integrated per frame; small enough to keep the UI responsive.
 const BINS_PER_FRAME: usize = 4;
-// Horizon work per frame; keeps the UI smooth while using most of the frame.
+/// Horizon work per frame; keeps the UI smooth while using most of the frame.
 const FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
-// Give up on NASA downloads after this many seconds.
+/// Give up on NASA downloads after this many seconds.
 const TIMEOUT_S: f64 = 30.0;
 
 enum Stage
@@ -43,9 +41,8 @@ pub(crate) struct Custom
 	pub name: String,
 	pub pending: Pending,
 	timeline: timeline::Shared,
-	// Set when the job ended in an error, so a new click retries.
+	/// Set when the job ended in an error, so a new click retries.
 	pub failed: bool,
-	// UI time when downloads started, for the timeout.
 	started: f64,
 	stage: Stage,
 }
@@ -55,7 +52,6 @@ fn slot() -> Slot
 	Arc::new(Mutex::new(None))
 }
 
-// Fetch one URL and wake the UI on completion; works natively and in the browser.
 fn fetch(ctx: &egui::Context, url: String) -> Slot
 {
 	let result = slot();
@@ -79,7 +75,7 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 	result
 }
 
-// Display label with longitude in -180..180.
+/// Display label with longitude in -180..180.
 fn name(tile: &Tile) -> String
 {
 	let lon = if tile.lon_deg > 180.0
@@ -95,7 +91,6 @@ fn name(tile: &Tile) -> String
 
 impl Custom
 {
-	// A finished point restored from the session cache; its panorama already holds the data.
 	pub fn restored(tile: Tile, timeline: timeline::Shared) -> Self
 	{
 		Self {
@@ -128,7 +123,6 @@ impl Custom
 		}
 	}
 
-	// Plain-language progress while the job runs; None once finished.
 	pub fn status(&self) -> Option<String>
 	{
 		match &self.stage
@@ -149,7 +143,6 @@ impl Custom
 		}
 	}
 
-	// Advance at most one frame's worth of work.
 	pub fn step(&mut self, ctx: &egui::Context)
 	{
 		let elapsed = ctx.input(|i| i.time) - self.started;
@@ -254,7 +247,7 @@ impl Custom
 	}
 }
 
-// Run horizon bins until the job ends or the frame budget is used.
+/// Run horizon bins until the job ends or the frame budget is used.
 fn step_for(job: &mut HorizonJob, budget: std::time::Duration) -> Result<Option<Horizon>, String>
 {
 	let start = web_time::Instant::now();
@@ -271,7 +264,6 @@ fn step_for(job: &mut HorizonJob, budget: std::time::Duration) -> Result<Option<
 	}
 }
 
-// A finished custom point kept for the session while another tile is shown.
 pub(crate) struct Cached
 {
 	pub tile: Tile,

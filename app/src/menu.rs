@@ -1,10 +1,7 @@
 //! Grouped settings and plain-language orientation, separated from the scientific canvas.
 
-// Use the framework's UI types without a second egui dependency; C++ namespace alias.
 use eframe::egui;
-// Reuse one touch-friendly help implementation in both crates; C++ imported helper.
 use globe::help::question;
-// Access the owning application without duplicating scientific state; C++ parent class declaration.
 use crate::MoonApp;
 
 const GUIDE_DISMISSED: &str = "karaya-guide-dismissed";
@@ -20,7 +17,7 @@ pub(super) fn dismiss_guide(storage: &mut dyn eframe::Storage)
 	storage.flush();
 }
 
-// Summarize the verified linked reference, retaining secondary-source attribution; C++ metadata formatter.
+/// Summarize the verified linked reference, retaining secondary-source attribution.
 fn source_link(source: &str) -> Option<(String, &str)>
 {
 	let url = source
@@ -140,7 +137,6 @@ mod tests
 	}
 }
 
-// Explain and collapse a settings group with a stable identity; C++ templated callback helper.
 fn section(
 	ui: &mut egui::Ui,
 	title: &str,
@@ -149,60 +145,45 @@ fn section(
 	body: impl FnOnce(&mut egui::Ui),
 )
 {
-	// Keep each group's expansion state independent of frame order; C++ persistent identifier.
 	let id = ui.make_persistent_id(title);
-	// Put a genuine help button beside the collapsible heading; C++ header and body callbacks.
 	egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, open)
 		.show_header(ui, |ui| {
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.strong(title);
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			if explanation.is_empty() { ui.set_min_height(ui.spacing().interact_size.y); }
 			else { question(ui, explanation); }
 		})
 		.body(body);
 }
 
-// Paint an unobtrusive vector crescent and the requested name; C++ custom-widget helper.
 pub(crate) fn logo(ui: &mut egui::Ui)
 {
-	// Reserve the mark independently of screen pixel density; C++ logical-size layout.
 	let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
-	// Draw a soft blue-gray lunar disk; C++ circle drawing call.
 	ui.painter()
 		.circle_filled(rect.center(), 9.0, egui::Color32::from_rgb(132, 169, 193));
-	// Cut out the unlit side using the panel's own background; C++ second filled circle.
 	ui.painter().circle_filled(
 		rect.center() + egui::vec2(4.0, -2.0),
 		7.5,
-		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.visuals().panel_fill,
 	);
-	// Keep the title small enough for a phone header; C++ text widget.
+	// Keep the title small enough for a phone header.
 	ui.strong("Karaya Explorer");
 }
 
-// Keep panel layout code close to its own controls; C++ out-of-class member definitions.
 impl MoonApp
 {
-	// Render the settings as a floating overlay so the canvas keeps the full width; C++ responsive container.
+	/// Render the settings as a floating overlay so the canvas keeps the full width.
 	pub(crate) fn settings(&mut self, root: &mut egui::Ui, phone: bool)
 	{
-		// Retain a context handle for floating windows while panels borrow the root; C++ shared UI handle.
 		let ctx = root.ctx().clone();
-		// The compact brand and menu toggle stay visible when the menu is closed; C++ top-panel callback.
 		egui::Panel::top("brand").show(root, |ui| { ui.horizontal(|ui| {
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			logo(ui);
-			// Apply the UI event only when requested; C++ conditional branch.
 			if ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			if ui.button("?").on_hover_text("How to use").clicked()
 			{
 				self.guide_open = true;
 			}
 		}); });
-		// A floating menu overlays the main views on every screen size instead of reserving a sidebar; C++ modal-free settings window.
+		// A floating menu overlays the main views on every screen size instead of reserving a sidebar.
 		let mut open = self.menu_open;
 		egui::Window::new("Menu")
 			.id(egui::Id::unique("settings-menu"))
@@ -223,7 +204,6 @@ impl MoonApp
 				}
 				self.menu_contents(ui);
 			});
-		// Persist the presentation change between frames; C++ member assignment.
 		self.menu_open = open;
 	}
 
@@ -252,10 +232,9 @@ impl MoonApp
 		}
 	}
 
-	// Group controls by the question a visitor is trying to answer; C++ member function.
 	fn menu_contents(&mut self, ui: &mut egui::Ui)
 	{
-		// Wrap every explanation to the sidebar width; C++ local text policy.
+		// Wrap every explanation to the sidebar width.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 		self.site_section(ui);
 		ui.add(egui::Separator::default().spacing(0.0));
@@ -276,7 +255,7 @@ impl MoonApp
 		);
 	}
 
-	// Hide specialist settings until requested, retaining established groups; C++ nested menu helper.
+	/// Hide specialist settings until requested, retaining established groups.
 	fn advanced_sections(&mut self, ui: &mut egui::Ui)
 	{
 		section(
@@ -306,7 +285,6 @@ impl MoonApp
 			false,
 			"Earth must be at least this many degrees above the hills to count as linked.",
 			|ui| {
-				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]
 				{
 					p.radio_controls(ui);
@@ -319,7 +297,6 @@ impl MoonApp
 			false,
 			"Show the same sky as a graph of direction from north against height.",
 			|ui| {
-				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]
 				{
 					p.technical_controls(ui);
@@ -329,28 +306,19 @@ impl MoonApp
 		);
 	}
 
-	// Keep loading progress and failures beside the mode that requested background tracks; C++ member function.
 	fn ray_controls(&mut self, ui: &mut egui::Ui)
 	{
 		self.globe.surface_ray_controls(ui);
-		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, false, "Selected site only");
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			question(ui, "Show rays from the selected site only; a dim ray is blocked by hills.");
 		});
-		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, true, "All sites");
-			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			question(ui, "Show rays from every site at once.");
 		});
-		// Apply the UI event only when requested; C++ conditional branch.
 		if self.all_rays
 		{
-			// Bind this frame's presentation value; C++ local initialization.
 			let ready = self
 				.panoramas
 				.iter()
@@ -362,10 +330,8 @@ impl MoonApp
 				format!("Site tracks ready: {ready}/{}", self.catalog.len()),
 				"Number of sites whose data has loaded and can show rays.",
 			);
-			// Visit each explanatory item in order; C++ range-for loop.
 			for (id, p) in self.panoramas.iter().enumerate()
 			{
-				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(error) = p.as_ref().and_then(|p| p.load_error())
 				{
 					globe::help::annotated(
@@ -380,10 +346,8 @@ impl MoonApp
 	}
 }
 
-// Define ordinary-language concepts before offering technical detail; C++ static text section.
 fn explanations(ui: &mut egui::Ui)
 {
-	// Each topic can be read independently on a small screen; C++ range-for over explanatory records.
 	for (title, text) in [
 		(
 			"Standing on the Moon",
@@ -415,11 +379,8 @@ fn explanations(ui: &mut egui::Ui)
 		),
 	]
 	{
-		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.strong(title);
-		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.label(text);
-		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.add_space(6.0);
 	}
 }
@@ -434,7 +395,6 @@ impl MoonApp
 			true,
 			"Choose the published landing site you want to look from.",
 			|ui| {
-				// Submit this immediate-mode widget or explanation; C++ UI helper call.
 				ui.horizontal(|ui| {
 					let width = (ui.available_width() - 54.0).max(100.0);
 					ui.scope(|ui| {
@@ -444,14 +404,12 @@ impl MoonApp
 							.wrap_mode(egui::TextWrapMode::Truncate)
 							.selected_text(&self.catalog[self.selected].name)
 							.show_ui(ui, |ui| {
-								// Visit each explanatory item in order; C++ range-for loop.
 								for (id, entry) in self.catalog.iter().enumerate()
 								{
 									ui.selectable_value(&mut self.selected, id, &entry.name);
 								}
 							});
 					});
-					// Submit this immediate-mode widget or explanation; C++ UI helper call.
 					let text =
 						"Results assume an observer standing 2 m above the ground at this published site.";
 					if let Some((caption, url)) = source_link(&self.catalog[self.selected].source)

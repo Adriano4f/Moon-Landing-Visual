@@ -16,21 +16,20 @@ const SP: &str = "https://trek.nasa.gov/tiles/Moon/SP/LRO_WAC_Mosaic_SPole60_100
 const NP: &str = "https://trek.nasa.gov/tiles/Moon/NP/LRO_WAC_Mosaic_NPole60_100m_v02/1.0.0/default/default028mm";
 pub(crate) const EQ_MAX: u32 = 8;
 pub(crate) const POLE_MAX: u32 = 5;
-// Lunar radius and half side of the polar stereographic square, meters.
+/// Lunar radius and half side of the polar stereographic square, meters.
 pub(crate) const RADIUS: f32 = 1737400.0;
 pub(crate) const EXTENT: f32 = 1095930.0;
-// Polar square ground pixel at z0, meters.
+/// Polar square ground pixel at z0, meters.
 const POLE_PIXEL: f32 = 8561.953;
-// Polar tiles are used poleward of 75 deg, EQ equatorward of 77 deg.
+/// Polar tiles are used poleward of 75 deg, EQ equatorward of 77 deg.
 pub(crate) const POLE_LAT: f32 = 75.0 * PI / 180.0;
 pub(crate) const EQ_LAT: f32 = 77.0 * PI / 180.0;
-// Selected tiles (ancestors plus leaves) never exceed this.
+/// Selected tiles (ancestors plus leaves) never exceed this.
 pub(crate) const BUDGET: usize = 80;
-// Refine while one texel covers more than this many screen pixels.
+/// Refine while one texel covers more than this many screen pixels.
 const SHARP: f32 = 1.0;
 const MAX_FLIGHT: usize = 4;
 const MAX_QUEUE: usize = 6;
-// Keep every visible tile's retry deadline, even during a complete outage.
 const MAX_FAILED: usize = BUDGET;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -39,13 +38,13 @@ pub(crate) struct Tile
 	pub z: u32,
 	pub row: u32,
 	pub col: u32,
-	// 0 = EQ, -1 = south polar, +1 = north polar.
+	/// 0 = EQ, -1 = south polar, +1 = north polar.
 	pub pole: i32,
 }
 
 impl Tile
 {
-	// Tile grid at level z: EQ is 2^(z+1) x 2^z, polar squares are 2^z x 2^z.
+	/// Tile grid at level z: EQ is 2^(z+1) x 2^z, polar squares are 2^z x 2^z.
 	pub fn grid(pole: i32, z: u32) -> (u32, u32)
 	{
 		if pole == 0
@@ -94,7 +93,7 @@ impl Tile
 		})
 	}
 
-	// Unit direction of normalized tile coordinates (u right, v down) in [0, 1]^2.
+	/// Unit direction of normalized tile coordinates (u right, v down) in [0, 1]^2.
 	pub fn point(self, u: f32, v: f32) -> [f32; 3]
 	{
 		let (w, h) = Tile::grid(self.pole, self.z);
@@ -111,7 +110,7 @@ impl Tile
 		)
 	}
 
-	// Smallest and largest |lat| (radians) touched by the tile.
+	/// Smallest and largest |lat| (radians) touched by the tile.
 	pub fn abs_lat(self) -> (f32, f32)
 	{
 		let (w, h) = Tile::grid(self.pole, self.z);
@@ -139,7 +138,7 @@ impl Tile
 		(rho_lat(far), rho_lat(near))
 	}
 
-	// Angular size (radians) of one texel, worst case over the tile.
+	/// Angular size (radians) of one texel, worst case over the tile.
 	pub fn texel(self) -> f32
 	{
 		if self.pole == 0
@@ -151,7 +150,7 @@ impl Tile
 		POLE_PIXEL / (1u32 << self.z) as f32 / RADIUS / (1.0 + t * t)
 	}
 
-	// Vertical range [v0, v1] of the tile inside its source band; EQ is clipped to |lat| <= EQ_LAT.
+	/// Vertical range [v0, v1] of the tile inside its source band; EQ is clipped to |lat| <= EQ_LAT.
 	pub fn span(self) -> (f32, f32)
 	{
 		if self.pole != 0
@@ -163,7 +162,7 @@ impl Tile
 		(v(EQ_LAT), v(-EQ_LAT))
 	}
 
-	// Only tiles touching their own latitude band are worth drawing.
+	/// Only tiles touching their own latitude band are worth drawing.
 	pub fn useful(self) -> bool
 	{
 		let (low, high) = self.abs_lat();
@@ -178,13 +177,13 @@ impl Tile
 	}
 }
 
-// |lat| at polar plane radius rho (stereographic, tangent at the pole).
+/// |lat| at polar plane radius rho (stereographic, tangent at the pole).
 fn rho_lat(rho: f32) -> f32
 {
 	FRAC_PI_2 - 2.0 * (rho / (2.0 * RADIUS)).atan()
 }
 
-// Inverse polar stereographic: SP lon = atan2(x, y), NP lon = atan2(x, -y).
+/// Inverse polar stereographic: SP lon = atan2(x, y), NP lon = atan2(x, -y).
 pub(crate) fn pole_direction(pole: i32, x: f32, y: f32) -> [f32; 3]
 {
 	let lat = rho_lat(x.hypot(y));
@@ -209,7 +208,7 @@ fn normalize(a: [f32; 3]) -> [f32; 3]
 	[a[0] / n, a[1] / n, a[2] / n]
 }
 
-// Spherical cap containing a surface patch: points p with dot(p, center) >= cos(angle).
+/// Spherical cap containing a surface patch: points p with dot(p, center) >= cos(angle).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Cap
 {
@@ -219,7 +218,7 @@ pub(crate) struct Cap
 
 impl Cap
 {
-	// Conservative cap of the tile's useful span from a 9x9 sample grid plus a margin.
+	/// Conservative cap of the tile's useful span from a 9x9 sample grid plus a margin.
 	pub fn of(tile: Tile) -> Cap
 	{
 		const N: usize = 9;
@@ -256,7 +255,7 @@ impl Cap
 		}
 	}
 
-	// Polar band poleward of POLE_LAT.
+	/// Polar band poleward of POLE_LAT.
 	pub fn pole(pole: i32) -> Cap
 	{
 		Cap {
@@ -265,7 +264,7 @@ impl Cap
 		}
 	}
 
-	// Euclidean ball containing the cap: (center, radius).
+	/// Center and radius of a Euclidean ball enclosing this spherical cap.
 	fn ball(self) -> ([f32; 3], f32)
 	{
 		if self.angle >= FRAC_PI_2
@@ -280,20 +279,19 @@ impl Cap
 	}
 }
 
-// Camera derived from View, mirroring View::camera_distance and View::projection.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Camera
 {
 	model: [f32; 9],
-	// Eye direction in model space; the eye sits at distance * eye.
+	/// Model-space direction; the eye is at distance * eye.
 	eye: [f32; 3],
 	distance: f32,
 	sx: f32,
 	sy: f32,
 	pan: [f32; 2],
-	// Screen pixels per unit of tan(angle) vertically.
+	/// Screen pixels per unit of tan(angle) vertically.
 	focal: f32,
-	// Surface seen on screen when the whole screen is covered by the sphere.
+	/// Surface seen on screen when the whole screen is covered by the sphere.
 	screen: Option<Cap>,
 }
 
@@ -318,7 +316,7 @@ impl Camera
 		camera
 	}
 
-	// Model-space surface point under normalized device coordinates (x, y), if the ray hits.
+	/// Model-space surface point under NDC (x, y), or None when the ray misses.
 	fn hit(self, x: f32, y: f32) -> Option<[f32; 3]>
 	{
 		let r = normalize([(x - self.pan[0]) / self.sx, (y - self.pan[1]) / self.sy, -1.0]);
@@ -338,7 +336,7 @@ impl Camera
 		})))
 	}
 
-	// Cap around the screen boundary's surface image; None when some edge ray misses the sphere.
+	/// Cap around the screen boundary's surface image; None when some edge ray misses the sphere.
 	fn screen_cap(self) -> Option<Cap>
 	{
 		const N: usize = 8;
@@ -359,7 +357,6 @@ impl Camera
 		})
 	}
 
-	// Cap intersects the camera's visible hemisphere and the view frustum.
 	pub fn sees(self, cap: Cap) -> bool
 	{
 		if let Some(screen) = self.screen
@@ -380,7 +377,6 @@ impl Camera
 		{
 			return false;
 		}
-		// Shift each side plane with the projection's lens offset.
 		for (coordinate, scale, pan) in [(q[0], self.sx, self.pan[0]), (q[1], self.sy, self.pan[1])]
 		{
 			for sign in [-1.0, 1.0]
@@ -395,7 +391,7 @@ impl Camera
 		true
 	}
 
-	// Screen pixels per texel at the nearest point of the cap.
+	/// Screen pixels per texel at the nearest point of the cap.
 	pub fn error(self, tile: Tile, cap: Cap) -> f32
 	{
 		let (c, r) = cap.ball();
@@ -444,8 +440,6 @@ impl Ord for Node
 	}
 }
 
-// Visible quadtree nodes (ancestors and leaves), coarse first, at most BUDGET.
-// Worst-resolved node is refined first; a node whose visible children don't fit stays a leaf.
 pub(crate) fn select(view: math::View) -> Vec<Tile>
 {
 	let camera = Camera::new(view);
@@ -512,25 +506,20 @@ pub(crate) fn select(view: math::View) -> Vec<Tile>
 struct Failure
 {
 	attempts: u32,
-	// None until the scheduler stamps it with the next retry time.
+	/// None until the scheduler stamps it with the next retry time.
 	retry: Option<f64>,
 }
 
 #[derive(Default)]
 pub(crate) struct State
 {
-	// Visible tiles, coarse first; GPU keeps these and evicts others.
 	pub wanted: Vec<Tile>,
-	// Decoded images awaiting GPU upload.
 	pub pending: VecDeque<(Tile, assets::TextureImage)>,
-	// Tiles on the GPU; the GPU owner updates it after upload and eviction.
 	pub resident: HashSet<Tile>,
-	// Last download error, cleared by the next success.
 	pub error: Option<String>,
 	disabled: bool,
 	flight: HashSet<Tile>,
 	failed: HashMap<Tile, Failure>,
-	// Insertion order of failed, oldest first, for the bound.
 	failed_order: VecDeque<Tile>,
 	view_key: Option<([u32; 9], [u32; 6])>,
 }
@@ -555,8 +544,6 @@ impl State
 		self.resident.contains(&tile) || self.pending.iter().any(|(t, _)| *t == tile)
 	}
 
-	// Pick new downloads from wanted, coarse first, and mark them in flight.
-	// A tile waits for its parent unless the parent is present or failed.
 	fn plan(&mut self, now: f64) -> Vec<Tile>
 	{
 		if self.disabled
@@ -650,7 +637,7 @@ impl State
 
 pub(crate) type Shared = Arc<Mutex<State>>;
 
-// Recompute the visible set and start at most MAX_FLIGHT downloads, pending + in flight <= MAX_QUEUE.
+/// Recompute the visible set and start at most MAX_FLIGHT downloads, pending + in flight <= MAX_QUEUE.
 pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 {
 	let key = (
@@ -922,7 +909,6 @@ mod tests
 			{
 				assert!(dot(Cap::of(*t).center, target) > 0.5, "{t:?} far from view");
 			}
-			// Opposite hemisphere: no deep tile there.
 			assert!(
 				tiles
 					.iter()
@@ -1073,7 +1059,6 @@ mod tests
 		assert_eq!(state.failed.len(), BUDGET);
 		assert!(state.plan(0.0).is_empty());
 		assert!(state.plan(3.9).is_empty());
-		// Retain a visible old failure ahead of newer off-screen failures.
 		let other = Tile { col: 1, ..root };
 		state.wanted = vec![root, other];
 		state.finish(other, Err("Service unavailable".into()));
