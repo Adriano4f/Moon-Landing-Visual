@@ -2,6 +2,8 @@
 mod data;
 // Compile the immediate-mode panorama view; C++ includes a project module's declarations.
 mod panorama;
+// Compile the angular sky-strip painter; C++ project drawing module.
+mod sky;
 
 // Own persistent renderer and scientific-view state; C++ application class members.
 pub struct MoonApp

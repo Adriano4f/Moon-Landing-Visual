@@ -10,6 +10,8 @@ Continue with [the panorama teaching guide](docs/05-panorama.md) for immediate-m
 
 Open the folder in Zed with `zed .` or File > Open. Zed's Rust support is built in and downloads rust-analyzer automatically. There is no extension to install.
 
+The default [standing-at-site view](docs/07-ui.md) shows finite Sun/Earth disks behind grey terrain, plain-language sunlight/radio statuses, whole-period summary cards and a question-mark help panel. Technical view retains the numerical plot. Vertical stretching is labeled, so the small angular disks are not silently enlarged. The fixed site is the published 2 m Connecting Ridge C1 position; the terrain guide explains why it replaces the older rounded-coordinate baseline.
+
 - `core/` (`lunar_core`): pure geometry, terrain horizons, visibility, time-weighted statistics, and Horizons text parsing.
 - `prep/`: reads external LOLA PGDA 78/90 GeoTIFFs with the pure-Rust `tiff` crate, computes fixed-site terrain horizons through core's I/O-free sampler interface, downloads JPL Horizons observer tracks, and writes one JSON per site in `app/assets/data/`.
 - `globe/`: rotating Moon renderer with runtime-loaded 2k/4k/8k NASA color and offline LOLA-derived normal maps. It has no dependency on `lunar_core` and does not compute landing-site visibility.
