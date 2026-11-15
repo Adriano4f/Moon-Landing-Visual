@@ -1,6 +1,5 @@
 //! View-dependent WMTS quadtree selection and a bounded download scheduler.
 //! EQ covers |lat| <= 77 deg, the SP/NP stereographic squares cover |lat| >= 75 deg.
-#![allow(dead_code)]
 mod fetch;
 
 use crate::{assets, math};
@@ -301,23 +300,15 @@ impl Camera
 	pub fn new(view: math::View) -> Camera
 	{
 		let model = view.model();
-		let distance = if view.zoom >= 1.0
-		{
-			1.0 + 4.0 / view.zoom
-		}
-		else
-		{
-			5.0
-		};
-		let p = math::perspective(view.aspect.max(1e-3));
-		let k = if view.zoom >= 1.0 { 1.0 } else { view.zoom };
+		let distance = view.camera_distance();
+		let p = view.projection();
 		let mut camera = Camera {
 			model,
 			eye: [model[2], model[5], model[8]],
 			distance,
-			sx: p[0] * k,
-			sy: p[5] * k,
-			focal: p[5] * k * view.pixels[1].max(1.0) / 2.0,
+			sx: p[0],
+			sy: p[5],
+			focal: p[5] * view.pixels[1].max(1.0) / 2.0,
 			screen: None,
 		};
 		camera.screen = camera.screen_cap();
@@ -330,12 +321,13 @@ impl Camera
 		let r = normalize([x / self.sx, y / self.sy, -1.0]);
 		// |o + t r|^2 = 1 with o = (0, 0, distance): t^2 + 2 b t + c = 0.
 		let b = self.distance * r[2];
-		let disc = b * b - (self.distance * self.distance - 1.0);
+		let c = (self.distance - 1.0) * (self.distance + 1.0);
+		let disc = b * b - c;
 		if disc < 0.0
 		{
 			return None;
 		}
-		let t = -b - disc.sqrt();
+		let t = c / (-b + disc.sqrt());
 		let v = [t * r[0], t * r[1], self.distance + t * r[2]];
 		let m = self.model;
 		Some(normalize(std::array::from_fn(|j| {
@@ -527,6 +519,7 @@ pub(crate) struct State
 	failed: HashMap<Tile, Failure>,
 	// Insertion order of failed, oldest first, for the bound.
 	failed_order: VecDeque<Tile>,
+	view_key: Option<[u32; 6]>,
 }
 
 impl State
@@ -582,6 +575,10 @@ impl State
 	fn finish(&mut self, tile: Tile, result: Result<assets::TextureImage, String>)
 	{
 		self.flight.remove(&tile);
+		if !self.wanted.contains(&tile)
+		{
+			return;
+		}
 		match result
 		{
 			Ok(image) =>
@@ -621,11 +618,26 @@ pub(crate) type Shared = Arc<Mutex<State>>;
 // Recompute the visible set and start at most MAX_FLIGHT downloads, pending + in flight <= MAX_QUEUE.
 pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 {
-	let wanted = select(view);
+	let key = [
+		view.yaw,
+		view.tilt,
+		view.zoom,
+		view.aspect,
+		view.pixels[0],
+		view.pixels[1],
+	]
+	.map(f32::to_bits);
+	let changed = shared.lock().view_key != Some(key);
+	let wanted = changed.then(|| select(view));
 	let now = ctx.input(|i| i.time);
 	let jobs = {
 		let mut state = shared.lock();
-		state.wanted = wanted;
+		if let Some(wanted) = wanted
+		{
+			state.pending.retain(|(tile, _)| wanted.contains(tile));
+			state.wanted = wanted;
+			state.view_key = Some(key);
+		}
 		state.plan(now)
 	};
 	for tile in jobs

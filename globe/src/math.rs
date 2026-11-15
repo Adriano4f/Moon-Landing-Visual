@@ -77,13 +77,26 @@ impl View
 		let (st, ct) = self.tilt.sin_cos();
 		product([c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c],self.rotation)
 	}
-	// Zoom narrows the field of view without entering the sphere; C++ matrix scale.
+	pub fn camera_distance(self) -> f32
+	{
+		1.0 + (CAMERA_DISTANCE - 1.0) / self.zoom.max(1.0)
+	}
+
+	pub fn near(self) -> f32
+	{
+		((self.camera_distance() - 1.0) * 0.25).clamp(0.00001, 0.1)
+	}
+
+	// Move toward the surface; keep the near plane proportional to altitude.
 	pub fn projection(self) -> [f32; 16]
 	{
-		// Bind this intermediate value for the current operation; C++ local initialization.
 		let mut p = perspective(self.aspect);
-		p[0] *= self.zoom;
-		p[5] *= self.zoom;
+		p[0] *= self.zoom.min(1.0);
+		p[5] *= self.zoom.min(1.0);
+		let near = self.near();
+		let far = self.camera_distance() + 5.0;
+		p[10] = (far + near) / (near - far);
+		p[14] = 2.0 * far * near / (near - far);
 		p
 	}
 	// Optionally reject sphere-occluded surface markers, but project off-sphere ray tips; C++ checked projection.
@@ -94,15 +107,16 @@ impl View
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let p: [f32; 3] =
 			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-		if (surface && CAMERA_DISTANCE * p[2] <= 1.0) || p[2] >= CAMERA_DISTANCE - 0.1
+		let distance = self.camera_distance();
+		if (surface && distance * p[2] <= 1.0) || p[2] >= distance - self.near()
 		{
 			return None;
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let projection = self.projection();
 		Some([
-			projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
-			projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
+			projection[0] * p[0] / (distance - p[2]),
+			projection[5] * p[1] / (distance - p[2]),
 		])
 	}
 	// Invert project for the unit sphere: nearest ray hit in Moon-fixed coordinates.
@@ -287,6 +301,7 @@ pub(crate) fn local_direction(lat: f32, lon: f32, az: f32, el: f32) -> Option<[f
 
 /// Interleaved object position and UV, followed by counterclockwise triangle indices.
 // Generate a UV sphere with duplicate seam vertices and indexed triangles; C++ returns two vectors.
+#[cfg(test)]
 pub(crate) fn sphere(slices: u32, stacks: u32) -> (Vec<f32>, Vec<u32>)
 {
 	// Panic if this geometric or state invariant is false; C++ assert is the nearest equivalent, but Rust tests keep assertions enabled.
@@ -459,6 +474,36 @@ mod tests
 		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
 		{
 			assert!(shader.contains("uniform highp float u_camera_distance;"));
+		}
+	}
+
+	#[test]
+	fn deep_camera_stays_above_surface_with_useful_depth_precision()
+	{
+		for zoom in [0.5, 1.0, 8.0, 64.0, 256.0, 1024.0]
+		{
+			let view = View {
+				yaw: 0.0,
+				tilt: 0.0,
+				zoom,
+				aspect: 0.6,
+				pixels: [600.0, 1000.0],
+				scale: 1.0,
+			};
+			let altitude = view.camera_distance() - 1.0;
+			assert!(altitude > view.near() && view.near() > 0.0);
+			assert_eq!(view.project([0.0, 0.0, 1.0], true), Some([0.0, 0.0]));
+			assert!(view.project([0.0, 0.0, -1.0], true).is_none());
+			let p = view.projection();
+			let depth = (p[10] * -altitude + p[14]) / altitude;
+			assert!(depth > -1.0 && depth < 1.0);
+			// A metre of separation remains distinguishable in a 24-bit depth buffer.
+			let offset = altitude + 1.0 / 1_737_400.0;
+			let next_depth = (p[10] * -offset + p[14]) / offset;
+			if zoom >= 64.0
+			{
+				assert!((next_depth - depth).abs() > 2.0 / 16_777_216.0);
+			}
 		}
 	}
 

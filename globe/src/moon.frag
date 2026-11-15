@@ -4,6 +4,11 @@ precision highp float;
 in vec3 v_position;
 // Pass unrotated object position so texture coordinates remain attached to the Moon.
 in vec3 v_object;
+in vec2 v_screen;
+uniform mat4 u_projection;
+uniform highp sampler2DArray u_deep_color;
+uniform sampler2D u_deep_pages;
+uniform highp int u_deep_ready;
 // Bind the selected tier's SRGB8_ALPHA8 color texture through its texture-unit index.
 uniform sampler2D u_albedo;
 // Bind the selected tier's linear RGB8 object-space normal texture.
@@ -184,18 +189,52 @@ float light_response(vec3 n, vec3 geometric, vec3 view, vec3 light, float normal
 }
 
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
+// Resolve the finest resident ancestor in constant time; empty pages keep the overview.
+vec4 satellite(vec2 uv, int pole)
+{
+	bool polar = pole != 0;
+	vec2 extent = polar ? vec2(32.0) : vec2(512.0, 256.0);
+	uv = vec2(polar ? clamp(uv.x, 0.0, 0.999999) : fract(uv.x), clamp(uv.y, 0.0, 0.999999));
+	ivec2 cell = ivec2(floor(uv * extent)) + ivec2(pole < 0 ? 512 : (pole > 0 ? 544 : 0), 0);
+	vec2 page = floor(texelFetch(u_deep_pages, cell, 0).rg * 255.0 + 0.5);
+	if (page.x < 1.0 || u_deep_ready == 0) return vec4(0.0);
+	float rows = exp2(page.y);
+	vec2 tiles = vec2(polar ? rows : 2.0 * rows, rows);
+	vec2 local = clamp(fract(uv * tiles), vec2(0.5 / 256.0), vec2(255.5 / 256.0));
+	return vec4(texture(u_deep_color, vec3(local, page.x - 1.0)).rgb, 1.0);
+}
+
+// Analytic sphere intersection avoids mesh facets and remains stable near the surface.
+bool surface_point(out vec3 position, out vec3 object)
+{
+	vec3 ray = normalize(vec3(v_screen.x / u_projection[0][0], v_screen.y / u_projection[1][1], -1.0));
+	float b = -u_camera_distance * ray.z;
+	float c = (u_camera_distance - 1.0) * (u_camera_distance + 1.0);
+	float discriminant = b * b - c;
+	if (discriminant < 0.0) return false;
+	float distance = c / (b + sqrt(discriminant));
+	position = vec3(ray.xy * distance, u_camera_distance + ray.z * distance);
+	object = normalize(transpose(u_model) * position);
+	vec4 clip = u_projection * vec4(ray * distance, 1.0);
+	gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
+	return gl_FragDepth >= 0.0 && gl_FragDepth <= 1.0;
+}
+
 void main()
 {
 	// All fragments in this draw take the same branch, before texture derivatives or Hapke evaluation; C++ uniform material switch.
 	if (u_ray_mode != 0)
 	{
+		gl_FragDepth = gl_FragCoord.z;
 		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
 		out_color = vec4(u_ray_color, 1.0 - smoothstep(0.15, 1.0, length(v_coverage)));
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;
 	}
 	// Normalize the interpolated object-space direction before reconstructing longitude and latitude.
-	vec3 p = normalize(v_object);
+	vec3 position;
+	vec3 p;
+	if (!surface_point(position, p)) discard;
 	// Map atan longitude and acos latitude into normalized equirectangular coordinates.
 	vec2 uv = vec2(atan(p.x, p.z) / (2.0 * PI) + 0.5, acos(clamp(p.y, -1.0, 1.0)) / PI);
 	// Differentiate the continuous direction, not the wrapped atan output.
@@ -226,9 +265,9 @@ void main()
 	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
 	vec3 earth_light = normalize(u_model * u_earth);
 	// Point from the surface fragment to the shared perspective camera.
-	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - v_position);
+	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
-	vec3 geometric = normalize(v_position);
+	vec3 geometric = normalize(position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
 	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
@@ -247,15 +286,30 @@ void main()
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
 	albedo = mix(albedo, vec3(0.4832), polar_fallback);
+	float cap = 1.0 - smoothstep(sin(75.0 * PI / 180.0), sin(77.0 * PI / 180.0), abs(p.y));
+	vec4 global_detail = satellite(uv, 0);
+	float global_weight = global_detail.a * cap;
+	vec3 satellite_factor = mix(vec3(1.0), clamp(global_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), global_weight);
+	float satellite_weight = global_weight;
+	if (cap < 1.0)
+	{
+		int pole = p.y < 0.0 ? -1 : 1;
+		vec2 polar_detail_uv = 0.5 + (1737400.0 / 1095930.0) * vec2(p.x, p.y < 0.0 ? -p.z : p.z) / max(1.0 + abs(p.y), 0.000001);
+		vec4 polar_detail = satellite(polar_detail_uv, pole);
+		float weight = polar_detail.a * (1.0 - cap);
+		satellite_factor = mix(satellite_factor, clamp(polar_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), weight);
+		satellite_weight = max(satellite_weight, weight);
+	}
 	if (polar_blend > 0.0)
 	{
 		// Recorded photographic shadows are bounded visual contrast, never measured current illumination or albedo.
 		vec3 mosaic = texture(u_polar_color, polar_uv).rgb;
 		float valid = step(0.0001, dot(mosaic, vec3(1.0)));
-		albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid);
+		albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid * (1.0 - satellite_weight));
 	}
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
+	albedo *= mix(vec3(1.0), satellite_factor, 0.85);
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
 	// Only longitudes beyond +/-90 degrees from mean Earth longitude zero receive this visual aid.
 	float far_side = smoothstep(0.0, 0.15, -p.z / max(length(p.xz), 0.000001));

@@ -1,3 +1,4 @@
+mod deep;
 mod polar;
 mod setup;
 mod textures;
@@ -23,8 +24,6 @@ pub(super) struct Renderer
 	buffers: Vec<glow::Buffer>,
 	// Own the albedo and normal textures in sampler order; C++ vector<GLuint>.
 	textures: Vec<glow::Texture>,
-	// Number of indices passed to the draw, not the number of triangles; C++ GLsizei.
-	index_count: i32,
 	// Record the quality actually uploaded, independently of the requested upgrade; C++ unsigned member.
 	pub(super) tier: u32,
 	// Signal only after the renderer has drawn with real sky directions; C++ bool.
@@ -32,6 +31,7 @@ pub(super) struct Renderer
 	// Retain decoded upgrades between bounded GPU-upload frames; C++ optional pair with image iterator.
 	pending: Option<(u32, std::vec::IntoIter<assets::TextureImage>)>,
 	pub(crate) polar: Option<polar::Atlas>,
+	deep: Option<deep::Atlas>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -125,6 +125,7 @@ impl Renderer
 			Self::begin_frame(gl, program);
 			Self::light_uniforms(gl, program, lighting);
 			self.bind_polar(gl, program, polar_ready);
+			self.bind_deep(gl, program);
 			self.paint_opaque(gl, program, view);
 			// Smooth alpha coverage needs blending on native and WebGL; C++ glEnable/glBlendFunc.
 			gl.enable(glow::BLEND);
@@ -141,12 +142,16 @@ impl Renderer
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-			for unit in 0..4
+			for unit in 0..6
 			{
 				// Select which texture unit subsequent binds affect; C++ glActiveTexture.
 				gl.active_texture(glow::TEXTURE0 + unit);
 				// Bind or unbind an image at the active unit; C++ glBindTexture.
 				gl.bind_texture(glow::TEXTURE_2D, None);
+				if unit == 4
+				{
+					gl.bind_texture(glow::TEXTURE_2D_ARRAY, None);
+				}
 			}
 			// Select which texture unit subsequent binds affect; C++ glActiveTexture.
 			gl.active_texture(glow::TEXTURE0);
@@ -208,6 +213,10 @@ impl Renderer
 	// Release registered GPU objects using the current context; C++ explicit teardown avoids a late invalid-context destructor.
 	pub(super) fn destroy(&mut self, gl: &glow::Context)
 	{
+		if let Some(deep) = self.deep.take()
+		{
+			deep.destroy(gl);
+		}
 		if let Some(polar) = self.polar.take()
 		{
 			polar.destroy(gl);
@@ -401,7 +410,7 @@ impl Renderer
 			gl.uniform_1_f32(
 				gl.get_uniform_location(program, "u_camera_distance")
 					.as_ref(),
-				math::CAMERA_DISTANCE,
+				view.camera_distance(),
 			);
 			// Always restore the textured material before drawing the Moon; C++ glUniform1i.
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
@@ -431,7 +440,7 @@ impl Renderer
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
-			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			gl.draw_arrays(glow::TRIANGLES, 0, 3);
 		}
 	}
 }

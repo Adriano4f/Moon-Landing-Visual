@@ -41,13 +41,57 @@ impl Globe
 		{
 			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
 		}
+		if self.has_visible_moon() && self.zoom >= 2.0
+		{
+			deep::advance(&self.deep, view, ui.ctx());
+		}
 		self.queue_gl(ui, rect, view, lighting);
 		self.paint_grid(ui, rect, view);
 		self.paint_tiles(ui, rect, view);
 		let clicked = self.paint_markers(ui, &response, rect, view);
 		self.paint_tile(ui, rect, view);
 		self.surface_pick(&response, rect, view, clicked.is_some());
-		Self::legend(ui, rect, &self.polar.lock());
+		Self::legend(
+			ui,
+			rect,
+			&self.polar.lock(),
+			!self.deep.lock().resident.is_empty(),
+		);
+		if self.zoom >= 2.0
+		{
+			let deep = self.deep.lock();
+			let visible = deep
+				.wanted
+				.iter()
+				.filter(|tile| deep.resident.contains(tile))
+				.count();
+			let status = if deep.error.is_some()
+			{
+				"; some detail unavailable"
+			}
+			else
+			{
+				""
+			};
+			ui.painter_at(rect).rect_filled(
+				egui::Rect::from_min_size(
+					rect.left_bottom() + egui::vec2(5.0, -38.0),
+					egui::vec2((rect.width() - 10.0).min(340.0), 35.0),
+				),
+				3.0,
+				egui::Color32::from_black_alpha(225),
+			);
+			ui.painter_at(rect).text(
+				rect.left_bottom() + egui::vec2(8.0, -8.0),
+				egui::Align2::LEFT_BOTTOM,
+				format!(
+					"Satellite mosaic: {visible}/{} tiles{status}\nShadows are recorded; lighting follows date",
+					deep.wanted.len()
+				),
+				egui::FontId::proportional(11.0),
+				egui::Color32::WHITE,
+			);
+		}
 		if self.space_view { space::paint(ui,rect,self.body_rotation,lighting); }
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
@@ -259,6 +303,7 @@ impl Globe
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
 		let polar = Arc::clone(&self.polar);
+		let deep = Arc::clone(&self.deep);
 		let rays = self.scene_rays();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let surface_rays = self.surface_rays;
@@ -276,6 +321,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_mut()
 				{
 					renderer.update_polar(painter.gl(), &polar);
+					renderer.update_deep(painter.gl(), &deep);
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
 					renderer.paint(
 						painter.gl(),
@@ -356,7 +402,7 @@ impl Globe
 		clicked
 	}
 
-	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State)
+	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State, satellite: bool)
 	{
 		let painter = ui.painter_at(rect);
 		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
@@ -368,7 +414,11 @@ impl Globe
 			3.0,
 			egui::Color32::from_black_alpha(225),
 		);
-		let caption = if polar.ready
+		let caption = if satellite
+		{
+			"Satellite mosaic: shadows are recorded".into()
+		}
+		else if polar.ready
 		{
 			"Polar mosaic: shadows are recorded".into()
 		}
@@ -386,7 +436,7 @@ impl Globe
 		}
 		else
 		{
-			"Illustration only; polar cap schematic".into()
+			"Illustration; satellite detail loads on zoom".into()
 		};
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),

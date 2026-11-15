@@ -19,11 +19,11 @@ impl Globe
 	// Draw camera controls independently of the illustration; C++ member function.
 	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
 	{
-		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
+		// Approach the surface while imagery refines asynchronously.
 		ui.horizontal(|ui| {
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Enlarge the Moon up to eight times to see south-polar detail.");
+			help::question(ui, "Scroll or pinch to approach the surface with satellite imagery, up to 1,024x.");
 		});
 		self.site_camera(ui);
 		// Keep synthetic camera spin optional; C++ bool edit.
@@ -46,6 +46,13 @@ impl Globe
 			}
 		));
 		self.texture_controls(ui);
+		if self.zoom > 1.0
+		{
+			ui.small(format!(
+				"Camera altitude: {:.1} km (illustrative sphere)",
+				(4.0 / self.zoom) * 1737.4
+			));
+		}
 	}
 
 	// Draw physical-light display aids separately from camera actions; C++ member function.
@@ -100,11 +107,7 @@ impl Globe
 			self.focus = Some((
 				time,
 				[self.yaw, self.tilt, self.zoom],
-				[
-					self.yaw + delta,
-					latitude,
-					MAX_ZOOM,
-				],
+				[self.yaw + delta, latitude, 8.0],
 			));
 			// Update this persistent member explicitly; C++ member assignment.
 			self.paused = true;
