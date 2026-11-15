@@ -117,7 +117,7 @@ The mesh test verifies counts, valid indices, coincident seam positions, east/no
 
 The renderer stores program, shader, buffer, texture, and VAO handles, not the GL context. WebGL's context is not Send + Sync, the Rust marker traits for thread transfer and shared thread-safe access. The callback requires those traits even on this browser target. Keeping the context out of captured storage follows eframe's custom glow example and avoids pretending WebGL is thread-safe. Drawing obtains the actual current context from the callback's painter. No worker thread is created.
 
-`CreationContext.gl` is an optional shared glow context, available when using eframe's glow backend. `MoonApp::new` returns a useful error if it is absent. The native and browser options request a 24-bit depth buffer, because eframe otherwise defaults to no depth attachment. The library's integration contract requires such a buffer. This is tested with the native app, not inferred from compilation alone.
+`CreationContext.gl` is an optional shared glow context, available when using eframe's glow backend. `MoonApp::new` returns a useful error if it is absent. The native and browser options request a 24-bit depth buffer, because eframe otherwise defaults to no depth attachment. The library's integration contract requires such a buffer. This is tested with the native app, not inferred from compilation alone. The native options also set `multisampling: 4`, which asks for 4x multisample anti-aliasing (MSAA): each pixel stores 4 coverage and depth samples, and the fragment shader still runs about once per pixel per triangle, so the extra cost is mainly framebuffer memory and the final resolve. It smooths the stepped edge of the sphere. The browser path has no such field in `WebOptions`. eframe 0.37 creates the context with `get_context("webgl2")` and no attributes, so the WebGL default `antialias: true` applies; whether the browser honors it is the browser's decision.
 
 The UI first constructs a `PaintCallback`, which stores a rectangle and a reference-counted callback object. This does not draw immediately. Later, egui_glow binds its target framebuffer and configures the callback viewport and scissor rectangle before invoking `CallbackFn`. The callback locks the renderer, supplies the pixel aspect ratio, and calls `paint`. egui_glow 0.37 currently renders directly to the default framebuffer and disables desktop `FRAMEBUFFER_SRGB` during its UI setup. The renderer therefore writes sRGB-encoded output itself. This is verified against the versioned [painter source](https://docs.rs/egui_glow/0.37.0/src/egui_glow/painter.rs.html), especially `prepare_painting`, callback dispatch, and `intermediate_fbo`. A future egui renderer upgrade must revisit the framebuffer, depth, and color contracts.
 
@@ -909,6 +909,7 @@ fn main() -> eframe::Result
 		"Moon Landing Visual",
 		eframe::NativeOptions {
 			depth_buffer: 24,
+			multisampling: 4,
 			..Default::default()
 		},
 		Box::new(|cc| Ok(Box::new(app::MoonApp::new(cc)?))),

@@ -8,6 +8,7 @@ fn main() -> eframe::Result
 		"Moon Landing Visual",
 		eframe::NativeOptions {
 			depth_buffer: 24,
+			multisampling: 4,
 			..Default::default()
 		},
 		Box::new(|cc| Ok(Box::new(app::MoonApp::new(cc)?))),
