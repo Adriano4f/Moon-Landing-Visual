@@ -15,6 +15,17 @@ W, B, C, BS0, HS = 0.3261142672, 0.2348928321, 0.3574639778, 1.7707997700, 0.062
 THETA = math.radians(23.65660095)
 
 
+def front_facing_normal(mapped, view, epsilon=0.01):
+    """Reference for the shader's view-half-space projection, not a Hapke term."""
+    mapped, view = np.asarray(mapped, dtype=float), np.asarray(view, dtype=float)
+    if any(v.shape != (3,) or not np.all(np.isfinite(v)) or np.linalg.norm(v) == 0
+           for v in [mapped, view]) or not 0 < epsilon < 1:
+        raise ValueError("Expected nonzero finite 3-vectors and 0 < epsilon < 1")
+    mapped, view = mapped/np.linalg.norm(mapped), view/np.linalg.norm(view)
+    corrected = mapped + max(0,epsilon-float(mapped@view))*view
+    return corrected/np.linalg.norm(corrected)
+
+
 def h_function(x):
     if x == 0:
         return 1.0

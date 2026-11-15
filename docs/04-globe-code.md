@@ -90,6 +90,8 @@ supported_extensions returns a set of extension names. ends_with tests the aniso
 
 ### 2.3 GLSL APIs
 
+smoothstep(edge0,edge1,x) returns t*t*(3-2*t), where t=clamp((x-edge0)/(edge1-edge0),0,1). The edges must satisfy edge0<edge1; results outside that contract are undefined. Our edges are 0.35 and 0.65. In C++, compute the same expression with std::clamp. mix(a,b,t) computes (1-t)*a+t*b componentwise; it is a linear interpolation, comparable to std::lerp for scalar inputs. We fade two sunlight responses to the geometric-sphere response near the limb, after correcting the mapped normal's view component. The derivation and presentation thresholds are in rendering-guide section 7.
+
 vec2/vec3/vec4 construct float vectors; mat4 is a four-column matrix. Arithmetic on vectors is componentwise except matrix multiplication. normalize divides by length; dot sums component products. acos maps a cosine in [-1,1] to [0,pi]; clamp enforces that interval against roundoff. atan(y,x) returns the quadrant-aware angle. exp and log are natural exponential/logarithm; log requires a positive argument. pow raises a positive base to an exponent. sqrt receives max(...,0) in roundoff-sensitive expressions. inversesqrt(x) computes 1/sqrt(x) for positive x; our roughness normalization argument is at least one.
 
 max/min bound values; abs removes sign; tan has poles, so azimuth pi is handled by its limiting branch. mix(a,b,t)=a*(1-t)+b*t; step(edge,x) returns 0 below edge, 1 otherwise. Together they choose the piecewise sRGB branch per channel. dFdx/dFdy estimate local screen-space changes across fragment quads. textureGrad samples an explicitly supplied footprint, returning four channels; unlike an ordinary texture call it does not derive the wrapped longitude's discontinuity. All those functions use GLSL scalar/vector overloads, not Rust methods.
@@ -1237,6 +1239,10 @@ uniform float u_angle;
 out vec4 out_color;
 // Define pi once so all angular expressions use radians consistently.
 const float PI = 3.141592653589793;
+// Project mapped normals into the view-facing half-space before renormalizing; dimensionless cosine.
+const float MIN_EMISSION_COSINE = 0.01;
+// Display exposure is eight times relative linear radiance, one stop above the previous value of four.
+const float EXPOSURE = 8.0;
 // Area-weighted 566 nm WAC map means, not a new fit. See assets/photometry.py.
 // ISIS3 fadd004da2f733525209ee4f66ffdb3a9a9d193e:
 // isis/src/lro/apps/lrowacphomap/HapkeLROC.cpp, HGfunc and photometry.
@@ -1393,8 +1399,19 @@ void main()
 	vec3 light = normalize(vec3(1.0, 0.2, 0.6));
 	// Point from the surface fragment to the perspective camera at z=3.3.
 	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
+	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
+	vec3 geometric = normalize(v_position);
+	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
+	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
+	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
+	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
+	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
 	// Evaluate radiance factor from incidence, emission, and phase, with no ambient component.
-	float reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
+	float mapped_reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
+	// Evaluate the smooth sphere separately: terrain normals cannot describe resolved visibility at the limb.
+	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
+	// Cross-fade the two sunlight responses, rather than inventing ambient light or clamping the display color.
+	float reflectance = mix(geometric_reflectance, mapped_reflectance, normal_strength);
 	// Prevent local normal tilts lighting the geometric night side without terrain shadows.
 	// Mask the geometric night side because this smooth silhouette cannot cast resolved terrain shadows.
 	if (dot(normalize(v_position), light) <= 0.0)
@@ -1407,7 +1424,7 @@ void main()
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
-	vec3 radiance = 4.0 * (albedo / 0.4832) * reflectance;
+	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
 	// Compress positive linear radiance with the Reinhard operator before display encoding.
 	vec3 mapped = radiance / (vec3(1.0) + radiance);
 	// Encode once to sRGB and set alpha to one; egui_glow disables framebuffer sRGB encoding.
@@ -1550,6 +1567,8 @@ fn main()
 ```
 
 ## 5. Alphabetical API and method index
+
+GLSL smoothstep and mix are explained in [section 2.3](#23-glsl-apis); the Rust/OpenGL call index follows.
 
 Each entry points to the complete annotated quotation. Sections 1 and 2 define the language and API contracts before those quotations.
 

@@ -14,6 +14,10 @@ uniform float u_angle;
 out vec4 out_color;
 // Define pi once so all angular expressions use radians consistently.
 const float PI = 3.141592653589793;
+// Project mapped normals into the view-facing half-space before renormalizing; dimensionless cosine.
+const float MIN_EMISSION_COSINE = 0.01;
+// Display exposure is eight times relative linear radiance, one stop above the previous value of four.
+const float EXPOSURE = 8.0;
 // Area-weighted 566 nm WAC map means, not a new fit. See assets/photometry.py.
 // ISIS3 fadd004da2f733525209ee4f66ffdb3a9a9d193e:
 // isis/src/lro/apps/lrowacphomap/HapkeLROC.cpp, HGfunc and photometry.
@@ -170,8 +174,19 @@ void main()
 	vec3 light = normalize(vec3(1.0, 0.2, 0.6));
 	// Point from the surface fragment to the perspective camera at z=3.3.
 	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
+	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
+	vec3 geometric = normalize(v_position);
+	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
+	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
+	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
+	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
+	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
 	// Evaluate radiance factor from incidence, emission, and phase, with no ambient component.
-	float reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
+	float mapped_reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
+	// Evaluate the smooth sphere separately: terrain normals cannot describe resolved visibility at the limb.
+	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
+	// Cross-fade the two sunlight responses, rather than inventing ambient light or clamping the display color.
+	float reflectance = mix(geometric_reflectance, mapped_reflectance, normal_strength);
 	// Prevent local normal tilts lighting the geometric night side without terrain shadows.
 	// Mask the geometric night side because this smooth silhouette cannot cast resolved terrain shadows.
 	if (dot(normalize(v_position), light) <= 0.0)
@@ -184,7 +199,7 @@ void main()
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
-	vec3 radiance = 4.0 * (albedo / 0.4832) * reflectance;
+	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
 	// Compress positive linear radiance with the Reinhard operator before display encoding.
 	vec3 mapped = radiance / (vec3(1.0) + radiance);
 	// Encode once to sRGB and set alpha to one; egui_glow disables framebuffer sRGB encoding.
