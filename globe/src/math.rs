@@ -4,6 +4,25 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 // Keep CPU projection and shader view directions at the same illustrative distance; C++ constant.
 pub(crate) const CAMERA_DISTANCE: f32 = 5.0;
 
+pub(crate) type Mat3 = [f32; 9];
+#[cfg(test)]
+pub(crate) const IDENTITY: Mat3 = [1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0];
+
+pub(crate) fn transform(m: Mat3, v: [f32; 3]) -> [f32; 3]
+{
+	std::array::from_fn(|i|m[i]*v[0]+m[i+3]*v[1]+m[i+6]*v[2])
+}
+
+fn product(a: Mat3, b: Mat3) -> Mat3
+{
+	std::array::from_fn(|i| (0..3).map(|k|a[3*k+i%3]*b[3*(i/3)+k]).sum())
+}
+
+pub(crate) fn camera_angles(direction: [f32; 3]) -> [f32; 2]
+{
+	[-direction[0].atan2(direction[2]),direction[1].clamp(-1.0,1.0).asin()]
+}
+
 // Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
 pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
 {
@@ -31,6 +50,7 @@ pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
 #[derive(Clone, Copy)]
 pub(crate) struct View
 {
+	pub rotation: Mat3,
 	// Store this public value without platform-specific ownership; C++ aggregate member.
 	pub yaw: f32,
 	// Store this public value without platform-specific ownership; C++ aggregate member.
@@ -55,7 +75,7 @@ impl View
 		let (s, c) = self.yaw.sin_cos();
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let (st, ct) = self.tilt.sin_cos();
-		[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c]
+		product([c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c],self.rotation)
 	}
 	// Zoom narrows the field of view without entering the sphere; C++ matrix scale.
 	pub fn projection(self) -> [f32; 16]
@@ -365,6 +385,7 @@ mod tests
 		for zoom in [super::super::MIN_ZOOM, 1.0]
 		{
 			let view = View {
+				rotation: IDENTITY,
 				yaw: 0.0,
 				tilt: 0.0,
 				zoom,
@@ -422,6 +443,7 @@ mod tests
 		let lon = 222.83_f32.to_radians();
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let view = View {
+			rotation: IDENTITY,
 			yaw: -lon,
 			tilt: lat,
 			zoom: 128.0,

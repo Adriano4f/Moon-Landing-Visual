@@ -228,6 +228,7 @@ mod tests
 	fn unproject_inverts_project()
 	{
 		let view = View {
+			rotation: super::math::IDENTITY,
 			yaw: 0.7,
 			tilt: -0.4,
 			zoom: 1.6,

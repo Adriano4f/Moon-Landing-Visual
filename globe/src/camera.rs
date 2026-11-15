@@ -38,7 +38,7 @@ impl Globe
 			}
 			else
 			{
-				"Free orbit"
+				"Inertial view"
 			}
 		));
 		self.texture_controls(ui);
@@ -86,7 +86,8 @@ impl Globe
 			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
 			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.
-			let target = -(site.lon_deg as f32).to_radians();
+			let point = math::direction((site.lat_deg as f32).to_radians(),(site.lon_deg as f32).to_radians());
+			let [target, latitude] = math::camera_angles(math::transform(self.body_rotation,point));
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let delta = (target - self.yaw + std::f32::consts::PI)
 				.rem_euclid(std::f32::consts::TAU)
@@ -97,7 +98,7 @@ impl Globe
 				[self.yaw, self.tilt, self.zoom],
 				[
 					self.yaw + delta,
-					(site.lat_deg as f32).to_radians(),
+					latitude,
 					MAX_ZOOM,
 				],
 			));

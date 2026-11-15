@@ -155,6 +155,7 @@ mod tests
 	fn gate_rejects_overview_hidden_and_offscreen_poles()
 	{
 		let mut view = math::View {
+			rotation: math::IDENTITY,
 			yaw: 0.0,
 			tilt: 0.0,
 			zoom: 1.0,

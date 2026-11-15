@@ -9,7 +9,7 @@ in vec2 a_coverage;
 out vec2 v_coverage;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
-// Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
+// Receive camera rotation times Moon-fixed-to-J2000 rotation, shared with lights and CPU overlays.
 uniform mat3 u_model;
 // Share the CPU camera distance with fragment viewing geometry.
 uniform highp float u_camera_distance;
@@ -26,7 +26,7 @@ out vec3 v_object;
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
 void main()
 {
-	// Rotate about geographic north, then tilt the south pole toward the camera; C++ matrix-vector multiplication.
+	// Apply dated lunar orientation followed by the inertial camera rotation.
 	vec3 p = u_model * a_position;
 	// Export the rotated world position for perspective view direction and geometric day/night masking.
 	v_position = p;

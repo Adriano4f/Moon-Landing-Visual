@@ -81,6 +81,7 @@ impl MoonApp
 				}
 			})
 			.collect();
+		if let Some(epoch)=epoch { self.globe.set_time(epoch); }
 		self.globe.set_scene(scene, self.selected);
 	}
 

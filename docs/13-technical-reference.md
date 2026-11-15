@@ -298,11 +298,11 @@ The optional whole-Moon Sun field samples 512 equal-area Fibonacci sphere candid
 
 All published markers have contrasting outlines. Unselected radius is 6 logical pixels; selected radius is 9, with a name label. Back-hemisphere points are hidden. Picking chooses the nearest projected point within 14 logical pixels; the site list disambiguates close overlaps without displacing coordinates.
 
-The shared camera transform is $M=R_x(\theta)R_y(\alpha)$, with a perspective camera at $(0,0,5)$ lunar radii. Magnification scales the projection, clamped from 0.5 to 8. A single CPU constant supplies the matching high-precision vertex/fragment uniform and CPU projection. Dragging enters free orbit and pauses optional artificial rotation; wheel, pinch and zoom buttons change magnification. Earth-following mode uses
+The shared model transform is $M=R_x(\theta)R_y(\alpha)R(t)$, where $R(t)$ maps Moon-fixed coordinates to J2000 equatorial space using all E1–E13 terms of the IAU lunar orientation model. Renderer axes are $(Y,Z,X)$, so inertial north is up. UTC approximates TDB for display only; this is not a DE-series attitude solution. See [dated Moon rotation](17-inertial-rotation.md) for the source and limitations. The default camera stays fixed in inertial space as time advances. The perspective camera remains at $(0,0,5)$ lunar radii; the same rigid transform applies to geometry, lights, normals, polar textures, markers, rays and tile overlays. Picking uses its transpose. Earth-following mode first transforms the Earth direction to $\mathbf e=R(t)\mathbf e_{fixed}$, then uses
 
 $$\alpha=-\operatorname{atan2}(e_x,e_z),\qquad \theta=\arcsin(e_y).$$
 
-Go to site targets $\alpha=-\lambda$, $\theta=\phi$, mapping the site's radial vector to the image center. It interpolates the shortest yaw difference, tilt and logarithmic zoom over 0.8 s with cubic easing. Interaction or a new selection cancels the transition. These camera operations do not alter scientific time or observer coordinates.
+Go to site applies the same camera-angle equations to the site's rotated radial vector, mapping it to the image center. It interpolates the shortest yaw difference, tilt and logarithmic zoom over 0.8 s with cubic easing. Interaction or a new selection cancels the transition. Wheel, pinch and zoom buttons change magnification; optional auto-orbit remains an artificial camera aid. These camera operations do not alter scientific time or observer coordinates.
 
 ## 9. Application state and interface
 

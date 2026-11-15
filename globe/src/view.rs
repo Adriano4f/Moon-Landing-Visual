@@ -29,6 +29,7 @@ impl Globe
 		let scale = ui.ctx().pixels_per_point();
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let view = math::View {
+			rotation: self.body_rotation,
 			yaw: self.yaw,
 			tilt: self.tilt,
 			zoom: self.zoom,
@@ -123,10 +124,8 @@ impl Globe
 		if self.earth_view
 			&& let Some([_, earth]) = directions
 		{
-			// Cancel longitude so the Earth direction projects onto the camera's central meridian; C++ atan2.
-			self.yaw = -earth[0].atan2(earth[2]);
-			// Match camera latitude to sub-Earth latitude without a fixed presentation tilt; C++ asin.
-			self.tilt = earth[1].clamp(-1.0, 1.0).asin();
+			let earth = math::transform(self.body_rotation, earth);
+			[self.yaw, self.tilt] = math::camera_angles(earth);
 		}
 		// Pass an explicit absent light state while the selected track is unavailable; C++ optional snapshot.
 		let lighting = directions.map(|[sun, earth]| Lighting {

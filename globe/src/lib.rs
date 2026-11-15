@@ -12,6 +12,7 @@ use renderer::Renderer;
 mod field;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
+mod orientation;
 mod pick;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
 pub mod help;
@@ -115,6 +116,8 @@ pub struct Globe
 	// A caller-supplied real initial epoch, cleared on the first complete selected track; C++ optional pair.
 	startup_light: Option<[[f32; 3]; 2]>,
 	yaw: f32,
+	epoch: i64,
+	body_rotation: math::Mat3,
 	tilt: f32,
 	zoom: f32,
 	paused: bool,
@@ -159,6 +162,8 @@ mod scene_tests
 			selected: 0,
 			startup_light: None,
 			yaw: 0.0,
+			epoch: orientation::INITIAL_UTC,
+			body_rotation: orientation::at_utc(orientation::INITIAL_UTC),
 			tilt: 0.0,
 			zoom: 1.0,
 			paused: true,
@@ -301,15 +306,17 @@ impl Globe
 				false,
 				Some("8"),
 			)?,
-			// Default to the current Earth line of sight, without artificial spin or tilt; C++ scalar initialization.
+			// Default to a fixed inertial camera without artificial spin; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
 			startup_light: None,
 			yaw: 0.0,
+			epoch: orientation::INITIAL_UTC,
+			body_rotation: orientation::at_utc(orientation::INITIAL_UTC),
 			tilt: 0.0,
 			zoom: 1.0,
 			paused: true,
-			earth_view: true,
+			earth_view: false,
 			boosted: false,
 			fill: false,
 			last_time: None,
@@ -319,6 +326,15 @@ impl Globe
 			tiles: Vec::new(),
 			grid: None,
 		})
+	}
+
+	/// Set the scientific UTC epoch used for the display's lunar orientation.
+	pub fn set_time(&mut self, utc: i64)
+	{
+		if self.epoch != utc {
+			self.epoch=utc;
+			self.body_rotation=orientation::at_utc(utc);
+		}
 	}
 
 	/// Supply real Moon-fixed directions while the first scientific track is pending.
