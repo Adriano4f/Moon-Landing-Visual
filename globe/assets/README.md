@@ -1,5 +1,13 @@
 # NASA Moon assets and offline reproduction
 
+## South-polar detail
+
+Runtime LROC WAC south-polar WMTS imagery is credited to NASA, Arizona State University and the LROC Team. [Product metadata](https://trek.nasa.gov/moon/TrekWS/rest/cat/metadata/fgdc/html?label=LRO_WAC_Mosaic_SPole60_100m_v02) lists no access or use constraints. The mosaic has recorded photographic shadows, not date-dependent lighting or calibrated albedo; the shader uses only bounded contrast from it.
+
+`polar_normals.py /path/outside/repo/lola75-f32.tif` prepares the 1k and 2k object-space normal files from Trek's unrendered F32 LOLA south-polar 30 m ImageServer export. The exported grid spacing is 535.122 m, not 30 m; phone normals use twice that spacing. Both files use south-polar stereographic coordinates with radius 1,737,400 m and square half-width 547,965 m. `polar_normals.meta.json` records the source hash and interpretation. The raw TIFF is not deployed. PNG is used natively, lossless WebP in the browser. Tests are in `test_polar_normals.py`.
+
+The files and runtime imagery are lazy and do not join the startup request chain. See [complete projection, loading and scientific limits](../../docs/15-polar-detail.md).
+
 ## Sources and credit
 
 Credit: NASA's Scientific Visualization Studio. The CGI Moon Kit visualization is by Ernie Wright, using LROC color and LOLA relief data. Source page: https://svs.gsfc.nasa.gov/4720/. These are visualization assets, not terrain products ingested by lunar_core.

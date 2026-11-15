@@ -1,0 +1,13 @@
+{
+  "source": "https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_LOLA_DEM_SPole75_30mp_v04/ImageServer",
+  "source_sha256": "478badb7dd545a91dc8fef8a1717e0db5e78f7767d1ba5ed70955bdd82ba9fdf",
+  "radius_m": 1737400.0,
+  "extent_m": 547965.0,
+  "projection": "IAU2000:30120",
+  "source_spacing_m": 30,
+  "exported_spacing_m": 535.1220703125,
+  "pixel_centers": true,
+  "height_units": "meters",
+  "missing_height_policy": "radial normal",
+  "normal_encoding": "RGB8 object-space unit vector; round((n+1)*127.5)"
+}

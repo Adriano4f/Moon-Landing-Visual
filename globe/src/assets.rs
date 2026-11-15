@@ -304,7 +304,10 @@ mod tests
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_native(filename: String, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static)
+pub(crate) fn read_native(
+	filename: String,
+	done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+)
 {
 	std::thread::spawn(move || {
 		// Resolve the native asset directory once in this worker; C++ filesystem::path owns its path.

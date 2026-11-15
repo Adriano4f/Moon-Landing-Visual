@@ -88,6 +88,10 @@ in vec3 v_object;
 uniform sampler2D u_albedo;
 // Bind the selected tier's linear RGB8 object-space normal texture.
 uniform sampler2D u_normal;
+uniform sampler2D u_polar_color;
+uniform sampler2D u_polar_normal;
+uniform float u_polar_ready;
+uniform float u_polar_extent;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
 // Match the vertex shader's camera position and uniform precision.
@@ -288,6 +292,13 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
+	// South stereographic: x points east at longitude zero, y points toward longitude zero.
+	vec2 polar_uv = 0.5 + (1737400.0 / u_polar_extent) * vec2(p.x, -p.z) / max(1.0 - p.y, 0.000001);
+	float polar_blend = u_polar_ready * (1.0 - smoothstep(sin(-77.0 * PI / 180.0), sin(-75.0 * PI / 180.0), p.y));
+	if (polar_blend > 0.0)
+	{
+		n = normalize(mix(n, texture(u_polar_normal, polar_uv).rgb * 2.0 - 1.0, polar_blend));
+	}
 	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
 	// Transform real Moon-fixed lights with the same rigid matrix as the Moon and markers.
@@ -302,6 +313,7 @@ void main()
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
 	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
 	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
+	polar_fallback *= 1.0 - polar_blend;
 	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
 	normal_strength *= 1.0 - polar_fallback;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
@@ -315,6 +327,13 @@ void main()
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
 	albedo = mix(albedo, vec3(0.4832), polar_fallback);
+	if (polar_blend > 0.0)
+	{
+		// Recorded photographic shadows are bounded visual contrast, never measured current illumination or albedo.
+		vec3 mosaic = texture(u_polar_color, polar_uv).rgb;
+		float valid = step(0.0001, dot(mosaic, vec3(1.0)));
+		albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid);
+	}
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;

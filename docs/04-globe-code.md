@@ -130,13 +130,13 @@ edition = "2024"
 egui = { version = "0.37", default-features = false }
 egui_glow = "0.37"
 bytemuck = "1.25"
+ehttp = "0.7"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-ehttp = "0.7"
 web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "UrlSearchParams", "HtmlImageElement", "WebGl2RenderingContext", "console"] }
 wasm-bindgen-futures = "0.4"
 send_wrapper = "0.6"
@@ -451,7 +451,10 @@ mod tests
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_native(filename: String, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static)
+pub(crate) fn read_native(
+	filename: String,
+	done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+)
 {
 	std::thread::spawn(move || {
 		// Resolve the native asset directory once in this worker; C++ filesystem::path owns its path.
@@ -1101,6 +1104,7 @@ mod tests
 mod assets;
 mod camera;
 mod phase;
+mod polar;
 mod renderer;
 mod view;
 use renderer::Renderer;
@@ -1195,6 +1199,7 @@ pub struct Globe
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 	loading: Arc<Mutex<assets::Loading>>,
+	polar: polar::Shared,
 	// Selected size label 2/4/8, or zero for the private 512-pixel browser preview; C++ uint32_t.
 	tier: u32,
 	// Requested final detail is independent of the first visible preview; C++ unsigned members.
@@ -1237,6 +1242,7 @@ mod scene_tests
 				images: [None, None],
 				error: None,
 			})),
+			polar: Arc::new(Mutex::new(polar::State::default())),
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
@@ -1375,6 +1381,7 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			surface_rays: false,
 			loading: assets::load(assets::first_tier(), None),
+			polar: Arc::new(Mutex::new(polar::State::default())),
 			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(
@@ -1526,6 +1533,10 @@ in vec3 v_object;
 uniform sampler2D u_albedo;
 // Bind the selected tier's linear RGB8 object-space normal texture.
 uniform sampler2D u_normal;
+uniform sampler2D u_polar_color;
+uniform sampler2D u_polar_normal;
+uniform float u_polar_ready;
+uniform float u_polar_extent;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
 // Match the vertex shader's camera position and uniform precision.
@@ -1726,6 +1737,13 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
+	// South stereographic: x points east at longitude zero, y points toward longitude zero.
+	vec2 polar_uv = 0.5 + (1737400.0 / u_polar_extent) * vec2(p.x, -p.z) / max(1.0 - p.y, 0.000001);
+	float polar_blend = u_polar_ready * (1.0 - smoothstep(sin(-77.0 * PI / 180.0), sin(-75.0 * PI / 180.0), p.y));
+	if (polar_blend > 0.0)
+	{
+		n = normalize(mix(n, texture(u_polar_normal, polar_uv).rgb * 2.0 - 1.0, polar_blend));
+	}
 	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
 	// Transform real Moon-fixed lights with the same rigid matrix as the Moon and markers.
@@ -1740,6 +1758,7 @@ void main()
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
 	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
 	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
+	polar_fallback *= 1.0 - polar_blend;
 	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
 	normal_strength *= 1.0 - polar_fallback;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
@@ -1753,6 +1772,13 @@ void main()
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
 	albedo = mix(albedo, vec3(0.4832), polar_fallback);
+	if (polar_blend > 0.0)
+	{
+		// Recorded photographic shadows are bounded visual contrast, never measured current illumination or albedo.
+		vec3 mosaic = texture(u_polar_color, polar_uv).rgb;
+		float valid = step(0.0001, dot(mosaic, vec3(1.0)));
+		albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid);
+	}
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
@@ -2119,6 +2145,8 @@ fn main()
 	<link data-trunk rel="copy-dir" href="assets">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_preview.jpg" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/normal_preview.webp" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/polar_normal_1k.webp" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/polar_normal_2k.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_2k.jpg" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/normal_2k.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_4k.jpg" data-target-path="assets/globe">
@@ -2145,6 +2173,7 @@ The globe separates scene ownership (`lib.rs`), interaction and projection (`vie
 ### 4.20. globe/src/renderer.rs
 
 ```rust
+mod polar;
 mod setup;
 mod textures;
 
@@ -2177,6 +2206,7 @@ pub(super) struct Renderer
 	pub(super) visible_announced: bool,
 	// Retain decoded upgrades between bounded GPU-upload frames; C++ optional pair with image iterator.
 	pending: Option<(u32, std::vec::IntoIter<assets::TextureImage>)>,
+	pub(crate) polar: Option<polar::Atlas>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -2251,6 +2281,7 @@ impl Renderer
 		rays: &[([f32; 3], [Ray; 2])],
 		lighting: Option<Lighting>,
 		surface_rays: bool,
+		polar_ready: bool,
 	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
@@ -2268,6 +2299,7 @@ impl Renderer
 		unsafe {
 			Self::begin_frame(gl, program);
 			Self::light_uniforms(gl, program, lighting);
+			self.bind_polar(gl, program, polar_ready);
 			self.paint_opaque(gl, program, view);
 			// Smooth alpha coverage needs blending on native and WebGL; C++ glEnable/glBlendFunc.
 			gl.enable(glow::BLEND);
@@ -2284,7 +2316,7 @@ impl Renderer
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-			for unit in 0..2
+			for unit in 0..4
 			{
 				// Select which texture unit subsequent binds affect; C++ glActiveTexture.
 				gl.active_texture(glow::TEXTURE0 + unit);
@@ -2350,6 +2382,10 @@ impl Renderer
 	// Release registered GPU objects using the current context; C++ explicit teardown avoids a late invalid-context destructor.
 	pub(super) fn destroy(&mut self, gl: &glow::Context)
 	{
+		if let Some(polar) = self.polar.take()
+		{
+			polar.destroy(gl);
+		}
 		// SAFETY: called with the owning context current, either on_exit or failed construction.
 		// Taking/draining handles makes repeated cleanup harmless.
 		// The caller must keep this GL context current; Rust cannot verify external driver state, just as C++ cannot.
@@ -2640,6 +2676,7 @@ impl Renderer
 			tier,
 			visible_announced: false,
 			pending: None,
+			polar: None,
 		}
 	}
 
@@ -3080,9 +3117,13 @@ impl Globe
 			pixels: [rect.width() * scale, rect.height() * scale],
 			scale,
 		};
+		if self.has_visible_moon() && polar::wanted(view)
+		{
+			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
+		}
 		self.queue_gl(ui, rect, view, lighting);
 		let clicked = self.paint_markers(ui, &response, rect, view);
-		Self::legend(ui, rect);
+		Self::legend(ui, rect, &self.polar.lock());
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked
@@ -3284,6 +3325,7 @@ impl Globe
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
+		let polar = Arc::clone(&self.polar);
 		let rays = self.scene_rays();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let surface_rays = self.surface_rays;
@@ -3300,8 +3342,16 @@ impl Globe
 				// Enter only when the optional handle/value exists and bind it; C++ if(optional) then dereferences it.
 				if let Some(renderer) = renderer.as_mut()
 				{
+					renderer.update_polar(painter.gl(), &polar);
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays, lighting, surface_rays);
+					renderer.paint(
+						painter.gl(),
+						view,
+						&rays,
+						lighting,
+						surface_rays,
+						polar.lock().ready,
+					);
 					Self::announce(renderer, lighting, &ctx);
 				}
 			}
@@ -3373,7 +3423,7 @@ impl Globe
 		clicked
 	}
 
-	fn legend(ui: &mut egui::Ui, rect: egui::Rect)
+	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State)
 	{
 		let painter = ui.painter_at(rect);
 		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
@@ -3385,10 +3435,30 @@ impl Globe
 			3.0,
 			egui::Color32::from_black_alpha(225),
 		);
+		let caption = if polar.ready
+		{
+			"Polar mosaic: shadows are recorded".into()
+		}
+		else if polar.error.is_some()
+		{
+			"Polar detail unavailable; overview retained".into()
+		}
+		else if let Some(spec) = polar.spec
+		{
+			format!(
+				"Polar detail {}/{}; overview retained",
+				polar.uploaded,
+				spec.count()
+			)
+		}
+		else
+		{
+			"Illustration only; polar cap schematic".into()
+		};
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),
 			egui::Align2::LEFT_TOP,
-			"Drag to orbit; scroll or pinch to zoom\nIllustration only; polar cap schematic",
+			format!("Drag to orbit; scroll or pinch to zoom\n{caption}"),
 			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);
@@ -3578,7 +3648,7 @@ impl Globe
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
 			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Enlarge the Moon up to eight times. The overview has limited detail; use the site list to distinguish nearby points.");
+			help::question(ui, "Enlarge the Moon up to eight times. South-polar detail downloads when visible; photographic shadows are recorded, not live.");
 		});
 		self.site_camera(ui);
 		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
@@ -4225,6 +4295,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `begin_upgrade`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_attrib_location`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `bind_polar`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `bind_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_vertex_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `blend_func`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4268,6 +4339,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `contains`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `corner_radius`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `cos`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `count`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `crate::sky::show`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `create_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `create_program`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4520,6 +4592,9 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `pointer_mut`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `points`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `Points::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `polar::advance`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `polar::State::default`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `polar::wanted`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `powi`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `process_textures`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `project`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
@@ -4647,6 +4722,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `unwrap_or_else`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `update`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `update_earth_margin`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `update_polar`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `update_sites`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `upload_browser_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `upload_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)

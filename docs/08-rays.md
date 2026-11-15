@@ -120,6 +120,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `begin_upgrade`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `bind_attrib_location`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `bind_buffer`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `bind_polar`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `bind_texture`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `bind_vertex_array`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `blend_func`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -160,6 +161,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `copied`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `corner_radius`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `cos`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `count`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `crate::sky::show`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `create_buffer`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `create_program`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
@@ -261,7 +263,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `Globe::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `has_load_error`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
-- `has_visible_moon`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `has_visible_moon`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `heading`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `height`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `help::annotated`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
@@ -373,6 +375,9 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `Plot::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `points`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `Points::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `polar::advance`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `polar::State::default`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `polar::wanted`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `powi`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `process_textures`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `project`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -484,6 +489,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `unwrap_or_else`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `update`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `update_earth_margin`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `update_polar`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `update_sites`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `upload_browser_texture`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `upload_texture`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -1102,6 +1108,7 @@ mod tests
 mod assets;
 mod camera;
 mod phase;
+mod polar;
 mod renderer;
 mod view;
 use renderer::Renderer;
@@ -1196,6 +1203,7 @@ pub struct Globe
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 	loading: Arc<Mutex<assets::Loading>>,
+	polar: polar::Shared,
 	// Selected size label 2/4/8, or zero for the private 512-pixel browser preview; C++ uint32_t.
 	tier: u32,
 	// Requested final detail is independent of the first visible preview; C++ unsigned members.
@@ -1238,6 +1246,7 @@ mod scene_tests
 				images: [None, None],
 				error: None,
 			})),
+			polar: Arc::new(Mutex::new(polar::State::default())),
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
@@ -1376,6 +1385,7 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			surface_rays: false,
 			loading: assets::load(assets::first_tier(), None),
+			polar: Arc::new(Mutex::new(polar::State::default())),
 			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(
@@ -1480,6 +1490,10 @@ in vec3 v_object;
 uniform sampler2D u_albedo;
 // Bind the selected tier's linear RGB8 object-space normal texture.
 uniform sampler2D u_normal;
+uniform sampler2D u_polar_color;
+uniform sampler2D u_polar_normal;
+uniform float u_polar_ready;
+uniform float u_polar_extent;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
 // Match the vertex shader's camera position and uniform precision.
@@ -1680,6 +1694,13 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
+	// South stereographic: x points east at longitude zero, y points toward longitude zero.
+	vec2 polar_uv = 0.5 + (1737400.0 / u_polar_extent) * vec2(p.x, -p.z) / max(1.0 - p.y, 0.000001);
+	float polar_blend = u_polar_ready * (1.0 - smoothstep(sin(-77.0 * PI / 180.0), sin(-75.0 * PI / 180.0), p.y));
+	if (polar_blend > 0.0)
+	{
+		n = normalize(mix(n, texture(u_polar_normal, polar_uv).rgb * 2.0 - 1.0, polar_blend));
+	}
 	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
 	// Transform real Moon-fixed lights with the same rigid matrix as the Moon and markers.
@@ -1694,6 +1715,7 @@ void main()
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
 	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
 	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
+	polar_fallback *= 1.0 - polar_blend;
 	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
 	normal_strength *= 1.0 - polar_fallback;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
@@ -1707,6 +1729,13 @@ void main()
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
 	albedo = mix(albedo, vec3(0.4832), polar_fallback);
+	if (polar_blend > 0.0)
+	{
+		// Recorded photographic shadows are bounded visual contrast, never measured current illumination or albedo.
+		vec3 mosaic = texture(u_polar_color, polar_uv).rgb;
+		float valid = step(0.0001, dot(mosaic, vec3(1.0)));
+		albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid);
+	}
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;

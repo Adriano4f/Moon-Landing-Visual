@@ -62,7 +62,7 @@ The strict first-Moon budget below 3 s is not met in this software-WebGL run. JS
 
 Browser checks cover preview-before-site-data ordering, desktop 4k and Pixel 7 2k targets, browser-native decoding, real illuminated draws, and missing-upgrade handling. Pixel 7 means emulation, not physical hardware. The 8k option remains a large explicit download and requires considerable decoder/GPU memory. Progressive replacement temporarily retains both old and new texture pairs. A texture-size limit is not a memory guarantee.
 
-The polar schematic fallback, scientific terrain silhouette, Horizons time samples, visibility predicates, light directions and site selection are unchanged.
+Scientific terrain silhouettes, Horizons time samples, visibility predicates, light directions and site selection are unchanged. [South-polar detail](15-polar-detail.md) now loads independently after a real overview draw and only when zoomed into a visible south pole; it is not part of the startup critical path.
 
 ## 5. Annotated loading source
 
@@ -375,7 +375,10 @@ mod tests
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_native(filename: String, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static)
+pub(crate) fn read_native(
+	filename: String,
+	done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static,
+)
 {
 	std::thread::spawn(move || {
 		// Resolve the native asset directory once in this worker; C++ filesystem::path owns its path.

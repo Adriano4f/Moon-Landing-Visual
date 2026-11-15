@@ -61,6 +61,7 @@ impl Renderer
 			tier,
 			visible_announced: false,
 			pending: None,
+			polar: None,
 		}
 	}
 

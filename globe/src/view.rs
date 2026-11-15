@@ -36,9 +36,13 @@ impl Globe
 			pixels: [rect.width() * scale, rect.height() * scale],
 			scale,
 		};
+		if self.has_visible_moon() && polar::wanted(view)
+		{
+			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
+		}
 		self.queue_gl(ui, rect, view, lighting);
 		let clicked = self.paint_markers(ui, &response, rect, view);
-		Self::legend(ui, rect);
+		Self::legend(ui, rect, &self.polar.lock());
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked
@@ -240,6 +244,7 @@ impl Globe
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
+		let polar = Arc::clone(&self.polar);
 		let rays = self.scene_rays();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let surface_rays = self.surface_rays;
@@ -256,8 +261,16 @@ impl Globe
 				// Enter only when the optional handle/value exists and bind it; C++ if(optional) then dereferences it.
 				if let Some(renderer) = renderer.as_mut()
 				{
+					renderer.update_polar(painter.gl(), &polar);
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays, lighting, surface_rays);
+					renderer.paint(
+						painter.gl(),
+						view,
+						&rays,
+						lighting,
+						surface_rays,
+						polar.lock().ready,
+					);
 					Self::announce(renderer, lighting, &ctx);
 				}
 			}
@@ -329,7 +342,7 @@ impl Globe
 		clicked
 	}
 
-	fn legend(ui: &mut egui::Ui, rect: egui::Rect)
+	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State)
 	{
 		let painter = ui.painter_at(rect);
 		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
@@ -341,10 +354,30 @@ impl Globe
 			3.0,
 			egui::Color32::from_black_alpha(225),
 		);
+		let caption = if polar.ready
+		{
+			"Polar mosaic: shadows are recorded".into()
+		}
+		else if polar.error.is_some()
+		{
+			"Polar detail unavailable; overview retained".into()
+		}
+		else if let Some(spec) = polar.spec
+		{
+			format!(
+				"Polar detail {}/{}; overview retained",
+				polar.uploaded,
+				spec.count()
+			)
+		}
+		else
+		{
+			"Illustration only; polar cap schematic".into()
+		};
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),
 			egui::Align2::LEFT_TOP,
-			"Drag to orbit; scroll or pinch to zoom\nIllustration only; polar cap schematic",
+			format!("Drag to orbit; scroll or pinch to zoom\n{caption}"),
 			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);

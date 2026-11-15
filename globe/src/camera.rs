@@ -10,7 +10,7 @@ impl Globe
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
 			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Enlarge the Moon up to eight times. The overview has limited detail; use the site list to distinguish nearby points.");
+			help::question(ui, "Enlarge the Moon up to eight times. South-polar detail downloads when visible; photographic shadows are recorded, not live.");
 		});
 		self.site_camera(ui);
 		// Require real Earth directions before entering Earth-following mode; C++ optional guard.

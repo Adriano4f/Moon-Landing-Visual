@@ -5,6 +5,7 @@
 mod assets;
 mod camera;
 mod phase;
+mod polar;
 mod renderer;
 mod view;
 use renderer::Renderer;
@@ -99,6 +100,7 @@ pub struct Globe
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 	loading: Arc<Mutex<assets::Loading>>,
+	polar: polar::Shared,
 	// Selected size label 2/4/8, or zero for the private 512-pixel browser preview; C++ uint32_t.
 	tier: u32,
 	// Requested final detail is independent of the first visible preview; C++ unsigned members.
@@ -141,6 +143,7 @@ mod scene_tests
 				images: [None, None],
 				error: None,
 			})),
+			polar: Arc::new(Mutex::new(polar::State::default())),
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
@@ -279,6 +282,7 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			surface_rays: false,
 			loading: assets::load(assets::first_tier(), None),
+			polar: Arc::new(Mutex::new(polar::State::default())),
 			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(

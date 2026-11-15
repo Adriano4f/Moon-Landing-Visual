@@ -1,3 +1,4 @@
+mod polar;
 mod setup;
 mod textures;
 
@@ -30,6 +31,7 @@ pub(super) struct Renderer
 	pub(super) visible_announced: bool,
 	// Retain decoded upgrades between bounded GPU-upload frames; C++ optional pair with image iterator.
 	pending: Option<(u32, std::vec::IntoIter<assets::TextureImage>)>,
+	pub(crate) polar: Option<polar::Atlas>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -104,6 +106,7 @@ impl Renderer
 		rays: &[([f32; 3], [Ray; 2])],
 		lighting: Option<Lighting>,
 		surface_rays: bool,
+		polar_ready: bool,
 	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
@@ -121,6 +124,7 @@ impl Renderer
 		unsafe {
 			Self::begin_frame(gl, program);
 			Self::light_uniforms(gl, program, lighting);
+			self.bind_polar(gl, program, polar_ready);
 			self.paint_opaque(gl, program, view);
 			// Smooth alpha coverage needs blending on native and WebGL; C++ glEnable/glBlendFunc.
 			gl.enable(glow::BLEND);
@@ -137,7 +141,7 @@ impl Renderer
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-			for unit in 0..2
+			for unit in 0..4
 			{
 				// Select which texture unit subsequent binds affect; C++ glActiveTexture.
 				gl.active_texture(glow::TEXTURE0 + unit);
@@ -203,6 +207,10 @@ impl Renderer
 	// Release registered GPU objects using the current context; C++ explicit teardown avoids a late invalid-context destructor.
 	pub(super) fn destroy(&mut self, gl: &glow::Context)
 	{
+		if let Some(polar) = self.polar.take()
+		{
+			polar.destroy(gl);
+		}
 		// SAFETY: called with the owning context current, either on_exit or failed construction.
 		// Taking/draining handles makes repeated cleanup harmless.
 		// The caller must keep this GL context current; Rust cannot verify external driver state, just as C++ cannot.
