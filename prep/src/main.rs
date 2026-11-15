@@ -2,6 +2,8 @@
 
 // Keep native TIFF decoding out of core and the web app; C++ implementation translation unit.
 mod dem;
+// Prepare portable apparent Moon-fixed ephemerides separately from terrain; C++ implementation module.
+mod ephemeris;
 // Parse date-only UTC endpoints; C++ chrono::year_month_day.
 use chrono::NaiveDate;
 // Reuse geometry and statistics, not duplicated formulas; C++ scientific header.
@@ -104,6 +106,11 @@ fn download(
 // Native command entry point; C++ main with an error-returning implementation.
 fn main() -> Result<(), Box<dyn Error>>
 {
+	// Retain the existing positional CLI unchanged; C++ explicit subcommand dispatch.
+	if std::env::args().nth(1).as_deref() == Some("--ephemeris")
+	{
+		return ephemeris::run();
+	}
 	let job = configuration()?;
 	let args = &job.args;
 	let height = job.height;

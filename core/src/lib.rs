@@ -1,3 +1,6 @@
+// Expose portable any-site ephemeris geometry and binary decoding; C++ scientific module.
+pub mod ephemeris;
+
 // Parse UTC table timestamps without accessing a clock; C++ chrono calendar parser.
 use chrono::NaiveDateTime;
 // Generate portable JSON adapters without performing I/O here; C++ serialization traits.

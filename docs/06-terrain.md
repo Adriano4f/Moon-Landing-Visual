@@ -111,7 +111,7 @@ Site01's actual tag is $(0,0)\leftrightarrow(-19{,}000,-4{,}000)$ m and $p=5$ m.
 
 Usable interpolation-center bounds are inset by half a pixel on every edge, and actual valid data may be reduced by NaNs. The four surrounding centers define bilinear interpolation. For fractions $a=c-\lfloor c\rfloor$ and $b=r-\lfloor r\rfloor$, weights are $(1-a)(1-b),a(1-b),(1-a)b,ab$. Contributing NaN corners invalidate that resolution. A zero-weight NaN must not invalidate an exact valid center, so the implementation excludes zero-weight terms before multiplying.
 
-Implementation: [core/src/lib.rs:83](../core/src/lib.rs#L83), [prep/src/dem.rs:289](../prep/src/dem.rs#L289).
+Implementation: [core/src/lib.rs:86](../core/src/lib.rs#L86), [prep/src/dem.rs:289](../prep/src/dem.rs#L289).
 
 ## 6. Multiresolution lookup and bounded memory
 
@@ -159,7 +159,7 @@ $$d_v=z-z_0-2(R+z)\sin^2(\beta/2).$$
 
 The previous $s^2/(2R)$ approximation is no longer used. For equal observer/surface radii, the exact elevation is $-\beta/2$. For a height $h$ above a smooth sphere, tangent depression is $-\arccos(R/(R+h))$. Tests check both identities, a direct unrearranged formula, a northward meridian at the example longitude, and pole/east directions. The raised-wall test now expects the exact formula: raised terrain changes the horizontal component as well as the vertical one. Legacy geographic-ridge and cyclic interpolation tests remain valid.
 
-Implementation: [core/src/lib.rs:170](../core/src/lib.rs#L170), [core/src/lib.rs:186](../core/src/lib.rs#L186).
+Implementation: [core/src/lib.rs:173](../core/src/lib.rs#L173), [core/src/lib.rs:189](../core/src/lib.rs#L189).
 
 ## 8. Sampling accuracy, observer height and ray termination
 
@@ -175,7 +175,7 @@ Each sample evaluates the exact spherical angle and retains the maximum. Product
 
 This is not a claim of an exact continuous physical skyline. Half-pixel sampling and 0.25-degree bearing bins can still miss subpixel or sub-bin features, and a bilinear surface is an approximation to sampled topography. PGDA 78 states that roughly 90 percent of its 5 m pixels are interpolated and reports median RMS height uncertainty around 0.30 to 0.50 m within its regions of interest. A nominal 5 m grid does not mean a 5 m independent measurement everywhere. No uncertainty clones, sub-hour event solver, refraction, scattered sunlight, lunar shape departures from the adopted sphere, or finite-Earth/DSN antenna model is included.
 
-Implementation: [core/src/lib.rs:198](../core/src/lib.rs#L198).
+Implementation: [core/src/lib.rs:201](../core/src/lib.rs#L201).
 
 ## 9. Visible solar area and Earth clearance
 
@@ -188,7 +188,7 @@ This is visible area, not visible diameter. At $u=1$ the fraction is zero; at $u
 
 For Earth, the user-selected margin $m$ applies to the center: visible means $e_E>H_E+m$. Equality is blocked. The default is 0.5 degrees and one minimal slider permits 0.5 through 1.0 degrees. The core function retains its explicit margin parameter; no scientific constant is hidden in visible. The UI recomputes the cached visibility vector only on a margin edit. This does not claim that the entire Earth or any particular ground station is visible.
 
-Implementation: [core/src/lib.rs:247](../core/src/lib.rs#L247), [core/src/lib.rs:255](../core/src/lib.rs#L255), [app/src/data.rs:108](../app/src/data.rs#L108).
+Implementation: [core/src/lib.rs:250](../core/src/lib.rs#L250), [core/src/lib.rs:258](../core/src/lib.rs#L258), [app/src/data.rs:108](../app/src/data.rs#L108).
 
 ## 10. Preparation, statistics and reproducibility
 
@@ -231,7 +231,7 @@ The completed release run for Example 89.45S 222.69E reported:
 
 The benchmark is a single Linux release run with empty decoded-chunk caches, not a statistical performance study. Files had just been hashed, so operating-system file caches may be warm. Network request time is excluded from the horizon timer. Raw terrain files are on local storage at /home/ubuntu/data/lola. The Sun elevation range is -2.075228 through 2.061621 degrees; values are not clipped to an expected visual range.
 
-Implementation: [prep/src/main.rs:105](../prep/src/main.rs#L105), [core/src/lib.rs:285](../core/src/lib.rs#L285).
+Implementation: [prep/src/main.rs:107](../prep/src/main.rs#L107), [core/src/lib.rs:288](../core/src/lib.rs#L288).
 
 ## 11. Published comparison and its limits
 
@@ -908,6 +908,8 @@ mod tests;
 
 // Keep native TIFF decoding out of core and the web app; C++ implementation translation unit.
 mod dem;
+// Prepare portable apparent Moon-fixed ephemerides separately from terrain; C++ implementation module.
+mod ephemeris;
 // Parse date-only UTC endpoints; C++ chrono::year_month_day.
 use chrono::NaiveDate;
 // Reuse geometry and statistics, not duplicated formulas; C++ scientific header.
@@ -1010,6 +1012,11 @@ fn download(
 // Native command entry point; C++ main with an error-returning implementation.
 fn main() -> Result<(), Box<dyn Error>>
 {
+	// Retain the existing positional CLI unchanged; C++ explicit subcommand dispatch.
+	if std::env::args().nth(1).as_deref() == Some("--ephemeris")
+	{
+		return ephemeris::run();
+	}
 	let job = configuration()?;
 	let args = &job.args;
 	let height = job.height;
@@ -1314,6 +1321,9 @@ fn report_stats(sun: &Track, earth: &Track, horizon: Option<&Horizon>)
 ### 14.3. core/src/lib.rs
 
 ```rust
+// Expose portable any-site ephemeris geometry and binary decoding; C++ scientific module.
+pub mod ephemeris;
+
 // Parse UTC table timestamps without accessing a clock; C++ chrono calendar parser.
 use chrono::NaiveDateTime;
 // Generate portable JSON adapters without performing I/O here; C++ serialization traits.

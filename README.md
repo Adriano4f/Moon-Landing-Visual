@@ -4,6 +4,8 @@ Compare lunar south pole landing sites using Sun visibility for power and Earth 
 
 Read the standalone [technical reference](docs/13-technical-reference.md) for architecture, provenance, scientific algorithms, rendering, validation and limitations.
 
+The [portable ephemeris guide](docs/14-any-point-ephemeris.md) documents the 2,244,152-byte hourly Sun/Earth position file for 2027 through 2035 and arbitrary-location topocentric conversion. This is a scientific foundation; the current interface still selects the seven prepared sites and their original dates. The new binary is not fetched at startup.
+
 Start with [the skeleton guide for C++ programmers](docs/01-skeleton.md) for Rust basics, the math, every crate, and Windows/Linux setup. Continue with [the full code walkthrough](docs/02-code.md) for every source file and Rust API used.
 
 Read [the from-zero rendering guide](docs/03-moon.md) for vectors, coordinate spaces, matrices, the GPU pipeline, NASA assets, normals, Hapke photometry, and color. Continue with [Rust and the complete globe code](docs/04-globe-code.md) for C++ comparisons, statement-level comments, exact source quotations, and the API index. The first two guides describe the original scientific workspace and placeholder app; the renderer guide documents its replacement.
@@ -14,7 +16,7 @@ Open the folder in Zed with `zed .` or File > Open. Zed's Rust support is built 
 
 The default [standing-at-site view](docs/07-ui.md) shows finite Sun/Earth disks behind grey terrain, plain-language sunlight/radio statuses, whole-period summary cards and a question-mark help panel. Technical view retains the numerical plot. Vertical stretching is labeled, so the small angular disks are not silently enlarged. The [published-site catalog and globe controls](docs/09-sites-and-globe-controls.md) provide a site list, clickable outlined markers, drag rotation, zoom, go-to-site animation and lazy per-site loading. Connecting Ridge C1 remains the default. The [globe direction-ray guide](docs/08-rays.md) derives the local east/north/up frame used for thin, antialiased Sun/Earth ribbons and endpoint disks, with selected-only or all-sites display. An optional whole-Moon field shows incoming rays from the real Sun direction. Ray lengths are not distances; dim rays fail the same sunlight/radio tests as the panorama. The rounded baseline dataset is retained unchanged.
 
-- `core/` (`lunar_core`): pure geometry, terrain horizons, visibility, time-weighted statistics, and Horizons text parsing.
+- `core/` (`lunar_core`): pure geometry, terrain horizons, visibility, time-weighted statistics, Horizons text parsing, and portable finite-distance ephemeris conversion/encoding.
 - `prep/`: reads external LOLA PGDA 78/90 GeoTIFFs with the pure-Rust `tiff` crate, computes fixed-site terrain horizons through core's I/O-free sampler interface, downloads JPL Horizons observer tracks, and writes one JSON per site in `app/assets/data/`.
 - `globe/`: rotating Moon renderer with runtime-loaded 2k/4k/8k NASA color and offline LOLA-derived normal maps. It has no dependency on `lunar_core` and does not compute landing-site visibility.
 - `app/`: native and browser eframe shell displaying the globe against black beside a responsive Sun/Earth panorama. Narrow screens stack the globe above the plot. Native OpenGL or browser WebGL2 is required. Earth clearance is adjustable from 0.5 to 1.0 degrees, default 0.5. Raw DEMs are never loaded by the app.
@@ -23,6 +25,7 @@ The default [standing-at-site view](docs/07-ui.md) shows finite Sun/Earth disks 
 cargo test -p lunar_core
 python3 prep/download_dem.py /home/ubuntu/data/lola
 cargo run -p prep --release -- sites.json 2027-01-01 2030-01-01 1h app/assets/data /home/ubuntu/data/lola 2
+cargo run -p prep --release -- --ephemeris app/assets/data/moon-ephemeris.bin /home/ubuntu/data/horizons-moon-cache app/assets/data
 cargo run -p app
 rustup target add wasm32-unknown-unknown
 cd app

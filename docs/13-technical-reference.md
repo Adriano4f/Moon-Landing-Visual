@@ -6,21 +6,22 @@ Karaya Explorer compares fixed, published lunar south-polar observation points a
 
 The numerical results describe geometric opportunities, not electrical output, radio service, thermal conditions or landing safety. The globe is an illustration. Its coarse relief, photometric brightness, camera, direction diagrams and optional fill light do not determine the terrain horizon or availability statistics.
 
-The implementation described here is the four-crate Rust workspace, its Python asset tools, seven prepared site datasets, and the native and WebAssembly application. Units are meters, seconds and radians internally where specified; serialized sky angles and horizon bins use degrees. Longitudes increase eastward. Times are UTC Unix seconds.
+The implementation described here is the four-crate Rust workspace, its Python asset tools, seven prepared site datasets, a portable eight-year Sun/Earth ephemeris, and the native and WebAssembly application. The ephemeris supports arbitrary observer coordinates through the scientific API; the current interface retains the prepared site catalog. Units are meters, seconds and radians internally where specified; serialized sky angles and horizon bins use degrees. Longitudes increase eastward. Times are UTC Unix seconds.
 
 ## 2. Architecture and data flow
 
-The two preparation pipelines are independent:
+The scientific and rendering preparation pipelines are independent:
 
 1. LOLA DEM files and fixed coordinates feed `prep`. The I/O-free `lunar_core` library traces terrain horizons. Horizons supplies observer-specific Sun and Earth tracks. Preparation validates their time grids and writes one JSON file per site, including terrain provenance.
 2. NASA CGI Moon Kit imagery and relief feed the globe asset tools. These bake color and object-space normal textures at three resolutions. The independent `globe` crate loads those textures and renders an illustrative sphere.
+3. `prep --ephemeris` obtains reference-observer apparent directions and ranges from Horizons. It reconstructs compact apparent Moon-centered positions, validates their decoded values against all seven independent prepared tracks, and writes a portable binary with a JSON provenance/validation sidecar. `lunar_core::ephemeris` converts these positions to arbitrary observer coordinates without I/O.
 
-At runtime, `app` loads the small site catalog and lazily loads prepared JSON. It validates the scientific arrays, computes availability through `lunar_core`, manages the shared epoch and radio margin, and draws the panorama and summary cards. It passes only site metadata, current directions and visibility flags into `globe`. No TIFF, DEM tile or terrain ray tracing enters the application or browser.
+At runtime, `app` loads the small site catalog and lazily loads prepared JSON. It validates the scientific arrays, computes availability through `lunar_core`, manages the shared epoch and radio margin, and draws the panorama and summary cards. It passes only site metadata, current directions and visibility flags into `globe`. No TIFF, DEM tile or terrain ray tracing enters the application or browser. The portable ephemeris is deployed as an external asset and is not fetched by the current interface, so it adds no startup network request.
 
 | Component | Responsibility | Principal modules |
 |:--|:--|:--|
-| `lunar_core` | Projection, great-circle geometry, horizon profiles, track parsing, visibility and statistics; no filesystem or network I/O | `core/src/lib.rs`, `core/src/terrain_tests.rs` |
-| `prep` | DEM download manifest, native TIFF sampling, Horizons HTTP requests and JSON serialization | `prep/src/main.rs`, `prep/src/dem.rs`, `prep/download_dem.py` |
+| `lunar_core` | Projection, great-circle geometry, horizon profiles, track parsing, finite-distance ephemerides, visibility and statistics; no filesystem or network I/O | `core/src/lib.rs`, `core/src/ephemeris.rs`, `core/src/terrain_tests.rs` |
+| `prep` | DEM download manifest, native TIFF sampling, Horizons HTTP requests and scientific serialization | `prep/src/main.rs`, `prep/src/dem.rs`, `prep/src/ephemeris.rs`, `prep/download_dem.py` |
 | `globe` | Texture selection/loading, mesh, shaders, camera, markers and rays; no dependency on `lunar_core` | `globe/src/lib.rs`, `assets.rs`, `math.rs`, `view.rs`, `camera.rs`, `renderer.rs`, `renderer/setup.rs`, `renderer/textures.rs`, `field.rs` |
 | `app` | Validated data loading, site/time synchronization, responsive controls, panorama and summaries | `app/src/lib.rs`, `data.rs`, `layout.rs`, `menu.rs`, `panorama.rs`, `panorama/view.rs`, `sky.rs` |
 
@@ -73,12 +74,15 @@ From the repository root, with the external DEM directory chosen explicitly:
 ```sh
 python3 prep/download_dem.py /home/ubuntu/data/lola
 cargo run -p prep --release -- sites.json 2027-01-01 2030-01-01 1h app/assets/data /home/ubuntu/data/lola 2
+cargo run -p prep --release -- --ephemeris app/assets/data/moon-ephemeris.bin /home/ubuntu/data/horizons-moon-cache app/assets/data
 python3 globe/assets/prepare.py
 python3 globe/assets/web_normals.py
 python3 globe/assets/photometry.py
 ```
 
 Omitting the DEM-directory argument selects the explicitly flat legacy preparation path. Production terrain comparisons require that argument. Per-site JSON contains coordinates, aligned tracks, an optional horizon, and optional terrain provenance. The older rounded-coordinate baseline remains separate from the seven-site catalog. Large JSON and texture payloads are external runtime resources, not embedded in the WASM executable.
+
+The ephemeris command runs from the repository root, reads `sites.json`, and requires independent prepared reference files in its third argument. It caches original Horizons responses outside deployed assets. Each body uses eight inclusive annual chunks, at most 8,785 rows per request; repeated annual endpoints are removed. The result has 70,129 hourly samples per body from 2027-01-01 00:00 UTC through 2035-01-01 00:00 UTC. The generated `.meta.json` records the frame, method and complete validation maxima. The binary is 2,244,152 bytes; the measured fresh-cache preparation took 7.396 s on the preparation host, not a latency guarantee.
 
 ## 4. Coordinate systems and projections
 
@@ -117,6 +121,27 @@ $$\mathbf d=\cos e\sin A\,\mathbf E+\cos e\cos A\,\mathbf N+\sin e\,\mathbf U.$$
 Thus the zenith maps to $\mathbf U$, and zero azimuth at zero elevation maps to $\mathbf N$. Rays, selected-site lighting and the Earth-following camera use this same conversion. Angles are not reconstructed from visibility booleans. Invalid directions remain absent rather than creating a substitute light.
 
 Sun parallax over one lunar radius is approximately 0.00067 degrees, negligible for globe lighting. Earth parallax is approximately 0.259 degrees. Using the selected site's topocentric Earth direction as a globe-wide light/camera direction accepts that latter error. Each site's scientific sky track remains separately topocentric.
+
+### 4.3. Portable apparent ephemerides and finite-distance observers
+
+The portable ephemeris retains finite ranges rather than transporting a topocentric direction unchanged across the Moon. Horizons' `Center pole/equ` diagnostic reports `MEAN_ME (high precision)`. A valid surface reference observer at latitude zero, longitude zero and altitude zero supplies AIRLESS apparent azimuth/elevation and apparent range using quantities `4,20`, degree angles and extra precision. Its returned spherical radius is checked against 1,737.4 km. The retained responses identify the target and center planetary ephemeris as DE441. This verifies the operational frame against the existing apparent tracks, not an independent equality of every ME and PA realization.
+
+A requested geodetic observer at altitude -1,737.4 km is rejected by Horizons because its permitted altitude must exceed -20 km. No unverified inertial-to-body rotation or mean-Earth/principal-axis substitution is used. At the valid reference point, the observer lies on the positive Z axis, east is positive X and north is positive Y. The reconstructed apparent Moon-centered position is
+
+$$\mathbf P=(\Delta\cos e\sin A,\ \Delta\cos e\cos A,\ R+\Delta\sin e),$$
+
+where the apparent range $\Delta$ is converted from AU using $149{,}597{,}870{,}700\ \mathrm{m/AU}$. The binary stores $\mathbf q=\mathbf P/\lVert\mathbf P\rVert$ and $D=\lVert\mathbf P\rVert$ as four little-endian `f32` values per body per hour. After decoding, the direction is renormalized in double precision. These are apparent reference-observer-derived positions, not inertial geometric state vectors: observer-dependent light-time, aberration and deflection are not independently reevaluated for a new observer.
+
+For arbitrary latitude, longitude and radial height $h$ above the reference sphere, including terrain plus instrument height, define
+
+$$\mathbf s=D\frac{\mathbf q}{\lVert\mathbf q\rVert}-(R+h)\mathbf U,\qquad
+A=\operatorname{atan2}(\mathbf s\cdot\mathbf E,\mathbf s\cdot\mathbf N)\pmod{2\pi},$$
+
+$$e=\operatorname{atan2}\left(\mathbf s\cdot\mathbf U,\sqrt{(\mathbf s\cdot\mathbf E)^2+(\mathbf s\cdot\mathbf N)^2}\right).$$
+
+Subtracting the observer retains Earth's finite-distance parallax. Invalid positions, non-unit/nonfinite compact directions, invalid observers and coincident body/observer positions return errors. At a zenith the azimuth is geometrically undefined; no scientific inference should depend on that azimuth.
+
+The versioned binary begins with `MLVEPH01`, signed 64-bit start UTC, unsigned 32-bit cadence and unsigned 32-bit count. Each subsequent 32-byte record stores Sun then Earth, each as direction X/Y/Z followed by range in meters. Empty payloads, zero cadence, wrong length/magic, invalid bodies and timestamp overflow are rejected. There is no embedded checksum; structural validation is not protection against every possible bit corruption. The separate [portable ephemeris guide](14-any-point-ephemeris.md) contains the exact schema, reproducible command, source and API index.
 
 ## 5. DEM reading and multiresolution sampling
 
@@ -332,6 +357,20 @@ A distinct rounded Connecting Ridge baseline at -89.45 degrees, 222.69 degrees e
 
 ### 10.3. Automated and visual coverage
 
+The decoded compact ephemeris is compared against all 26,305 original hourly epochs per site from 2027-01-01 through 2030-01-01, using each prepared surface height plus its 2 m observer height. Wrapped azimuth and ordinary elevation differences give:
+
+| Site | Sun max azimuth, degrees | Sun max elevation, degrees | Earth max azimuth, degrees | Earth max elevation, degrees |
+|:--|--:|--:|--:|--:|
+| Connecting Ridge C1 | 0.00001791 | 0.00000073 | 0.00001302 | 0.00003013 |
+| Connecting Ridge C2 | 0.00001717 | 0.00000068 | 0.00000943 | 0.00003032 |
+| Shackleton S1 | 0.00001787 | 0.00000063 | 0.00001321 | 0.00003007 |
+| Shackleton S2 | 0.00001747 | 0.00000071 | 0.00001297 | 0.00003013 |
+| Shackleton Mazarico | 0.00001780 | 0.00000063 | 0.00001333 | 0.00003026 |
+| Connecting Ridge Speyerer | 0.00001798 | 0.00000065 | 0.00001340 | 0.00003029 |
+| Shackleton Speyerer | 0.00001774 | 0.00000065 | 0.00001327 | 0.00003019 |
+
+All components meet the enforced limits of less than 0.01 degrees for Sun and less than 0.02 degrees for Earth. This is a transport/quantization consistency test against separately requested apparent tracks, not an independent test of the Horizons ephemeris model. The 2030 through 2035 extension and locations outside these seven south-polar references have no independent topocentric comparison here. Parser tests check frame, radius, observer coordinates, body, malformed data, bounds and cadence; binary and geometry tests cover normal, empty, corrupt and invalid inputs plus analytic finite-distance parallax.
+
 The Rust workspace tests cover projection axes, pixel centers, bilinear interpolation, cyclic horizons, spherical elevation identities, great-circle directions, local walls and ridges, adaptive-sampler failure cases, solar area, strict Earth margins, duration weighting, Horizons optional markers/errors, malformed JSON and ephemeris alignment. TIFF fixtures cover strips, corrupt input, wrong sphere/GeoKeys, nodata and finest-valid fallback. Globe tests cover ENU conversion, camera/projection consistency, mesh winding/seams, ribbon dimensions, invalid/empty scene states, sunlit field distribution, loading failures and Earthshine phase/scale.
 
 Bundled C1 directions also undergo a full-series physical-range regression. Measured subsolar latitude is -1.587370 through +1.559565 degrees; sub-Earth longitude is -8.043021 through +8.053838 degrees and latitude -6.609914 through +7.095109 degrees. These are dataset checks, not independent ephemeris accuracy measurements.
@@ -350,13 +389,13 @@ Pixel 7 emulation exercises the drawer, zoom controls, site selection and ray to
 - Globally averaged 566 nm Hapke parameters and relative RGB modulation are not a calibrated broadband spectral model. Normal safeguards, exposure, tone mapping, Earthshine boost and fill light affect appearance only.
 - Earthshine uses a Lambert phase and mean separation, with no clouds or spatial Earth map. Globe-wide Earth lighting/camera accepts topocentric parallax of about 0.26 degrees.
 - Progressive decoding does not eliminate synchronous GPU upload/mipmap stalls. Initial WASM, JSON and texture transfer remains network dependent; 8k remains an explicit large-memory/download choice in the browser.
-- The application compares only the fixed catalog and bundled dates. It has no arbitrary-point DEM workflow, live ephemeris service, route planner or scale Sun-Earth-Moon orbital model.
+- The current interface compares only the fixed catalog and its original dates. An eight-year arbitrary-observer ephemeris API and asset exist, but there is no arbitrary-point DEM workflow, live ephemeris service, route planner or scale Sun-Earth-Moon orbital model. Apparent-position transport is empirically checked only for the seven south-polar sites over the original three-year overlap.
 
 ## 12. Source and artifact index
 
-The [source repository](https://github.com/Adriano4f/Moon-Landing-Visual) implementation baseline is revision `5d0f4fa9c6bcef2a7ed1e2cf5df8400fc2593dff`.
+The [source repository](https://github.com/Adriano4f/Moon-Landing-Visual) is authoritative for current code and data. The fixed-catalog implementation baseline is revision `5d0f4fa9c6bcef2a7ed1e2cf5df8400fc2593dff`; the portable ephemeris extension uses format `MLVEPH01` and is detailed in the [ephemeris guide](14-any-point-ephemeris.md).
 
-The reproducibility records are `sites.json`, `prep/dem-manifest.json`, `app/assets/data/*.json`, `globe/assets/manifest.json` and `globe/assets/README.md`. Scientific geometry and statistics are implemented in `core/src/lib.rs`; DEM interpretation in `prep/src/dem.rs`; preparation orchestration in `prep/src/main.rs`. Renderer equations are in `globe/src/moon.frag`, transforms in `globe/src/math.rs`, and application state/presentation in the modules listed in Section 2.
+The reproducibility records are `sites.json`, `prep/dem-manifest.json`, `app/assets/data/*.json`, `app/assets/data/moon-ephemeris.bin`, `globe/assets/manifest.json` and `globe/assets/README.md`. Scientific geometry and statistics are implemented in `core/src/lib.rs`; compact ephemerides in `core/src/ephemeris.rs`; DEM interpretation in `prep/src/dem.rs`; preparation orchestration in `prep/src/main.rs` and `prep/src/ephemeris.rs`. Renderer equations are in `globe/src/moon.frag`, transforms in `globe/src/math.rs`, and application state/presentation in the modules listed in Section 2.
 
 Build and regression commands are:
 

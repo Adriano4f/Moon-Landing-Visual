@@ -1,0 +1,106 @@
+{
+  "bytes": 2244152,
+  "chunks": "Eight inclusive calendar-year requests per body; duplicate boundary rows removed",
+  "distance_unit": "m",
+  "format": "MLVEPH01",
+  "frame": "Moon MEAN_ME, X=90E Y=north Z=0E",
+  "method": "AIRLESS apparent reference-observer ENU direction times apparent range, plus observer radial vector; not inertial geometric state vectors",
+  "quantities": "4,20",
+  "reference_observer": {
+    "altitude_km": 0,
+    "lat_deg": 0,
+    "lon_deg": 0
+  },
+  "samples": 70129,
+  "source": "https://ssd.jpl.nasa.gov/api/horizons.api",
+  "start": "2027-01-01T00:00:00Z",
+  "step_s": 3600,
+  "stop": "2035-01-01T00:00:00Z",
+  "time_scale": "UTC",
+  "validation": [
+    {
+      "max_az_deg": [
+        0.000017908259565047047,
+        0.000013024359645896766
+      ],
+      "max_el_deg": [
+        7.322053411917828e-7,
+        0.000030131543878653133
+      ],
+      "name": "Connecting Ridge C1",
+      "samples": 26305
+    },
+    {
+      "max_az_deg": [
+        0.000017169052341614588,
+        9.427390608607311e-6
+      ],
+      "max_el_deg": [
+        6.764701980799259e-7,
+        0.000030316880256897605
+      ],
+      "name": "Connecting Ridge C2",
+      "samples": 26305
+    },
+    {
+      "max_az_deg": [
+        0.000017870962324195716,
+        0.000013207953060145883
+      ],
+      "max_el_deg": [
+        6.297582180181394e-7,
+        0.00003006987146481066
+      ],
+      "name": "Shackleton S1",
+      "samples": 26305
+    },
+    {
+      "max_az_deg": [
+        0.000017466676638377976,
+        0.000012971354408364277
+      ],
+      "max_el_deg": [
+        7.100272794435813e-7,
+        0.00003012533559587638
+      ],
+      "name": "Shackleton S2",
+      "samples": 26305
+    },
+    {
+      "max_az_deg": [
+        0.000017804218202854827,
+        0.000013329209650692064
+      ],
+      "max_el_deg": [
+        6.322796632929339e-7,
+        0.000030255889893027188
+      ],
+      "name": "Shackleton Mazarico",
+      "samples": 26305
+    },
+    {
+      "max_az_deg": [
+        0.00001797509088419247,
+        0.000013401350997810368
+      ],
+      "max_el_deg": [
+        6.476674201394417e-7,
+        0.000030292975186974047
+      ],
+      "name": "Connecting Ridge Speyerer",
+      "samples": 26305
+    },
+    {
+      "max_az_deg": [
+        0.00001774192344328185,
+        0.000013271906311729254
+      ],
+      "max_el_deg": [
+        6.518246655762283e-7,
+        0.000030190649147776583
+      ],
+      "name": "Shackleton Speyerer",
+      "samples": 26305
+    }
+  ]
+}
