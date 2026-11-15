@@ -111,6 +111,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `buffer_data_u8_slice`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `button`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `bytemuck::cast_slice`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `camera_controls`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `catalog_and_lazy_filenames`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `center`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `centered_site_and_billboard_width`: [annotated globe/src/math.rs](#141-globesrcmathrs)
@@ -127,13 +128,12 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `collect`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `color`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Color32::from_gray`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `colored_label`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `columns`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `compile_shader`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `contains`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `content_rect`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `copied`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `cos`: [annotated globe/src/math.rs](#141-globesrcmathrs)
-- `count`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `crate::sky::show`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `create_buffer`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `create_program`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -143,7 +143,6 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `ctx`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `cull_face`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `data::load`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `default_width`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `default_x_bounds`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `delete_buffer`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `delete_program`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -167,7 +166,6 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `earthshine_phase_and_scale`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `earthshine_ratio`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `eframe::egui::CentralPanel::default`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
-- `eframe::egui::ComboBox::from_id_salt`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::Layout::top_down`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::ScrollArea::vertical`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::vec2`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
@@ -182,7 +180,6 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `egui::Slider::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Stroke::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::vec2`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `egui::Window::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui_glow::CallbackFn::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui_glow::ShaderVersion::get`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `enable`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -201,7 +198,6 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `find`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `fixed_decimals`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `flat_map`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `flatten`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `fold`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `format`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `format!`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -218,14 +214,17 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `gl`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `Globe`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `globe::Globe::new`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `globe::help::annotated`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `globe::help::question`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `globe::moon_fixed`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `heading`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `height`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `help::question`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `hline`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `HLine::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `horizon_at`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `horizontal`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `horizontal`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `horizontal_wrapped`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `hovered`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `hypot`: [annotated globe/src/math.rs](#141-globesrcmathrs)
@@ -254,6 +253,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `legend`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Legend::default`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `len`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `lighting_controls`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `line`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Line::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `link_program`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -288,8 +288,6 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `ok`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `ok_or`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `on_exit`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
-- `on_hover_text`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `open`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `or_else`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `paint`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -309,7 +307,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `projection`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `projection_depth_and_aspect`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `push`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `radio_value`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `radio_controls`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `radius`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `rem_euclid`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `Renderer::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -325,11 +323,11 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `serde_json::from_str`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `serde_json::to_vec`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `set_margin_fraction`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `set_max_width`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `set_scene`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `set_theme`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `set_time`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `set_width`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `settings`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `shader_source`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `show`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `show_panorama`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
@@ -341,7 +339,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `site_projection_and_south_tilt`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `SiteData::parse`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `size`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `small`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `small`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `spacing`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `spacing_mut`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `sphere`: [annotated globe/src/math.rs](#141-globesrcmathrs)
@@ -358,11 +356,13 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `take`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `tan`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `technical`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `technical_controls`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `tex_image_2d`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `tex_parameter_i32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `text`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `then`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `time`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `time_controls`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `to_degrees`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `to_radians`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `to_string`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -390,7 +390,6 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `vertex_attrib_pointer_f32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `vertical`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `viewport_in_pixels`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `vscroll`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `web_sys::console::log_1`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `width`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `window`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -936,6 +935,11 @@ mod tests
 mod assets;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
+// Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
+pub mod help;
+
+// Bound enlargement by the available polar texture detail, not GPU capacity; C++ constexpr float.
+const MAX_ZOOM: f32 = 8.0;
 
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;
@@ -1169,16 +1173,109 @@ impl Globe
 		self.selected = selected;
 	}
 
+	// Draw camera controls independently of the illustration; C++ member function.
+	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
+	{
+		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
+		ui.horizontal_wrapped(|ui| {
+			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(1.0); self.focus = None; }
+			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
+			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
+			help::question(ui, "Zoom in, up to 8 times. Higher magnification enlarges misleading polar texture streaks. Choose close neighbors in Site; the panorama uses the detailed terrain horizon.");
+		});
+		// Request an eased transition at the real UI clock time; C++ event flag.
+		let go = ui.horizontal(|ui| {
+			let clicked = ui.button("Go to site").clicked();
+			help::question(ui, "Center the selected point and zoom in. Close published points can overlap on this overview; select them individually in Site.");
+			clicked
+		}).inner;
+		// Animation time is independent of the scientific date; C++ double local.
+		let time = ui.input(|i| i.time);
+		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
+		{
+			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
+			self.earth_view = false;
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let target = -(site.lon_deg as f32).to_radians();
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = (target - self.yaw + std::f32::consts::PI)
+				.rem_euclid(std::f32::consts::TAU)
+				- std::f32::consts::PI;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = Some((
+				time,
+				[self.yaw, self.tilt, self.zoom],
+				[
+					self.yaw + delta,
+					(site.lat_deg as f32).to_radians(),
+					MAX_ZOOM,
+				],
+			));
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+		}
+
+		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
+		let ready = self
+			.scene
+			.iter()
+			.any(|s| s.id == self.selected && s.directions.is_some());
+		ui.horizontal(|ui| {
+			if ui.add_enabled(ready, egui::Button::new("View from Earth")).clicked()
+			{ self.earth_view = true; self.paused = true; self.zoom = 1.0; self.focus = None; }
+			help::question(ui, "Look along the current Earth direction. The apparent rocking changes with time. This is a direction-correct illustration, not a camera at Earth's true distance.");
+		});
+		// Keep synthetic camera spin optional; C++ bool edit.
+		let mut spin = !self.paused;
+		ui.horizontal(|ui| {
+			if ui.checkbox(&mut spin, "Auto-rotate").changed() { self.paused = !spin; self.earth_view = false; self.focus = None; }
+			help::question(ui, "Turn the camera slowly for inspection. This artificial one-minute spin is not a real orbital period and does not change the scientific date.");
+		});
+		// Identify the mode and magnification without hidden controls; C++ label.
+		ui.label(format!(
+			"{:.1}x | {}",
+			self.zoom,
+			if self.earth_view
+			{
+				"Earth-following view"
+			}
+			else
+			{
+				"Free orbit"
+			}
+		));
+	}
+
+	// Draw physical-light display aids separately from camera actions; C++ member function.
+	pub fn lighting_controls(&mut self, ui: &mut egui::Ui)
+	{
+		// Explain that increased exposure is not increased power; C++ checkbox row.
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
+			help::question(ui, "Earthshine is sunlight reflected by Earth onto the Moon. It is normally thousands of times weaker than sunlight. This exposure boost changes only the illustration, not solar power or communication.");
+		});
+		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.fill, "Far side fill light");
+			help::question(ui, "Soft gray-blue light helps you inspect the mean far side after dragging around the Moon. It is a visual aid, not real light, and changes no scientific result.");
+		});
+	}
+
 	/// Fill the available UI rectangle with interactive controls and optional one-minute rotation.
 	// Queue a paint callback for this frame and request the next; C++ an immediate-mode UI calls this each frame.
 	pub fn show(&mut self, ui: &mut egui::Ui) -> Option<usize>
 	{
+		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
+		ui.horizontal(|ui| {
+			ui.small("Moon overview");
+			help::question(ui, "Drag to orbit the Moon; wheel or pinch to zoom. Magnification stops at 8 times to avoid misleading polar texture streaks. Markers are published points; click one or use Site. This globe is an illustration, not the detailed terrain silhouette shown in the panorama.");
+		});
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let time = ui.input(|i| i.time);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut go = false;
+		let _ = time;
 		// Copy the selected site's actual directions, never infer illumination from availability flags; C++ optional transform.
 		let directions = self
 			.scene
@@ -1193,79 +1290,6 @@ impl Globe
 					moon_fixed(s.lat_deg, s.lon_deg, earth)?,
 				])
 			});
-		// Submit the current interaction or display value; C++ immediate-mode API call.
-		ui.horizontal_wrapped(|ui| {
-			if ui.button("− Zoom").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom / 1.8).max(1.0);
-				// Update this persistent member explicitly; C++ member assignment.
-				self.focus = None;
-			}
-			if ui.button("+ Zoom").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom * 1.8).min(1024.0);
-				// Update this persistent member explicitly; C++ member assignment.
-				self.focus = None;
-			}
-			if ui.button("Go to site").clicked()
-			{
-				go = true;
-			}
-			// Follow the actual Earth line of sight as the scientific time changes; C++ checked button action.
-			if ui
-				.add_enabled(directions.is_some(), egui::Button::new("View from Earth"))
-				.clicked()
-			{
-				// Restore the full-disk view and cancel any site transition; C++ camera-state assignments.
-				self.earth_view = true;
-				// Earth following and presentation spin are mutually exclusive; C++ bool assignment.
-				self.paused = true;
-				// Return to the full-disk overview instead of retaining a magnified landing view; C++ scalar assignment.
-				self.zoom = 1.0;
-				// Cancel any pending site interpolation; C++ optional reset.
-				self.focus = None;
-			}
-			// Make the previous presentation spin optional and off by default; C++ editable bool.
-			let mut spin = !self.paused;
-			// Manual spin exits the Earth-locked orbital view; C++ checkbox change handler.
-			if ui.checkbox(&mut spin, "Auto-rotate").changed()
-			{
-				// Convert the positive UI control into the existing paused representation; C++ bool assignment.
-				self.paused = !spin;
-				// Artificial spin must not fight the physical Earth camera; C++ mode assignment.
-				self.earth_view = false;
-				// Manual controls supersede an in-flight site animation; C++ optional reset.
-				self.focus = None;
-			}
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.label(format!("{:.0}×", self.zoom));
-			// Explain whether the time slider moves the camera or only the physical lights; C++ conditional string.
-			ui.label(
-				if self.earth_view
-				{
-					"Earth view: follows time"
-				}
-				else
-				{
-					"Free orbit"
-				},
-			);
-		});
-		// Keep exposure aids explicit, independent and disabled by default; C++ immediate-mode control row.
-		ui.horizontal_wrapped(|ui| {
-			// Edit the Earth-only exposure aid, leaving physical sunlight unchanged; C++ checkbox bound to bool.
-			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)")
-				.on_hover_text(
-					"Exposure aid: multiply only reflected Earth light by 1000, not sunlight.",
-				);
-			// Edit the nonphysical visual aid independently of Earthshine; C++ checkbox bound to bool.
-			ui.checkbox(&mut self.fill, "Far side fill light")
-				.on_hover_text(
-					"Visual aid, not real light: gray-blue fill beyond mean longitudes +/-90 degrees.",
-				);
-		});
 		// Holding this mode reveals real libration rather than artificial animation; C++ conditional camera update.
 		if self.earth_view
 			&& let Some([_, earth]) = directions
@@ -1288,25 +1312,6 @@ impl Globe
 		{
 			// State why the Moon has no physical illumination instead of fabricating data; C++ immediate-mode text.
 			ui.label("Real lighting unavailable: selected track not loaded");
-		}
-		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
-		{
-			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
-			self.earth_view = false;
-			// Bind this intermediate value for the current operation; C++ local initialization.
-			let target = -(site.lon_deg as f32).to_radians();
-			// Bind this intermediate value for the current operation; C++ local initialization.
-			let delta = (target - self.yaw + std::f32::consts::PI)
-				.rem_euclid(std::f32::consts::TAU)
-				- std::f32::consts::PI;
-			// Update this persistent member explicitly; C++ member assignment.
-			self.focus = Some((
-				time,
-				[self.yaw, self.tilt, self.zoom],
-				[self.yaw + delta, (site.lat_deg as f32).to_radians(), 128.0],
-			));
-			// Update this persistent member explicitly; C++ member assignment.
-			self.paused = true;
 		}
 		// Check this state or input before acting; C++ conditional branch.
 		if let Some((start, from, to)) = self.focus
@@ -1369,7 +1374,7 @@ impl Globe
 			if wheel != 0.0 || pinch != 1.0
 			{
 				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, 1024.0);
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, MAX_ZOOM);
 				// Update this persistent member explicitly; C++ member assignment.
 				self.focus = None;
 				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
@@ -1555,7 +1560,7 @@ impl Globe
 				}
 			}
 		}
-		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked
@@ -2313,6 +2318,10 @@ void main()
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
+	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
+	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
+	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
+	normal_strength *= 1.0 - polar_fallback;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
@@ -2322,6 +2331,8 @@ void main()
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
+	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
+	albedo = mix(albedo, vec3(0.4832), polar_fallback);
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;

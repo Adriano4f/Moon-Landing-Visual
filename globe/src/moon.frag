@@ -216,6 +216,10 @@ void main()
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
+	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
+	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
+	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
+	normal_strength *= 1.0 - polar_fallback;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
@@ -225,6 +229,8 @@ void main()
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
+	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
+	albedo = mix(albedo, vec3(0.4832), polar_fallback);
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;

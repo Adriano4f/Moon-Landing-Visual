@@ -16,7 +16,7 @@ Both actual light directions are transformed by `u_model`, exactly like lunar ge
 
 ## 3. Camera modes from zero
 
-Dragging changes yaw and tilt and leaves Earth-following mode. Yaw covers every longitude; tilt is clamped at the poles, avoiding an upside-down camera while allowing every face to be inspected. The existing wheel, pinch and plus/minus controls clamp zoom to 1 through 1,024. These are camera controls, not changes to the observing site's coordinates.
+Dragging changes yaw and tilt and leaves Earth-following mode. Yaw covers every longitude; tilt is clamped at the poles, avoiding an upside-down camera while allowing every face to be inspected. Wheel, pinch and plus/minus controls now clamp zoom to 1 through 8 to avoid misleading enlargement of polar texture streaks. These are camera controls, not changes to the observing site's coordinates. The grouped controls and display-resolution tradeoff are explained in [the menu guide](11-menu-and-help.md).
 
 The default is Earth view. For the current Moon-fixed Earth unit vector E=(x,y,z), choose yaw=-atan2(x,z) and tilt=asin(y). Substitution into the shared Rx(tilt)Ry(yaw) matrix rotates E onto +z, the camera axis. Earth view keeps recomputing these two angles when time changes, so libration is visible. The View from Earth button returns to this mode and resets zoom to the full-disk overview. Free orbit keeps its chosen angles when time changes, making the moving terminator easy to compare.
 
@@ -292,6 +292,10 @@ void main()
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
+	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
+	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
+	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
+	normal_strength *= 1.0 - polar_fallback;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
@@ -301,6 +305,8 @@ void main()
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
+	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
+	albedo = mix(albedo, vec3(0.4832), polar_fallback);
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;

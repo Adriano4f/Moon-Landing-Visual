@@ -4,6 +4,8 @@ mod data;
 mod panorama;
 // Compile the angular sky-strip painter; C++ project drawing module.
 mod sky;
+// Keep grouped presentation settings outside scientific orchestration; C++ module declaration.
+mod menu;
 
 // Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
 #[derive(serde::Deserialize)]
@@ -42,6 +44,8 @@ pub struct MoonApp
 	all_rays: bool,
 	// Preserve a UTC epoch independently of each view's sample index; C++ optional<int64_t>.
 	time: Option<i64>,
+	// Persist only whether the phone drawer is open; C++ bool member.
+	menu_open: bool,
 }
 
 // Define application member functions; C++ out-of-class member definitions.
@@ -81,77 +85,31 @@ impl MoonApp
 			selected: 0,
 			all_rays: false,
 			time: None,
+			menu_open: false,
 		})
 	}
-	// Offer a list without mixing the later menu/help/logo redesign into these controls; C++ immediate-mode member.
+	// Render the selected scientific view while preserving the shared epoch; C++ member function.
 	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
 	{
-		eframe::egui::ComboBox::from_id_salt("published-site")
-			.selected_text(&self.catalog[self.selected].name)
-			.show_ui(ui, |ui| {
-				// Visit each value without transferring the owner's resources; C++ range-for loop.
-				for (id, entry) in self.catalog.iter().enumerate()
-				{
-					// Submit the current interaction or display value; C++ immediate-mode API call.
-					ui.selectable_value(&mut self.selected, id, &entry.name)
-						.on_hover_text(&entry.source);
-				}
-			});
-		// Submit the current interaction or display value; C++ immediate-mode API call.
-		ui.horizontal_wrapped(|ui| {
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.label("Rays:");
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.radio_value(&mut self.all_rays, false, "Selected site only");
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.radio_value(&mut self.all_rays, true, "All sites");
-		});
-		// Bind this intermediate value for the current operation; C++ local initialization.
-		let ready = self
-			.panoramas
-			.iter()
-			.flatten()
-			.filter(|p| p.site().is_some())
-			.count();
-		// Check this state or input before acting; C++ conditional branch.
-		if self.all_rays
-		{
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.small(format!("Site tracks ready: {ready}/{}", self.catalog.len()));
-			// A missing track must be an explicit error, not silently absent geometry; C++ indexed cache iteration.
-			for (id, p) in self.panoramas.iter().enumerate()
-			{
-				// Check this state or input before acting; C++ conditional branch.
-				if let Some(error) = p.as_ref().and_then(|p| p.load_error())
-				{
-					// Submit the current interaction or display value; C++ immediate-mode API call.
-					ui.colored_label(
-						eframe::egui::Color32::LIGHT_RED,
-						format!("{}: {error}", self.catalog[id].name),
-					);
-				}
-			}
-		}
-		// Check this state or input before acting; C++ conditional branch.
 		if let Some(p) = &mut self.panoramas[self.selected]
 		{
-			// A cached view must inherit the shared epoch before any widget edits; C++ optional restoration.
 			if let Some(time) = self.time
 			{
 				p.set_time(time);
 			}
 			p.show(ui);
-			// Check this state or input before acting; C++ conditional branch.
 			if let Some(time) = p.time()
 			{
-				// Update this persistent member explicitly; C++ member assignment.
 				self.time = Some(time);
 			}
 		}
 		else
 		{
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.label("Loading selected site...");
+			globe::help::annotated(
+				ui,
+				"Loading selected site...",
+				"Wait for the selected site's validated hourly data. No results are invented while it loads.",
+			);
 		}
 	}
 }
@@ -307,6 +265,9 @@ impl eframe::App for MoonApp
 			})
 			.collect();
 		self.globe.set_scene(scene, self.selected);
+		// Draw settings before the central view so desktop width and phone drawer are independent; C++ responsive panel call.
+		let phone = ui.ctx().content_rect().width() < 760.0;
+		self.settings(ui, phone);
 		// Preserve black behind the Moon in both layouts; C++ immediate-mode central container.
 		eframe::egui::CentralPanel::default()
 			.frame(eframe::egui::Frame::NONE.fill(eframe::egui::Color32::BLACK))

@@ -30,8 +30,6 @@ pub(crate) struct Panorama
 	earth_margin_deg: f32,
 	// Remember the optional numeric view; C++ bool.
 	technical: bool,
-	// Keep the help dialog open across frames; C++ bool.
-	help: bool,
 	// Cache full-period values rather than recomputing every animated frame; C++ value member.
 	summary: lunar_core::Stats,
 }
@@ -62,7 +60,6 @@ impl Panorama
 			earth_margin_deg: EARTH_MARGIN_DEG,
 			// Start in the nontechnical view without an obstructing dialog; C++ value initialization.
 			technical: false,
-			help: false,
 			summary: lunar_core::Stats::default(),
 		}
 	}
@@ -189,57 +186,139 @@ impl Panorama
 		})
 	}
 
+	// Show time settings in the grouped menu, not over the panorama; C++ member function.
+	pub fn time_controls(&mut self, ui: &mut egui::Ui)
+	{
+		// Do not manufacture a slider range before the real track loads; C++ optional guard.
+		let Some(data) = &mut self.data
+		else
+		{
+			ui.label("Load a site to choose time.");
+			return;
+		};
+		// Always identify the chosen time and clock convention; C++ formatted label.
+		ui.strong(utc_label(data.sun.t[self.index]));
+		// Let the time slider fill the available width; C++ local style assignment.
+		ui.spacing_mut().slider_width = (ui.available_width() - 65.0).max(100.0);
+		// Select only real hourly samples; C++ bounded integer slider.
+		ui.horizontal(|ui| {
+		ui.add(
+			egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
+				.show_value(false)
+				.text("Time"),
+		);
+			globe::help::question(ui, "Choose the shared hourly UTC date. UTC is the world clock, not local time. All views use this date; between-hour events may be missed.");
+		});
+		// Wrapping rows remain usable when narrow; C++ flow layout callback.
+		ui.horizontal_wrapped(|ui| {
+			// Saturating subtraction keeps the first sample safe; C++ clamped decrement.
+			globe::help::question(ui, "Move one hourly sample backward. At the first date it stays at the start.");
+			if ui.button("< 1 hour").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.index = self.index.saturating_sub(1);
+			}
+			// Clamp at the inclusive final epoch; C++ clamped increment.
+			globe::help::question(ui, "Move one hourly sample forward. At the final date it stays at the end.");
+			if ui.button("1 hour >").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.index = (self.index + 1).min(data.sun.t.len() - 1);
+			}
+			// Explain that the window controls faint paths, not summary percentages; C++ combo box.
+			egui::ComboBox::from_id_salt("time_window")
+				.selected_text(window_label(self.hours))
+				.show_ui(ui, |ui| {
+					// Use durations rather than arbitrary point counts; C++ range-for.
+					for (h, label) in [
+						(24, "1 day"),
+						(168, "7 days"),
+						(720, "30 days"),
+						(0, "All data"),
+					]
+					{
+						// Bind the chosen duration; C++ radio item.
+						ui.selectable_value(&mut self.hours, h, label);
+					}
+				});
+			// Preserve the original plot as an explicit alternative; C++ bool checkbox.
+			globe::help::question(ui, "The time window changes the faint paths, not the full-period summary. One day means 24 hours; all data shows every available sample.");
+		});
+	}
+	// Recalculate scientific clearance and summaries from one menu control; C++ member function.
+	pub fn radio_controls(&mut self, ui: &mut egui::Ui)
+	{
+		// Preserve an explicit pending/error state without indexing absent samples; C++ optional guard.
+		let Some(data) = &mut self.data
+		else
+		{
+			ui.label("Load a site to adjust clearance.");
+			return;
+		};
+		// Define the clearance control before presenting its numeric value; C++ wrapped text.
+		ui.label("Safety margin above terrain for the radio signal");
+		// Reserve room for the editable value and units as well as the slider; C++ bounded control width.
+		ui.spacing_mut().slider_width = (ui.available_width() - 125.0).max(60.0);
+		// Recompute full-period percentages only when the clearance changes; C++ change event.
+		if ui
+			.add(
+				egui::Slider::new(&mut self.earth_margin_deg, 0.5..=1.0)
+					.suffix(" degrees")
+					.fixed_decimals(2),
+			)
+			.changed()
+		{
+			// Update the cache used by the current status and summary consistently; C++ member call.
+			data.update_earth_margin(self.earth_margin_deg);
+			// Reuse core's duration-weighted statistics; C++ cached value assignment.
+			self.summary = availability(data);
+		}
+
+		globe::help::question(
+			ui,
+			"Require extra angular clearance above the hills for a direct radio signal: 0.5 to 1 degree. A degree is 1/360 of a full turn. This does not model antennas, relays, Earth stations or interference; a visible blue disk alone does not guarantee a link.",
+		);
+	}
+	// Preserve detailed plots as an opt-in setting; C++ member function.
+	pub fn technical_controls(&mut self, ui: &mut egui::Ui)
+	{
+		ui.horizontal(|ui| {
+			ui.checkbox(&mut self.technical, "Technical view");
+			globe::help::question(ui, "Replace the standing-view strip with the numerical azimuth/elevation plot. Azimuth runs north through east, south and west; elevation is height above your horizontal plane. It uses exactly the same data.");
+		});
+	}
+
 	// Present a plain-language scene first, with optional numerical detail; C++ immediate-mode member function.
 	pub fn show(&mut self, ui: &mut egui::Ui)
 	{
 		// Scrollable child UIs must wrap prose instead of widening the entire panorama; C++ local text-layout policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-		// Keep the explanation available even while data is loading; C++ row callback.
-		ui.horizontal(|ui| {
-			// Name the viewpoint, not the plotting library; C++ heading widget.
-			ui.heading("Standing on the Moon");
-			// A question mark toggles the short explanation; C++ button event.
-			if ui
-				.button("?")
-				.on_hover_text("What am I looking at?")
-				.clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.help = !self.help;
-			}
-		});
-		// A modeless window can be closed without changing scientific state; C++ dialog with bool reference.
-		egui::Window::new("How to read this view").open(&mut self.help).vscroll(true).default_width(310.0).show(ui.ctx(), |ui| {
-			// Limit line length for reading on small screens; C++ layout width constraint.
-			ui.set_max_width(320.0);
-			// Define the horizon before using it; C++ wrapped text widget.
-			ui.label("The horizon is the edge of the ground against the sky. Nearby hills can hide the Sun or Earth.");
-			// Define the round-body wording and angular/time units; C++ explanatory label.
-			ui.label("A disk is the round face of the Sun or Earth. Its visible percentage says how much of that face clears the hills. A degree measures an angle: a full turn is 360 degrees. UTC is the shared world clock, not your local time.");
-			// Explain the panoramic mapping without assumed graphics knowledge; C++ text widget.
-			ui.label("The strip shows every direction around you, from north through east, south and west, back to north. Up means higher in the sky. Height is stretched to make low hills easier to see; the amount is written below.");
-			// Explain both the paths and finite disks; C++ text widget.
-			ui.label("Yellow is the Sun and blue is Earth. Grey ground hides the parts below the horizon. Faint lines show their paths during your chosen time window. The globe beside it is an illustration, not this sky view.");
-			// State the distinction between a potential geometric link and a guaranteed service; C++ text widget.
-			ui.label("Direct communication means a radio signal could travel straight to Earth without the Moon blocking it. The safety margin asks for extra room above the hills. The blue disk can be visible while the radio test still fails.");
-			// Avoid promising engineering capabilities from a geometric model; C++ text widget.
-			ui.label("Sun visible means sunlight could reach solar panels, not guaranteed electrical power. This does not model radio relays, ground-station availability, radio hardware, panel direction, eclipses, temperatures or landing safety. The table uses hourly samples, so short events can be missed.");
-		});
+		globe::help::annotated(
+			ui,
+			egui::RichText::new("Standing on the Moon").heading(),
+			"Imagine standing at the selected point. The strip shows every direction around you; gray is terrain, yellow is Sun, blue is Earth. Hills hide the parts below their edge. Height is stretched and labeled. Faint paths cover the menu time window; this is not a landing-safety or thermal model.",
+		);
 		// Never draw invented tracks while waiting or after an error; C++ optional extraction.
 		let Some(data) = &mut self.data
 		else
 		{
 			// Show the real loader state; C++ optional value_or.
-			ui.label(
+			globe::help::annotated(
+				ui,
 				self.error
 					.as_deref()
 					.unwrap_or("Loading site and sky data..."),
+				"Results are unavailable until the selected track has loaded and passed validation. No substitute directions or statistics are shown for missing or invalid data.",
 			);
 			// Stop before indexing arrays; C++ early return.
 			return;
 		};
 		// Identify the published observation point; C++ borrowed text.
-		ui.small(&data.site.name);
+		globe::help::annotated(
+			ui,
+			&data.site.name,
+			"The selected published observation point. Use Site in the menu to change it; nearby coordinates can have very different horizons.",
+		);
 		// Delegate the solar area to the scientific core; C++ pure function call.
 		let fraction = sun_fraction(
 			data.sun.el_deg[self.index],
@@ -264,16 +343,19 @@ impl Panorama
 			)
 		};
 		// Use large wrapping text so the whole status fits a phone; C++ rich-text widget.
-		ui.label(
+		globe::help::annotated(
+			ui,
 			egui::RichText::new(sun_text)
 				.size(18.0)
 				.strong()
 				.color(sun_color),
+			"Sunlight can reach the site when some of the yellow disk clears the terrain. The percentage is the visible area of the disk, not guaranteed electrical output. Panel direction, hardware, dust and eclipses are not modeled.",
 		);
 		// Include the selected radio clearance, not just visible blue pixels; C++ cached bool.
 		let earth_visible = data.earth_above[self.index];
 		// Keep the full plain-language status visible without interpreting a graph; C++ conditional string.
-		ui.label(
+		globe::help::annotated(
+			ui,
 			egui::RichText::new(
 				if earth_visible
 				{
@@ -296,70 +378,16 @@ impl Panorama
 					Color32::LIGHT_RED
 				},
 			),
+			"A direct radio signal could reach Earth without terrain blocking it, including the chosen safety margin. This is a geometric opportunity, not guaranteed service; relays, antennas and Earth stations are not modeled.",
 		);
 		// Qualify a blocked radio link that may still have a partly visible disk; C++ explanatory label.
 		ui.small("Radio status includes the safety margin, not just the visible blue disk.");
 		// Keep UTC explicit, independent of the computer's time zone; C++ time formatting.
-		ui.strong(utc_label(data.sun.t[self.index]));
-		// Let the time slider fill the available width; C++ local style assignment.
-		ui.spacing_mut().slider_width = (ui.available_width() - 65.0).max(100.0);
-		// Select only real hourly samples; C++ bounded integer slider.
-		ui.add(
-			egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
-				.show_value(false)
-				.text("Time"),
+		globe::help::annotated(
+			ui,
+			utc_label(data.sun.t[self.index]),
+			"The current shared UTC date and time. Open Time in the menu to change it. Hourly sampling can miss short events.",
 		);
-		// Wrapping rows remain usable when narrow; C++ flow layout callback.
-		ui.horizontal_wrapped(|ui| {
-			// Saturating subtraction keeps the first sample safe; C++ clamped decrement.
-			if ui.button("< 1 hour").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.index = self.index.saturating_sub(1);
-			}
-			// Clamp at the inclusive final epoch; C++ clamped increment.
-			if ui.button("1 hour >").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.index = (self.index + 1).min(data.sun.t.len() - 1);
-			}
-			// Explain that the window controls faint paths, not summary percentages; C++ combo box.
-			egui::ComboBox::from_id_salt("time_window")
-				.selected_text(window_label(self.hours))
-				.show_ui(ui, |ui| {
-					// Use durations rather than arbitrary point counts; C++ range-for.
-					for (h, label) in [
-						(24, "1 day"),
-						(168, "7 days"),
-						(720, "30 days"),
-						(0, "All data"),
-					]
-					{
-						// Bind the chosen duration; C++ radio item.
-						ui.selectable_value(&mut self.hours, h, label);
-					}
-				});
-			// Preserve the original plot as an explicit alternative; C++ bool checkbox.
-			ui.checkbox(&mut self.technical, "Technical view");
-		});
-		// Define the clearance control before presenting its numeric value; C++ wrapped text.
-		ui.label("Safety margin above terrain for the radio signal");
-		// Reserve room for the editable value and units as well as the slider; C++ bounded control width.
-		ui.spacing_mut().slider_width = (ui.available_width() - 125.0).max(60.0);
-		// Recompute full-period percentages only when the clearance changes; C++ change event.
-		if ui
-			.add(
-				egui::Slider::new(&mut self.earth_margin_deg, 0.5..=1.0)
-					.suffix(" degrees")
-					.fixed_decimals(2),
-			)
-			.changed()
-		{
-			// Update the cache used by the current status and summary consistently; C++ member call.
-			data.update_earth_margin(self.earth_margin_deg);
-			// Reuse core's duration-weighted statistics; C++ cached value assignment.
-			self.summary = availability(data);
-		}
 		// Show the same scientific data in either presentation; C++ view-mode branch.
 		if self.technical
 		{
@@ -417,7 +445,7 @@ impl Panorama
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.small(*title);
+								ui.horizontal_wrapped(|ui| { ui.small(*title); globe::help::question(ui, match i { 0 => "Fraction of the entire data period with at least some Sun visible. Partial disks count; this is not energy yield.", 1 => "Fraction of the entire period with direct Earth clearance at your chosen radio margin, not guaranteed radio service.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest continuous sampled interval without any Sun, measured in days. A day here is 24 hours; short events between hourly samples can be missed." }); });
 							});
 						});
 					// Close each pair explicitly; C++ grid row break.
@@ -697,7 +725,6 @@ mod tests
 			hours: 24,
 			earth_margin_deg: 1.0,
 			technical: false,
-			help: false,
 			summary: blocked,
 		};
 		// At sample zero the Sun is below flat terrain and Earth fails the edited radio margin; C++ optional extraction.

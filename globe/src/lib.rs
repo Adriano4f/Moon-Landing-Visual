@@ -5,6 +5,11 @@
 mod assets;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
+// Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
+pub mod help;
+
+// Bound enlargement by the available polar texture detail, not GPU capacity; C++ constexpr float.
+const MAX_ZOOM: f32 = 8.0;
 
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;
@@ -238,16 +243,109 @@ impl Globe
 		self.selected = selected;
 	}
 
+	// Draw camera controls independently of the illustration; C++ member function.
+	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
+	{
+		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
+		ui.horizontal_wrapped(|ui| {
+			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(1.0); self.focus = None; }
+			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
+			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
+			help::question(ui, "Zoom in, up to 8 times. Higher magnification enlarges misleading polar texture streaks. Choose close neighbors in Site; the panorama uses the detailed terrain horizon.");
+		});
+		// Request an eased transition at the real UI clock time; C++ event flag.
+		let go = ui.horizontal(|ui| {
+			let clicked = ui.button("Go to site").clicked();
+			help::question(ui, "Center the selected point and zoom in. Close published points can overlap on this overview; select them individually in Site.");
+			clicked
+		}).inner;
+		// Animation time is independent of the scientific date; C++ double local.
+		let time = ui.input(|i| i.time);
+		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
+		{
+			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
+			self.earth_view = false;
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let target = -(site.lon_deg as f32).to_radians();
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = (target - self.yaw + std::f32::consts::PI)
+				.rem_euclid(std::f32::consts::TAU)
+				- std::f32::consts::PI;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = Some((
+				time,
+				[self.yaw, self.tilt, self.zoom],
+				[
+					self.yaw + delta,
+					(site.lat_deg as f32).to_radians(),
+					MAX_ZOOM,
+				],
+			));
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+		}
+
+		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
+		let ready = self
+			.scene
+			.iter()
+			.any(|s| s.id == self.selected && s.directions.is_some());
+		ui.horizontal(|ui| {
+			if ui.add_enabled(ready, egui::Button::new("View from Earth")).clicked()
+			{ self.earth_view = true; self.paused = true; self.zoom = 1.0; self.focus = None; }
+			help::question(ui, "Look along the current Earth direction. The apparent rocking changes with time. This is a direction-correct illustration, not a camera at Earth's true distance.");
+		});
+		// Keep synthetic camera spin optional; C++ bool edit.
+		let mut spin = !self.paused;
+		ui.horizontal(|ui| {
+			if ui.checkbox(&mut spin, "Auto-rotate").changed() { self.paused = !spin; self.earth_view = false; self.focus = None; }
+			help::question(ui, "Turn the camera slowly for inspection. This artificial one-minute spin is not a real orbital period and does not change the scientific date.");
+		});
+		// Identify the mode and magnification without hidden controls; C++ label.
+		ui.label(format!(
+			"{:.1}x | {}",
+			self.zoom,
+			if self.earth_view
+			{
+				"Earth-following view"
+			}
+			else
+			{
+				"Free orbit"
+			}
+		));
+	}
+
+	// Draw physical-light display aids separately from camera actions; C++ member function.
+	pub fn lighting_controls(&mut self, ui: &mut egui::Ui)
+	{
+		// Explain that increased exposure is not increased power; C++ checkbox row.
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
+			help::question(ui, "Earthshine is sunlight reflected by Earth onto the Moon. It is normally thousands of times weaker than sunlight. This exposure boost changes only the illustration, not solar power or communication.");
+		});
+		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.fill, "Far side fill light");
+			help::question(ui, "Soft gray-blue light helps you inspect the mean far side after dragging around the Moon. It is a visual aid, not real light, and changes no scientific result.");
+		});
+	}
+
 	/// Fill the available UI rectangle with interactive controls and optional one-minute rotation.
 	// Queue a paint callback for this frame and request the next; C++ an immediate-mode UI calls this each frame.
 	pub fn show(&mut self, ui: &mut egui::Ui) -> Option<usize>
 	{
+		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
+		ui.horizontal(|ui| {
+			ui.small("Moon overview");
+			help::question(ui, "Drag to orbit the Moon; wheel or pinch to zoom. Magnification stops at 8 times to avoid misleading polar texture streaks. Markers are published points; click one or use Site. This globe is an illustration, not the detailed terrain silhouette shown in the panorama.");
+		});
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let time = ui.input(|i| i.time);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut go = false;
+		let _ = time;
 		// Copy the selected site's actual directions, never infer illumination from availability flags; C++ optional transform.
 		let directions = self
 			.scene
@@ -262,79 +360,6 @@ impl Globe
 					moon_fixed(s.lat_deg, s.lon_deg, earth)?,
 				])
 			});
-		// Submit the current interaction or display value; C++ immediate-mode API call.
-		ui.horizontal_wrapped(|ui| {
-			if ui.button("− Zoom").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom / 1.8).max(1.0);
-				// Update this persistent member explicitly; C++ member assignment.
-				self.focus = None;
-			}
-			if ui.button("+ Zoom").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom * 1.8).min(1024.0);
-				// Update this persistent member explicitly; C++ member assignment.
-				self.focus = None;
-			}
-			if ui.button("Go to site").clicked()
-			{
-				go = true;
-			}
-			// Follow the actual Earth line of sight as the scientific time changes; C++ checked button action.
-			if ui
-				.add_enabled(directions.is_some(), egui::Button::new("View from Earth"))
-				.clicked()
-			{
-				// Restore the full-disk view and cancel any site transition; C++ camera-state assignments.
-				self.earth_view = true;
-				// Earth following and presentation spin are mutually exclusive; C++ bool assignment.
-				self.paused = true;
-				// Return to the full-disk overview instead of retaining a magnified landing view; C++ scalar assignment.
-				self.zoom = 1.0;
-				// Cancel any pending site interpolation; C++ optional reset.
-				self.focus = None;
-			}
-			// Make the previous presentation spin optional and off by default; C++ editable bool.
-			let mut spin = !self.paused;
-			// Manual spin exits the Earth-locked orbital view; C++ checkbox change handler.
-			if ui.checkbox(&mut spin, "Auto-rotate").changed()
-			{
-				// Convert the positive UI control into the existing paused representation; C++ bool assignment.
-				self.paused = !spin;
-				// Artificial spin must not fight the physical Earth camera; C++ mode assignment.
-				self.earth_view = false;
-				// Manual controls supersede an in-flight site animation; C++ optional reset.
-				self.focus = None;
-			}
-			// Submit the current interaction or display value; C++ immediate-mode API call.
-			ui.label(format!("{:.0}×", self.zoom));
-			// Explain whether the time slider moves the camera or only the physical lights; C++ conditional string.
-			ui.label(
-				if self.earth_view
-				{
-					"Earth view: follows time"
-				}
-				else
-				{
-					"Free orbit"
-				},
-			);
-		});
-		// Keep exposure aids explicit, independent and disabled by default; C++ immediate-mode control row.
-		ui.horizontal_wrapped(|ui| {
-			// Edit the Earth-only exposure aid, leaving physical sunlight unchanged; C++ checkbox bound to bool.
-			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)")
-				.on_hover_text(
-					"Exposure aid: multiply only reflected Earth light by 1000, not sunlight.",
-				);
-			// Edit the nonphysical visual aid independently of Earthshine; C++ checkbox bound to bool.
-			ui.checkbox(&mut self.fill, "Far side fill light")
-				.on_hover_text(
-					"Visual aid, not real light: gray-blue fill beyond mean longitudes +/-90 degrees.",
-				);
-		});
 		// Holding this mode reveals real libration rather than artificial animation; C++ conditional camera update.
 		if self.earth_view
 			&& let Some([_, earth]) = directions
@@ -357,25 +382,6 @@ impl Globe
 		{
 			// State why the Moon has no physical illumination instead of fabricating data; C++ immediate-mode text.
 			ui.label("Real lighting unavailable: selected track not loaded");
-		}
-		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
-		{
-			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
-			self.earth_view = false;
-			// Bind this intermediate value for the current operation; C++ local initialization.
-			let target = -(site.lon_deg as f32).to_radians();
-			// Bind this intermediate value for the current operation; C++ local initialization.
-			let delta = (target - self.yaw + std::f32::consts::PI)
-				.rem_euclid(std::f32::consts::TAU)
-				- std::f32::consts::PI;
-			// Update this persistent member explicitly; C++ member assignment.
-			self.focus = Some((
-				time,
-				[self.yaw, self.tilt, self.zoom],
-				[self.yaw + delta, (site.lat_deg as f32).to_radians(), 128.0],
-			));
-			// Update this persistent member explicitly; C++ member assignment.
-			self.paused = true;
 		}
 		// Check this state or input before acting; C++ conditional branch.
 		if let Some((start, from, to)) = self.focus
@@ -438,7 +444,7 @@ impl Globe
 			if wheel != 0.0 || pinch != 1.0
 			{
 				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, 1024.0);
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, MAX_ZOOM);
 				// Update this persistent member explicitly; C++ member assignment.
 				self.focus = None;
 				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
@@ -624,7 +630,7 @@ impl Globe
 				}
 			}
 		}
-		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked
