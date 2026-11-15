@@ -143,7 +143,7 @@ These are conventional body-fixed Cartesian axes, not the renderer's separate ob
 
 $$\mathbf q=\mathbf r\cos\beta+\mathbf t\sin\beta.$$
 
-Because $\mathbf r$ and $\mathbf t$ are perpendicular unit vectors, this stays on the unit sphere and in one center-crossing plane. Recover latitude with $\operatorname{atan2}(q_z,\sqrt{q_x^2+q_y^2})$ and longitude with $\operatorname{atan2}(q_y,q_x)$, then apply to_xy. atan2 is stable near the pole where asin would amplify rounding. At the exact pole, geographic north has no unique physical longitude; the supplied longitude defines the limiting north/east tangent basis, consistently with the existing pole tests.
+Because $\mathbf r$ and $\mathbf t$ are perpendicular unit vectors, this stays on the unit sphere and in one center-crossing plane. Recover latitude with $\mathrm{atan2}(q_z,\sqrt{q_x^2+q_y^2})$ and longitude with $\mathrm{atan2}(q_y,q_x)$, then apply to_xy. atan2 is stable near the pole where asin would amplify rounding. At the exact pole, geographic north has no unique physical longitude; the supplied longitude defines the limiting north/east tangent basis, consistently with the existing pole tests.
 
 Let $z$ be sampled radial height and $z_0$ the observer's surface height plus instrument height. Relative to the observer's local radial/tangent basis, the terrain displacement has components
 
@@ -151,7 +151,7 @@ $$d_v=(R+z)\cos\beta-(R+z_0),\qquad d_h=(R+z)\sin\beta.$$
 
 The exact elevation is
 
-$$\theta=\operatorname{atan2}(d_v,d_h).$$
+$$\theta=\mathrm{atan2}(d_v,d_h).$$
 
 At meter-scale distances, subtracting two nearly equal radii loses precision. The implemented algebraically identical expression uses $\cos\beta-1=-2\sin^2(\beta/2)$:
 
@@ -179,7 +179,7 @@ Implementation: [core/src/lib.rs:201](../core/src/lib.rs#L201).
 
 ## 9. Visible solar area and Earth clearance
 
-Take the Sun as a uniform circular disk of angular radius $r=0.267$ degrees, with center elevation $e$. Approximate the local skyline by a horizontal chord at $H=\operatorname{Horizon.at}(A_S)$. Normalize its offset as $u=\operatorname{clamp}((H-e)/r,-1,1)$. Integrating the unit circle above the chord gives
+Take the Sun as a uniform circular disk of angular radius $r=0.267$ degrees, with center elevation $e$. Approximate the local skyline by a horizontal chord at $H=\mathrm{Horizon.at}(A_S)$. Normalize its offset as $u=\mathrm{clamp}((H-e)/r,-1,1)$. Integrating the unit circle above the chord gives
 
 $$F=\frac{2}{\pi}\int_u^1\sqrt{1-y^2}\,dy
 =\frac{\arccos u-u\sqrt{1-u^2}}{\pi}.$$

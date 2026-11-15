@@ -94,7 +94,7 @@ $$\rho=2R\tan\left(\frac{\pi}{4}+\frac{\phi}{2}\right),\qquad x=\rho\sin\lambda,
 
 Positive map X points toward 90 degrees east; positive map Y points toward longitude zero. Raster rows increase toward decreasing Y. The inverse is
 
-$$\phi=2\arctan\frac{\rho}{2R}-\frac{\pi}{2},\qquad \lambda=\operatorname{atan2}(x,y).$$
+$$\phi=2\arctan\frac{\rho}{2R}-\frac{\pi}{2},\qquad \lambda=\mathrm{atan2}(x,y).$$
 
 Map-to-ground scale is $k=1+\rho^2/(4R^2)$. A raster spacing $p$ therefore supplies local ground spacing $p/k$ to adaptive ray stepping.
 
@@ -135,9 +135,9 @@ where the apparent range $\Delta$ is converted from AU using $149{,}597{,}870{,}
 For arbitrary latitude, longitude and radial height $h$ above the reference sphere, including terrain plus instrument height, define
 
 $$\mathbf s=D\frac{\mathbf q}{\lVert\mathbf q\rVert}-(R+h)\mathbf U,\qquad
-A=\operatorname{atan2}(\mathbf s\cdot\mathbf E,\mathbf s\cdot\mathbf N)\pmod{2\pi},$$
+A=\mathrm{atan2}(\mathbf s\cdot\mathbf E,\mathbf s\cdot\mathbf N)\pmod{2\pi},$$
 
-$$e=\operatorname{atan2}\left(\mathbf s\cdot\mathbf U,\sqrt{(\mathbf s\cdot\mathbf E)^2+(\mathbf s\cdot\mathbf N)^2}\right).$$
+$$e=\mathrm{atan2}\left(\mathbf s\cdot\mathbf U,\sqrt{(\mathbf s\cdot\mathbf E)^2+(\mathbf s\cdot\mathbf N)^2}\right).$$
 
 Subtracting the observer retains Earth's finite-distance parallax. Invalid positions, non-unit/nonfinite compact directions, invalid observers and coincident body/observer positions return errors. At a zenith the azimuth is geometrically undefined; no scientific inference should depend on that azimuth.
 
@@ -161,11 +161,11 @@ For $n=1{,}440$ azimuth bins, preparation follows independent great-circle rays.
 
 $$\sin\phi_2=\sin\phi_1\cos\delta+\cos\phi_1\sin\delta\cos A,$$
 
-$$\lambda_2=\lambda_1+\operatorname{atan2}\left(\sin A\sin\delta\cos\phi_1,\ \cos\delta-\sin\phi_1\sin\phi_2\right).$$
+$$\lambda_2=\lambda_1+\mathrm{atan2}\left(\sin A\sin\delta\cos\phi_1,\ \cos\delta-\sin\phi_1\sin\phi_2\right).$$
 
 The DEM sampler projects that destination and returns radial surface height $z$ and local ground resolution $p_s$. Observer altitude is $z_0=z_{\mathrm{surface}}+h$, with instrument height $h=2\ \mathrm{m}$ for bundled data. Exact elevation above the observer tangent plane is
 
-$$\epsilon=\operatorname{atan2}\left((z-z_0)-2(R+z)\sin^2\frac{\delta}{2},\ (R+z)\sin\delta\right).$$
+$$\epsilon=\mathrm{atan2}\left((z-z_0)-2(R+z)\sin^2\frac{\delta}{2},\ (R+z)\sin\delta\right).$$
 
 This form avoids subtracting nearly equal radii at short distances. It includes spherical curvature and the target's actual radius, rather than a planar $s^2/(2R)$ correction. Equal observer and target radii give $\epsilon=-\delta/2$; a smooth sphere beneath a raised observer has tangent depression $-\arccos[R/(R+h)]$.
 
@@ -183,7 +183,7 @@ The resulting cyclic profile $H(A)$ is linearly interpolated between adjacent bi
 
 The fixed apparent solar radius is $r_\odot=0.267$ degrees. Locally approximating the terrain edge as a straight horizontal chord across the disk, define
 
-$$u=\operatorname{clamp}\left(\frac{H(A_\odot)-e_\odot}{r_\odot},-1,1\right),\qquad f_\odot=\frac{\arccos u-u\sqrt{1-u^2}}{\pi}.$$
+$$u=\mathrm{clamp}\left(\frac{H(A_\odot)-e_\odot}{r_\odot},-1,1\right),\qquad f_\odot=\frac{\arccos u-u\sqrt{1-u^2}}{\pi}.$$
 
 The result is visible disk area, not visible diameter. Any-sun availability is $f_\odot>0$. It is not incident panel power: panel orientation, efficiency, eclipses, scattered light and thermal behavior are absent. The model uses one horizon value at the solar-center azimuth rather than integrating terrain variation across the entire disk.
 
@@ -213,11 +213,11 @@ Summary cards cover the applied start/end period, independent of the selected pa
 
 The unit sphere uses 256 longitude by 128 latitude cells: 33,153 vertices and 65,536 triangles. Its silhouette is spherical; relief is a normal map, not displaced geometry. Texture coordinates are equirectangular:
 
-$$u=\frac{\operatorname{atan2}(x,z)}{2\pi}+\frac12,\qquad v=\frac{\arccos y}{\pi}.$$
+$$u=\frac{\mathrm{atan2}(x,z)}{2\pi}+\frac12,\qquad v=\frac{\arccos y}{\pi}.$$
 
 Each tier is 2:1: 2,048 by 1,024; 4,096 by 2,048; or 8,192 by 4,096. Color is JPEG, sampled through an sRGB texture so filtering occurs in linear light. Relief normals are RGB8 object-space vectors. The bake differentiates the visualization heights using spherical east/north metric spacing, wraps longitude, applies no height exaggeration and tapers slopes through the final degree near the poles.
 
-Encoding is $q_c=\operatorname{round}[255(n_c/2+1/2)]$. Decoding has maximum component quantization error $1/255$ before renormalization. The 8k normal texture resamples a 16-pixels-per-degree source and does not create additional independent terrain information.
+Encoding is $q_c=\mathrm{round}[255(n_c/2+1/2)]$. Decoding has maximum component quantization error $1/255$ before renormalization. The 8k normal texture resamples a 16-pixels-per-degree source and does not create additional independent terrain information.
 
 The shader derives texture gradients from the continuous normalized 3D direction, rather than differentiating wrapped longitude. It uses explicit-gradient, trilinear mipmap sampling, with repeat in longitude and clamp at the poles. An anisotropic override is deliberately absent. Normals are renormalized after filtering and transformed with the same rigid matrix as positions and lights.
 
@@ -300,7 +300,7 @@ All published markers have contrasting outlines. Unselected radius is 6 logical 
 
 The shared model transform is $M=R_x(\theta)R_y(\alpha)R(t)$, where $R(t)$ maps Moon-fixed coordinates to J2000 equatorial space using all E1–E13 terms of the IAU lunar orientation model. Renderer axes are $(Y,Z,X)$, so inertial north is up. UTC approximates TDB for display only; this is not a DE-series attitude solution. See [dated Moon rotation](17-inertial-rotation.md) for the source, limitations and optional Earth-centered ecliptic orbit inset. The default camera follows Earth; dragging enters Free, which stays fixed in inertial space as time advances. The perspective camera remains at $(0,0,5)$ lunar radii; the same rigid transform applies to geometry, lights, normals, polar textures, markers, rays and tile overlays. Picking uses its transpose. Earth-following mode first transforms the Earth direction to $\mathbf e=R(t)\mathbf e_{fixed}$, then uses
 
-$$\alpha=-\operatorname{atan2}(e_x,e_z),\qquad \theta=\arcsin(e_y).$$
+$$\alpha=-\mathrm{atan2}(e_x,e_z),\qquad \theta=\arcsin(e_y).$$
 
 Go to site applies the same camera-angle equations to the site's rotated radial vector, mapping it to the image center. It interpolates the shortest yaw difference, tilt and logarithmic zoom over 0.8 s with cubic easing. Interaction or a new selection cancels the transition. Wheel, pinch and zoom buttons change magnification; optional auto-orbit remains an artificial camera aid. These camera operations do not alter scientific time or observer coordinates.
 

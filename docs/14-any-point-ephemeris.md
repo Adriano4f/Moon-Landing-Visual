@@ -47,9 +47,9 @@ Store the unit direction $\mathbf q=\mathbf P/\lVert\mathbf P\rVert$ and distanc
 
 $$\mathbf s=D\frac{\mathbf q}{\lVert\mathbf q\rVert}-(R+h)\mathbf U,$$
 
-$$A=\operatorname{atan2}(\mathbf s\cdot\mathbf E,\mathbf s\cdot\mathbf N)\pmod{2\pi},$$
+$$A=\mathrm{atan2}(\mathbf s\cdot\mathbf E,\mathbf s\cdot\mathbf N)\pmod{2\pi},$$
 
-$$e=\operatorname{atan2}\left(\mathbf s\cdot\mathbf U,\sqrt{(\mathbf s\cdot\mathbf E)^2+(\mathbf s\cdot\mathbf N)^2}\right).$$
+$$e=\mathrm{atan2}\left(\mathbf s\cdot\mathbf U,\sqrt{(\mathbf s\cdot\mathbf E)^2+(\mathbf s\cdot\mathbf N)^2}\right).$$
 
 `topocentric` returns degrees. Height must include terrain plus instrument elevation, not just mast height. Finite-distance subtraction retains Earth parallax. Longitude wraps; latitude must be within -90 through +90 degrees. Coincidence, nonfinite values and nonpositive observer radii are errors. At a zenith, azimuth is undefined geometrically.
 
