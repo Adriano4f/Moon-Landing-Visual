@@ -1,6 +1,7 @@
 //! Immediate-mode panorama controls over validated, hourly Horizons samples.
 
 mod view;
+mod timeline;
 
 // Import the owned model and pending-loader state; C++ includes project declarations.
 use crate::data::{self, Pending, SiteData};
@@ -24,7 +25,7 @@ pub(crate) struct Panorama
 	data: Option<SiteData>,
 	// Terminal diagnostic kept visible; C++ optional<string>.
 	error: Option<String>,
-	// Current sample, not interpolated ephemerides; C++ size_t.
+	// Nearest preceding sample for the path window; C++ size_t.
 	index: usize,
 	// Centered window length in hours; zero means the entire dataset; C++ int64_t.
 	hours: i64,
@@ -32,21 +33,25 @@ pub(crate) struct Panorama
 	earth_margin_deg: f32,
 	// Remember the optional numeric view; C++ bool.
 	technical: bool,
-	// Cache full-period values rather than recomputing every animated frame; C++ value member.
+	// Cache selected-period values rather than recomputing every animated frame; C++ value member.
 	summary: lunar_core::Stats,
+	timeline: crate::timeline::Shared,
+	cursor:i64,
+	summary_key:Option<(crate::timeline::Options,f32)>,
+	sky_error:Option<String>,
 }
 
 // Define view-model member functions; C++ out-of-class member definitions.
 impl Panorama
 {
 	// Start loading once during application construction; C++ a constructor with an asynchronous operation.
-	pub fn new(ctx: egui::Context, file: String) -> Self
+	pub fn new(ctx: egui::Context, file: String, timeline:crate::timeline::Shared) -> Self
 	{
-		Self::with_pending(data::load(ctx, file))
+		Self::with_pending(data::load(ctx, file), timeline)
 	}
 
 	// Wrap a result slot filled by another producer, such as a custom-point job.
-	pub fn with_pending(pending: Pending) -> Self
+	pub fn with_pending(pending: Pending, timeline:crate::timeline::Shared) -> Self
 	{
 		// Native launchers can select a reproducible starting sample; C++ environment parsing with fallback.
 		#[cfg(not(target_arch = "wasm32"))]
@@ -69,11 +74,15 @@ impl Panorama
 			// Start in the nontechnical view without an obstructing dialog; C++ value initialization.
 			technical: false,
 			summary: lunar_core::Stats::default(),
+			timeline,
+			cursor:crate::timeline::START,
+			summary_key:None,
+			sky_error:None,
 		}
 	}
 
 	// Consume a completion at most once, before drawing; C++ moves out of an optional under a mutex.
-	pub fn update(&mut self)
+	pub fn update(&mut self, ctx:&egui::Context)
 	{
 		// Drop the short-lived mutex guard before changing the view model; C++ scoped lock_guard.
 		let result = self.pending.lock().take();
@@ -88,7 +97,8 @@ impl Panorama
 				// A requested initial index must fit the data that actually arrived; C++ clamped index.
 				self.index = self.index.min(data.sun.t.len() - 1);
 				// Compute only after validation; C++ cached statistics.
-				self.summary = availability(&data);
+				self.cursor=data.sun.t[self.index];
+				self.summary_key=None;
 				// Move ownership into the view; C++ move assignment.
 				self.data = Some(data);
 			}
@@ -98,6 +108,8 @@ impl Panorama
 			None =>
 			{}
 		}
+		self.extend_sky(ctx);
+		self.refresh_summary();
 	}
 
 	// Return coordinates without exposing scientific data to globe; C++ optional<pair<double,double>>.
@@ -110,12 +122,14 @@ impl Panorama
 	// Export one UTC epoch for every site's own track lookup; C++ optional<int64_t>.
 	pub fn time(&self) -> Option<i64>
 	{
-		self.data.as_ref().map(|d| d.sun.t[self.index])
+		self.data.as_ref().map(|_|self.cursor)
 	}
 
 	// Restore shared time when switching cached site views; C++ checked binary search.
 	pub fn set_time(&mut self, time: i64)
 	{
+		let period=self.timeline.lock().options.period;
+		self.cursor=time.clamp(period.start,period.end);
 		// Loaded tracks have strictly ordered epochs; C++ optional guard.
 		if let Some(data) = &self.data
 		{
@@ -123,7 +137,7 @@ impl Panorama
 			self.index = data
 				.sun
 				.t
-				.partition_point(|&t| t <= time)
+				.partition_point(|&t| t <= self.cursor)
 				.saturating_sub(1)
 				.min(data.sun.t.len() - 1);
 		}
@@ -132,6 +146,8 @@ impl Panorama
 	// Evaluate another site's own current sample, never reuse the selected site's angles; C++ optional array.
 	pub fn directions_at(&mut self, time: i64, margin: f32) -> Option<[globe::BodyDirection; 2]>
 	{
+		let data=self.data.as_ref()?;
+		if time<data.sun.t[0] || time>*data.sun.t.last()? {return None;}
 		// All-sites radio styling must use the currently selected safety clearance; C++ cache update on change.
 		if self.earth_margin_deg != margin
 		{
@@ -142,16 +158,10 @@ impl Panorama
 			{
 				data.update_earth_margin(margin);
 				// Update this persistent member explicitly; C++ member assignment.
-				self.summary = availability(data);
+				self.summary_key=None;
 			}
 		}
 		// Do not silently extrapolate beyond a site's coverage; C++ range guard.
-		let d = self.data.as_ref()?;
-		// Check this state or input before acting; C++ conditional branch.
-		if time < d.sun.t[0] || time > *d.sun.t.last()?
-		{
-			return None;
-		}
 		// Resolve a real sample at or immediately before the requested epoch; C++ member call.
 		self.set_time(time);
 		self.directions()
@@ -172,77 +182,25 @@ impl Panorama
 	// Copy only the current scientific directions/availability into the independent renderer; C++ optional<array<BodyDirection,2>>.
 	pub fn directions(&self) -> Option<[globe::BodyDirection; 2]>
 	{
-		// Loading and errors expose no invented ephemerides; C++ optional transform.
-		self.data.as_ref().map(|data| {
-			[
-				// Any visible solar area makes a solid Sun ray, matching the main status; C++ aggregate value.
-				globe::BodyDirection {
-					az_deg: data.sun.az_deg[self.index],
-					el_deg: data.sun.el_deg[self.index],
-					visible: sun_fraction(
-						data.sun.el_deg[self.index],
-						data.horizon_at(data.sun.az_deg[self.index]),
-					) > 0.0,
-				},
-				// The selected radio clearance controls the Earth ray's brightness; C++ cached boolean.
-				globe::BodyDirection {
-					az_deg: data.earth.az_deg[self.index],
-					el_deg: data.earth.el_deg[self.index],
-					visible: data.earth_above[self.index],
-				},
-			]
-		})
+		let data=self.data.as_ref()?;
+		let [a,e]=crate::timeline::sample(&data.sun,self.cursor)?;
+		let sun=globe::BodyDirection { az_deg:a,el_deg:e,visible:sun_fraction(e,data.horizon_at(a))>0.0 };
+		let [a,e]=crate::timeline::sample(&data.earth,self.cursor)?;
+		Some([sun,globe::BodyDirection { az_deg:a,el_deg:e,visible:e>data.horizon_at(a)+self.earth_margin_deg }])
 	}
 
 	// Show time settings in the grouped menu, not over the panorama; C++ member function.
 	pub fn time_controls(&mut self, ui: &mut egui::Ui)
 	{
-		// Do not manufacture a slider range before the real track loads; C++ optional guard.
-		let Some(data) = &mut self.data
-		else
-		{
-			ui.label("Load a site to choose time.");
-			return;
-		};
-		// Always identify the chosen time and clock convention; C++ formatted label.
-		ui.strong(utc_label(data.sun.t[self.index]));
-		// Let the time slider fill the available width; C++ local style assignment.
-		ui.spacing_mut().slider_width = (ui.available_width() - 112.0).max(80.0);
-		// Select only real hourly samples; C++ bounded integer slider.
-		ui.horizontal(|ui| {
-			ui.add(
-				egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
-					.show_value(false)
-					.text("Time"),
-			);
-			globe::help::question(
-				ui,
-				"Choose the world-clock date for every view. Hourly samples can miss short events.",
-			);
-		});
-		// Wrapping rows remain usable when narrow; C++ flow layout callback.
-		ui.horizontal(|ui| {
-			// Saturating subtraction keeps the first sample safe; C++ clamped decrement.
-			if ui.button("< 1 h").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.index = self.index.saturating_sub(1);
-			}
-			globe::help::question(
-				ui,
-				"Move one hourly sample backward. At the first date it stays at the start.",
-			);
-			// Clamp at the inclusive final epoch; C++ clamped increment.
-			if ui.button("1 h >").clicked()
-			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.index = (self.index + 1).min(data.sun.t.len() - 1);
-			}
-			globe::help::question(
-				ui,
-				"Move one hourly sample forward. At the final date it stays at the end.",
-			);
-		});
+		if self.data.is_none() { ui.label("Load a site to choose time."); return; }
+		let mut cursor=self.cursor;
+		self.timeline.lock().controls(ui,&mut cursor);
+		self.set_time(cursor);
+		self.paths_controls(ui);
+	}
+
+	fn paths_controls(&mut self, ui:&mut egui::Ui)
+	{
 		ui.horizontal(|ui| {
 			ui.small("Paths");
 			// Explain that the window controls faint paths, not summary percentages; C++ combo box.
@@ -262,7 +220,7 @@ impl Panorama
 					}
 				});
 			// Preserve the original plot as an explicit alternative; C++ bool checkbox.
-			globe::help::question(ui, "The time window changes the faint paths, not the full-period summary. One day means 24 hours; all data shows every available sample.");
+			globe::help::question(ui, "Choose the faint path length around the current date. Paths stay inside your selected period; this setting does not change statistics.");
 		});
 	}
 	// Recalculate scientific clearance and summaries from one menu control; C++ member function.
@@ -291,7 +249,7 @@ impl Panorama
 			// Update the cache used by the current status and summary consistently; C++ member call.
 			data.update_earth_margin(self.earth_margin_deg);
 			// Reuse core's duration-weighted statistics; C++ cached value assignment.
-			self.summary = availability(data);
+			self.summary_key=None;
 		}
 
 		globe::help::question(
@@ -310,6 +268,7 @@ impl Panorama
 }
 
 // Compute full-period availability using the same predicates as the current status; C++ pure aggregate helper.
+#[cfg(test)]
 fn availability(data: &SiteData) -> lunar_core::Stats
 {
 	// Keep partial sunlight distinct from a full-disk requirement; C++ transform to vector<bool>.
@@ -325,7 +284,7 @@ fn availability(data: &SiteData) -> lunar_core::Stats
 }
 
 // Format a UTC epoch without consulting a platform clock; C++ chrono::format of sys_seconds.
-fn utc_label(t: i64) -> String
+pub(crate) fn utc_label(t: i64) -> String
 {
 	// Defensive fallback is unreachable after validation, but formatting never panics; C++ optional transform/value_or.
 	DateTime::<Utc>::from_timestamp(t, 0).map_or_else(
@@ -478,7 +437,12 @@ mod tests
 			earth_margin_deg: 1.0,
 			technical: false,
 			summary: blocked,
+			timeline:std::sync::Arc::new(egui::mutex::Mutex::new(crate::timeline::Timeline::default())),
+			cursor:0,
+			summary_key:None,
+			sky_error:None,
 		};
+		panorama.timeline.lock().options.period=crate::timeline::Period {start:0,end:86400};
 		// At sample zero the Sun is below flat terrain and Earth fails the edited radio margin; C++ optional extraction.
 		let first = panorama.directions().unwrap();
 		// Preserve Sun/Earth ordering and the actual numeric sample; C++ numeric assertion.
@@ -486,7 +450,7 @@ mod tests
 		// The ray flags must use the same predicates as the UI, not globe illumination; C++ boolean assertions.
 		assert!(!first[0].visible && !first[1].visible);
 		// Moving time must replace the exported direction rather than retaining the first sample; C++ index edit.
-		panorama.index = 1;
+		panorama.set_time(3600);
 		// Re-read the chosen sample through the production bridge; C++ optional extraction.
 		let next = panorama.directions().unwrap();
 		// The Sun has risen while Earth remains below the requested safety clearance; C++ scalar assertions.

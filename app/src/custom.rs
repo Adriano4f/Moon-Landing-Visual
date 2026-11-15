@@ -1,6 +1,7 @@
 //! Any-point job: fetch Trek terrain, integrate the horizon over several frames, then build site data.
 
-use crate::data::{Pending, SiteData, read_asset};
+use crate::data::{Altitude, Pending, SiteData};
+use crate::timeline;
 use eframe::egui::{self, mutex::Mutex};
 use lunar_core::anypoint::{self, HorizonJob, Tile};
 use lunar_core::ephemeris::{Ephemeris, topocentric};
@@ -23,12 +24,11 @@ enum Stage
 	Fetching
 	{
 		terrain: Vec<Slot>,
-		ephemeris: Slot,
 	},
 	Computing
 	{
 		job: Box<HorizonJob>,
-		ephemeris: Box<Ephemeris>,
+		ephemeris: Arc<Ephemeris>,
 	},
 	Finished,
 }
@@ -38,6 +38,7 @@ pub(crate) struct Custom
 	pub tile: Tile,
 	pub name: String,
 	pub pending: Pending,
+	timeline: timeline::Shared,
 	stage: Stage,
 }
 
@@ -70,20 +71,14 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 
 impl Custom
 {
-	pub fn start(ctx: &egui::Context, lat: f64, lon: f64) -> Self
+	pub fn start(ctx: &egui::Context, lat: f64, lon: f64, timeline: timeline::Shared) -> Self
 	{
 		let tile = anypoint::tile_of(lat, lon);
 		let terrain = anypoint::terrain_requests(tile.lat_deg, tile.lon_deg)
 			.into_iter()
 			.map(|url| fetch(ctx, url))
 			.collect();
-		let ephemeris = slot();
-		let done = Arc::clone(&ephemeris);
-		let wake = ctx.clone();
-		read_asset("moon-ephemeris.bin".into(), move |bytes| {
-			*done.lock() = Some(bytes);
-			wake.request_repaint();
-		});
+		timeline::request(&timeline, ctx);
 		let lon_signed = if tile.lon_deg > 180.0
 		{
 			tile.lon_deg - 360.0
@@ -96,7 +91,8 @@ impl Custom
 			name: format!("Custom point ({:.2}, {:.2})", tile.lat_deg, lon_signed),
 			tile,
 			pending: Arc::new(Mutex::new(None)),
-			stage: Stage::Fetching { terrain, ephemeris },
+			timeline,
+			stage: Stage::Fetching { terrain },
 		}
 	}
 
@@ -139,16 +135,17 @@ impl Custom
 	{
 		match &mut self.stage
 		{
-			Stage::Fetching { terrain, ephemeris } =>
+			Stage::Fetching { terrain } =>
 			{
 				let ready = |s: &Slot| s.lock().is_some();
-				if !terrain.iter().all(ready) || !ready(ephemeris)
+				let ephemeris = self.timeline.lock().sky.clone();
+				if !terrain.iter().all(ready) || ephemeris.is_none()
 				{
 					return Ok(());
 				}
 				let take = |s: &Slot| s.lock().take().unwrap();
 				let tiffs = terrain.iter().map(take).collect::<Result<Vec<_>, _>>()?;
-				let ephemeris = Ephemeris::decode(&take(ephemeris)?)?;
+				let ephemeris = ephemeris.unwrap()?;
 				let job = HorizonJob::new(
 					self.tile.lat_deg,
 					self.tile.lon_deg,
@@ -158,7 +155,7 @@ impl Custom
 				)?;
 				self.stage = Stage::Computing {
 					job: Box::new(job),
-					ephemeris: Box::new(ephemeris),
+					ephemeris,
 				};
 			}
 			Stage::Computing { job, ephemeris } =>
@@ -198,6 +195,7 @@ impl Custom
 						earth,
 						horizon: Some(horizon),
 						earth_above: vec![],
+						terrain: Some(Altitude { surface_height_m:job.surface_m(), observer_height_m:MAST_M }),
 					};
 					data.update_earth_margin(lunar_core::EARTH_MARGIN_DEG);
 					*self.pending.lock() = Some(Ok(data));

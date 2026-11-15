@@ -6,9 +6,8 @@ impl Globe
 	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
 	{
 		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
-		ui.horizontal_wrapped(|ui| {
+		ui.horizontal(|ui| {
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
-			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
 			help::question(ui, "Enlarge the Moon up to eight times. South-polar detail downloads when visible; photographic shadows are recorded, not live.");
 		});
@@ -110,23 +109,18 @@ impl Globe
 	fn texture_controls(&mut self, ui: &mut egui::Ui)
 	{
 		// Let desktop and phone users explicitly trade download cost for map detail; C++ combo-box row.
-		ui.horizontal_wrapped(|ui| {
+		ui.horizontal(|ui| {
 			ui.label("Texture detail");
-			egui::ComboBox::from_id_salt("moon-quality").selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
+			egui::ComboBox::from_id_salt("moon-quality").width(62.0).selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
 				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
 			});
 			help::question(ui, "Choose map detail. Higher settings download more and need more memory; they change only the globe picture, not the sky results.");
 		});
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
-		help::annotated(
-			ui,
-			format!(
-				"Showing {} | requested {}k",
-				displayed.map_or("loading".into(), assets::label),
-				self.target_tier
-			),
-			"Showing is the detail visible now. Requested detail replaces it only when ready.",
-		);
+		ui.horizontal(|ui| {
+			ui.small(format!("Showing {} | selected {}k",displayed.map_or("loading".into(), assets::label),self.target_tier));
+			help::question(ui,"Showing is the detail visible now. Selected detail replaces it only when ready.");
+		});
 	}
 }

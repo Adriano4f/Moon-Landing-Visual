@@ -12,6 +12,7 @@ mod layout;
 mod menu;
 mod startup;
 mod theme;
+mod timeline;
 
 // Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
 #[derive(serde::Deserialize)]
@@ -55,6 +56,7 @@ pub struct MoonApp
 	// Published catalog length; a custom point, if any, is the entry after them.
 	published: usize,
 	custom: Option<custom::Custom>,
+	timeline: timeline::Shared,
 }
 
 // Define application member functions; C++ out-of-class member definitions.
@@ -100,6 +102,7 @@ impl MoonApp
 			menu_open: false,
 			published,
 			custom: None,
+			timeline: std::sync::Arc::new(eframe::egui::mutex::Mutex::new(timeline::Timeline::default())),
 		})
 	}
 	// Start a job for a new globe click, advance the running job, and highlight its tile.
@@ -110,14 +113,14 @@ impl MoonApp
 			let tile = lunar_core::anypoint::tile_of(lat, lon);
 			if self.custom.as_ref().is_none_or(|c| c.tile.id != tile.id)
 			{
-				let job = custom::Custom::start(ctx, lat, lon);
+				let job = custom::Custom::start(ctx, lat, lon, std::sync::Arc::clone(&self.timeline));
 				let entry = Entry {
 					name: job.name.clone(),
 					lat_deg: job.tile.lat_deg,
 					lon_deg: job.tile.lon_deg,
 					source: String::new(),
 				};
-				let view = panorama::Panorama::with_pending(job.pending.clone());
+				let view = panorama::Panorama::with_pending(job.pending.clone(), std::sync::Arc::clone(&self.timeline));
 				self.catalog.truncate(self.published);
 				self.panoramas.truncate(self.published);
 				self.catalog.push(entry);

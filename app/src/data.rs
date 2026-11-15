@@ -31,6 +31,15 @@ pub(crate) struct SiteData
 	#[serde(skip)]
 	// Cache the core's Earth center visibility once per load; C++ vector<bool>.
 	pub earth_above: Vec<bool>,
+	#[serde(default)]
+	pub terrain: Option<Altitude>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Altitude
+{
+	pub surface_height_m:f64,
+	pub observer_height_m:f64,
 }
 
 // Attach helpers to this owned model; C++ member definitions outside the class.

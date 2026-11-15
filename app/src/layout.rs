@@ -27,12 +27,13 @@ impl MoonApp
 					{
 						filename(&self.catalog[i].name)
 					},
+					std::sync::Arc::clone(&self.timeline),
 				));
 			}
 			// Check this state or input before acting; C++ conditional branch.
 			if let Some(p) = &mut self.panoramas[i]
 			{
-				p.update();
+				p.update(ui.ctx());
 			}
 		}
 	}

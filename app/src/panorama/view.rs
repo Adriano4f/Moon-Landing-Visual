@@ -13,7 +13,7 @@ impl Panorama
 			"Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched.",
 		);
 		// Never draw invented tracks while waiting or after an error; C++ optional extraction.
-		let Some(data) = &mut self.data
+		let Some(data) = &self.data
 		else
 		{
 			// Show the real loader state; C++ optional value_or.
@@ -33,18 +33,19 @@ impl Panorama
 			&data.site.name,
 			"The selected published observation point. Use Site in the menu to change it; nearby coordinates can have very different horizons.",
 		);
-		solar_status(ui, data, self.index);
-		earth_status(ui, data, self.index);
+		let Some(directions)=self.directions() else { ui.label(self.sky_status()); return; };
+		solar_status(ui, data, directions[0]);
+		earth_status(ui, directions[1].visible);
 		// Keep UTC explicit, independent of the computer's time zone; C++ time formatting.
 		globe::help::annotated(
 			ui,
-			utc_label(data.sun.t[self.index]),
+			utc_label(self.cursor),
 			"The current shared UTC date and time. Open Time in the menu to change it. Hourly sampling can miss short events.",
 		);
 		// Show the same scientific data in either presentation; C++ view-mode branch.
 		if self.technical
 		{
-			technical(ui, data, self.index, self.hours);
+			technical(ui, data, self.cursor, self.path_range());
 		}
 		else
 		{
@@ -52,19 +53,21 @@ impl Panorama
 			crate::sky::show(
 				ui,
 				data,
-				self.index,
-				window(&data.sun.t, self.index, self.hours),
+				self.cursor,
+				self.path_range(),
 			);
 		}
-		summary_cards(ui, data, &self.summary);
+		let options=self.options();
+		if self.summary_key==Some((options,self.earth_margin_deg)) {
+			summary_cards(ui, options, &self.summary);
+		} else { ui.label(self.sky_status()); }
 	}
 }
 
 // Retain the original numerical plot independently of the novice scene; C++ free drawing function.
-fn technical(ui: &mut egui::Ui, data: &SiteData, index: usize, hours: i64)
+fn technical(ui: &mut egui::Ui, data: &SiteData, time:i64, range:Range<usize>)
 {
 	// Select by UTC duration, allowing irregular future timestamps; C++ binary-search interval.
-	let range = window(&data.sun.t, index, hours);
 	// Explain endpoint clipping without crowding a phone with duplicate timestamps; C++ formatted count label.
 	ui.small(format!(
 		"Window: {} samples (centered, clipped)",
@@ -110,16 +113,16 @@ fn technical(ui: &mut egui::Ui, data: &SiteData, index: usize, hours: i64)
 		})
 		.legend(Legend::default())
 		.show(ui, |plot| {
-			technical_items(plot, data, index, range.clone());
+			technical_items(plot, data, time, range.clone());
 		});
 }
 
-fn solar_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
+fn solar_status(ui: &mut egui::Ui, data: &SiteData, direction:globe::BodyDirection)
 {
 	// Delegate the solar area to the scientific core; C++ pure function call.
 	let fraction = sun_fraction(
-		data.sun.el_deg[index],
-		data.horizon_at(data.sun.az_deg[index]),
+		direction.el_deg,
+		data.horizon_at(direction.az_deg),
 	);
 	// Green indicates any available sunlight, not full disk exposure; C++ conditional text/color pair.
 	let (sun_text, sun_color) = if fraction > 0.0
@@ -144,10 +147,9 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 	);
 }
 
-fn earth_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
+fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 {
 	// Include the selected radio clearance, not just visible blue pixels; C++ cached bool.
-	let earth_visible = data.earth_above[index];
 	// Keep the full plain-language status visible without interpreting a graph; C++ conditional string.
 	globe::help::annotated(
 		ui,
@@ -179,21 +181,21 @@ fn earth_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 	ui.small("Radio status includes the safety margin, not just the visible blue disk.");
 }
 
-fn summary_cards(ui: &mut egui::Ui, data: &SiteData, summary: &lunar_core::Stats)
+fn summary_cards(ui: &mut egui::Ui, options:crate::timeline::Options, summary: &lunar_core::Stats)
 {
 	// Anchor summary cards to the full period, never the selected path window; C++ subheading.
-	ui.strong("Across the whole data period");
+	ui.strong("Across the selected period");
 	// Show exact dates rather than an unexplained average; C++ formatted label.
 	ui.small(format!(
 		"{} to {}",
-		utc_label(data.sun.t[0]),
-		utc_label(*data.sun.t.last().unwrap())
+		utc_label(options.period.start),
+		utc_label(options.period.end)
 	));
 	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
 	let card_width = ((ui.available_width() - 56.0) / 2.0).clamp(90.0, 180.0);
 	card_grid(ui, summary, card_width);
 	// Avoid implying that hourly held-sample statistics are continuous event solutions; C++ disclaimer.
-	ui.small("Hourly estimates. Sun time means at least part of the disk is visible. Power and radio service are not guaranteed.");
+	ui.small(format!("{} samples; short events may be missed. Sun time counts any visible part. Power and radio service are not guaranteed.",options.step.label()));
 }
 
 fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
@@ -241,7 +243,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the stated period with any Sun visible. A small visible part counts; this is not electricity produced.", 1 => "Share of the stated period with Earth clear of hills and your extra clearance. Radio service is not guaranteed.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest stretch without any Sun in the hourly samples. One day is 24 hours; short events may be missed." }); });
+								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the stated period with any Sun visible. A small visible part counts; this is not electricity produced.", 1 => "Share of the stated period with Earth clear of hills and your extra clearance. Radio service is not guaranteed.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest stretch without any Sun at your chosen sampling step. Coarse steps may miss short nights or join separate dark periods." }); });
 							});
 						});
 }
@@ -249,7 +251,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 fn technical_items(
 	plot: &mut egui_plot::PlotUi<'_>,
 	data: &SiteData,
-	index: usize,
+	time: i64,
 	range: Range<usize>,
 )
 {
@@ -278,6 +280,7 @@ fn technical_items(
 		("Earth", &data.earth, Color32::LIGHT_BLUE),
 	]
 	{
+		let Some([az,el])=crate::timeline::sample(track,time) else {continue;};
 		// Never connect segments separated by a north wrap; C++ range-for over polyline pieces.
 		for segment in segments(track, range.clone())
 		{
@@ -289,8 +292,8 @@ fn technical_items(
 			Points::new(
 				format!("{name} now"),
 				vec![[
-					f64::from(track.az_deg[index].rem_euclid(360.0)),
-					f64::from(track.el_deg[index]),
+					f64::from(az.rem_euclid(360.0)),
+					f64::from(el),
 				]],
 			)
 			.color(color)

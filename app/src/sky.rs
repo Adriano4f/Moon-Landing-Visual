@@ -48,7 +48,7 @@ fn project(rect: Rect, az: f64, el: f64) -> Pos2
 }
 
 // Show a full 360-degree field with a labeled vertical stretch; C++ free drawing function.
-pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, index: usize, range: Range<usize>)
+pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<usize>)
 {
 	// Name body colors without requiring a legend click; C++ caption.
 	legend(ui);
@@ -67,7 +67,7 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, index: usize, range: Rang
 	// Limit every path, body and ground triangle to the same field; C++ clipped drawing context.
 	let sky = painter.with_clip_rect(rect);
 	guides(&painter, &sky, rect);
-	bodies(&sky, rect, data, index, range);
+	bodies(&sky, rect, data, time, range);
 	terrain(&sky, rect, data);
 	// Calculate the actual nonuniform angular display scale from the allocated rectangle; C++ ratio of pixels per degree.
 	let stretch = (rect.height() / 20.0) / (rect.width() / 360.0);
@@ -188,7 +188,7 @@ fn guides(painter: &egui::Painter, sky: &egui::Painter, rect: Rect)
 	}
 }
 
-fn bodies(sky: &egui::Painter, rect: Rect, data: &SiteData, index: usize, range: Range<usize>)
+fn bodies(sky: &egui::Painter, rect: Rect, data: &SiteData, time:i64, range: Range<usize>)
 {
 	// Draw time-window paths before the current disks and terrain; C++ pair iteration.
 	for (track, color) in [
@@ -218,8 +218,8 @@ fn bodies(sky: &egui::Painter, rect: Rect, data: &SiteData, index: usize, range:
 	]
 	{
 		// Read current direction once for all wrapped copies; C++ scalar locals.
-		let a = f64::from(track.az_deg[index]);
-		let e = f64::from(track.el_deg[index]);
+		let Some([a,e])=crate::timeline::sample(track,time) else {continue;};
+		let (a,e)=(f64::from(a),f64::from(e));
 		// Preserve a partially visible disk at either edge of north; C++ three translated copies.
 		for shift in [-360.0, 0.0, 360.0]
 		{

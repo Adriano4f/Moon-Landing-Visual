@@ -380,7 +380,7 @@ impl MoonApp
 			ui,
 			"Time",
 			true,
-			"Choose the shared UTC date and the length of the faint paths. Summaries always cover the entire dataset.",
+			"Choose the shared UTC date, period and step. Statistics cover that period; coarse steps can miss short events.",
 			|ui| {
 				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]

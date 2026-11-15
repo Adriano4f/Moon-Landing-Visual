@@ -203,7 +203,9 @@ $$P_b=100\frac{\sum_{i=0}^{N-2}(t_{i+1}-t_i)b_i}{t_{N-1}-t_0}.$$
 
 Joint availability uses the logical intersection of any-sun and Earth clearance. Mean solar area uses $f_{\odot,i}$ instead of $b_i$ in the weighted numerator. Longest night is the largest consecutive sum of intervals whose left endpoint has no visible Sun. Empty and single-sample inputs return zero-duration statistics; unequal arrays and nonincreasing times violate the core statistics contract.
 
-Summary cards cover the entire prepared period, independent of the selected path window. Hourly held-sample estimates can shift event durations by sampling error and miss short events entirely.
+The shared timeline selects a UTC start and end within 2027-01-01 through 2035-01-01. Hour, day and calendar-month steps control navigation and statistics sampling. Sampling starts at the chosen start, includes the exact end, and weights each held state by elapsed time, including a shortened final interval. Calendar-month steps clamp missing month-end dates. Coarse sampling can miss short events and alias visibility; it is not an event solver. The slider uses second-resolution time and normalized linear interpolation of local direction vectors between hourly samples, including north crossings. Faint paths are clipped to the selected period. Later dates lazily fetch the external compact ephemeris once; site tracks are extended in chunks of at most 512 epochs per frame using the original terrain plus observer altitude. Existing reference samples are retained. Missing sky data suppresses results for the unavailable period rather than relabeling old statistics. See [timeline notes](16-timeline.md).
+
+Summary cards cover the applied start/end period, independent of the selected path window. Held-sample estimates can shift event durations by sampling error and miss short events entirely.
 
 ## 8. Globe renderer
 
@@ -330,7 +332,7 @@ Only the catalog is embedded. Selecting a site starts its native disk or browser
 
 Native resource directories can be overridden with `MOON_DATA_DIR` and `MOON_ASSET_DIR`; `MOON_TIER` selects a native texture target subject to hardware limits. Browser resources use relative `assets/data/` and `assets/globe/` paths. The page title is Karaya Explorer.
 
-The application retains one UTC epoch. Each site's own ordered track resolves the sample at or immediately before that epoch. Scientific directions are not interpolated. Out-of-range background epochs yield no ray. Radio margin is propagated to all-site predicates, including after pending data arrives. Track validation rejects empty/mismatched arrays, unordered or unrepresentable times, invalid angles, differing Sun/Earth epochs, and empty or invalid supplied horizons. Missing legacy terrain is explicitly labeled flat rather than confused with a computed profile.
+The application retains one UTC epoch and one applied statistics period and step across sites. Display directions interpolate normalized local vectors between adjacent hourly epochs; statistics use the selected sampling step with duration weighting. Out-of-range background epochs yield no ray. Radio margin is propagated to all-site predicates, including after pending data arrives. Track validation rejects empty/mismatched arrays, unordered or unrepresentable times, invalid angles, differing Sun/Earth epochs, and empty or invalid supplied horizons. Missing legacy terrain is explicitly labeled flat rather than confused with a computed profile.
 
 Desktop controls occupy grouped, collapsible sidebar sections: Site, Time, View/camera, Lighting, Rays, Radio margin, Technical and Explanations. Site and Time start expanded. A phone drawer preserves the main stacked globe/panorama layout. A compact vector crescent and Karaya Explorer label remain visible. Question-mark controls provide hover and click explanations for controls, statuses and cards.
 
