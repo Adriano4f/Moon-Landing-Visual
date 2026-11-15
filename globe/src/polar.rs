@@ -83,26 +83,33 @@ pub(super) fn wanted(view: math::View) -> bool
 			.is_some_and(|p| p[0].abs() < 1.2 && p[1].abs() < 1.2)
 }
 
-pub(super) fn advance(shared: &Shared, phone: bool, ctx: &egui::Context)
+impl State
 {
-	let jobs = {
-		let mut state = shared.lock();
-		if state.error.is_some() || state.ready
+	fn plan(&mut self, phone: bool, imagery: bool) -> Vec<(usize, String)>
+	{
+		if self.error.is_some() || self.ready
 		{
-			return;
+			return Vec::new();
 		}
-		let spec = *state.spec.get_or_insert_with(|| Spec::new(phone));
+		let spec = *self.spec.get_or_insert_with(|| Spec::new(phone));
+		// The view-dependent streamer supplies color; keep this atlas as a fallback.
+		let count = if imagery { spec.count() } else { 1 };
 		let mut jobs = Vec::new();
-		while state.in_flight < 3
-			&& state.pending.len() + state.in_flight < 4
-			&& state.next < spec.count()
+		while self.in_flight < 3
+			&& self.pending.len() + self.in_flight < 4
+			&& self.next < count
 		{
-			jobs.push((state.next, spec.url(state.next)));
-			state.next += 1;
-			state.in_flight += 1;
+			jobs.push((self.next, spec.url(self.next)));
+			self.next += 1;
+			self.in_flight += 1;
 		}
 		jobs
-	};
+	}
+}
+
+pub(super) fn advance(shared: &Shared, phone: bool, imagery: bool, ctx: &egui::Context)
+{
+	let jobs = shared.lock().plan(phone, imagery);
 	for (index, url) in jobs
 	{
 		let shared = Arc::clone(shared);
@@ -179,11 +186,32 @@ mod tests
 	{
 		let state = Arc::new(Mutex::new(State::default()));
 		state.lock().error = Some("unavailable".into());
-		advance(&state, false, &egui::Context::default());
+		advance(&state, false, true, &egui::Context::default());
 		assert!(state.lock().spec.is_none());
 		state.lock().error = None;
 		state.lock().ready = true;
-		advance(&state, false, &egui::Context::default());
+		advance(&state, false, true, &egui::Context::default());
 		assert!(state.lock().spec.is_none());
+	}
+
+	#[test]
+	fn normals_do_not_download_the_mosaic_unless_streaming_fails()
+	{
+		for phone in [false, true]
+		{
+			let mut state = State::default();
+			let jobs = state.plan(phone, false);
+			assert_eq!(jobs.len(), 1);
+			assert_eq!(jobs[0].0, 0);
+			assert!(jobs[0].1.starts_with("polar_normal_"));
+			state.in_flight = 0;
+			state.uploaded = 1;
+			assert!(state.plan(phone, false).is_empty());
+			let fallback = state.plan(phone, true);
+			assert_eq!(fallback.len(), 3);
+			assert_eq!(fallback[0].0, 1);
+			assert!(fallback.iter().all(|(_, url)| url.starts_with(WAC)));
+			assert!(state.plan(phone, true).is_empty());
+		}
 	}
 }

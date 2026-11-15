@@ -6,6 +6,7 @@ use glow::HasContext as _;
 const SLOTS: usize = 96;
 const WIDTH: usize = 576;
 const HEIGHT: usize = 256;
+const UPLOADS_PER_FRAME: usize = 4;
 
 struct Entry
 {
@@ -323,49 +324,54 @@ impl Renderer
 				entry.used = atlas.clock;
 			}
 		}
-		let Some((tile, image)) = state.pending.pop_front()
-		else
+		let mut changed = false;
+		for _ in 0..UPLOADS_PER_FRAME
 		{
-			return;
-		};
-		if !state.wanted.contains(&tile) || state.resident.contains(&tile)
-		{
-			return;
-		}
-		let slot = atlas.entries.iter().position(Option::is_none).or_else(|| {
-			atlas
-				.entries
-				.iter()
-				.enumerate()
-				.filter_map(|(slot, entry)| {
-					let entry = entry.as_ref()?;
-					(!state.wanted.contains(&entry.tile)).then_some((slot, entry.used))
-				})
-				.min_by_key(|(_, used)| *used)
-				.map(|(slot, _)| slot)
-		});
-		let Some(slot) = slot
-		else
-		{
-			return;
-		};
-		if let Some(old) = atlas.entries[slot].take()
-		{
-			state.resident.remove(&old.tile);
-		}
-		match atlas.upload(gl, slot, &image)
-		{
-			Ok(()) =>
+			let Some((tile, image)) = state.pending.pop_front()
+			else
 			{
-				atlas.entries[slot] = Some(Entry {
-					tile,
-					used: atlas.clock,
-				});
-				state.resident.insert(tile);
+				break;
+			};
+			if !state.wanted.contains(&tile) || state.resident.contains(&tile)
+			{
+				continue;
 			}
-			Err(error) => state.error = Some(error),
+			let slot = atlas.entries.iter().position(Option::is_none).or_else(|| {
+				atlas
+					.entries
+					.iter()
+					.enumerate()
+					.filter_map(|(slot, entry)| {
+						let entry = entry.as_ref()?;
+						(!state.wanted.contains(&entry.tile)).then_some((slot, entry.used))
+					})
+					.min_by_key(|(_, used)| *used)
+					.map(|(slot, _)| slot)
+			});
+			let Some(slot) = slot
+			else
+			{
+				break;
+			};
+			if let Some(old) = atlas.entries[slot].take()
+			{
+				state.resident.remove(&old.tile);
+			}
+			changed = true;
+			match atlas.upload(gl, slot, &image)
+			{
+				Ok(()) =>
+				{
+					atlas.entries[slot] = Some(Entry {
+						tile,
+						used: atlas.clock,
+					});
+					state.resident.insert(tile);
+				}
+				Err(error) => state.error = Some(error),
+			}
 		}
-		if let Err(error) = atlas.publish(gl)
+		if changed && let Err(error) = atlas.publish(gl)
 		{
 			atlas.failed = true;
 			state.disable(error);
