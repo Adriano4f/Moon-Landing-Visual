@@ -6,21 +6,24 @@ pub(crate) const CAMERA_DISTANCE: f32 = 5.0;
 
 pub(crate) type Mat3 = [f32; 9];
 #[cfg(test)]
-pub(crate) const IDENTITY: Mat3 = [1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0];
+pub(crate) const IDENTITY: Mat3 = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
 
 pub(crate) fn transform(m: Mat3, v: [f32; 3]) -> [f32; 3]
 {
-	std::array::from_fn(|i|m[i]*v[0]+m[i+3]*v[1]+m[i+6]*v[2])
+	std::array::from_fn(|i| m[i] * v[0] + m[i + 3] * v[1] + m[i + 6] * v[2])
 }
 
 fn product(a: Mat3, b: Mat3) -> Mat3
 {
-	std::array::from_fn(|i| (0..3).map(|k|a[3*k+i%3]*b[3*(i/3)+k]).sum())
+	std::array::from_fn(|i| (0..3).map(|k| a[3 * k + i % 3] * b[3 * (i / 3) + k]).sum())
 }
 
 pub(crate) fn camera_angles(direction: [f32; 3]) -> [f32; 2]
 {
-	[-direction[0].atan2(direction[2]),direction[1].clamp(-1.0,1.0).asin()]
+	[
+		-direction[0].atan2(direction[2]),
+		direction[1].clamp(-1.0, 1.0).asin(),
+	]
 }
 
 // Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
@@ -75,7 +78,10 @@ impl View
 		let (s, c) = self.yaw.sin_cos();
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let (st, ct) = self.tilt.sin_cos();
-		product([c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c],self.rotation)
+		product(
+			[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c],
+			self.rotation,
+		)
 	}
 	pub fn camera_distance(self) -> f32
 	{
@@ -484,6 +490,7 @@ mod tests
 		for zoom in [0.5, 1.0, 8.0, 64.0, 256.0, 1024.0]
 		{
 			let view = View {
+				rotation: IDENTITY,
 				yaw: 0.0,
 				tilt: 0.0,
 				zoom,

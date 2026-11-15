@@ -655,6 +655,7 @@ mod tests
 	{
 		// model() maps direction(lat, lon) to +z when yaw = -lon and tilt = lat.
 		math::View {
+			rotation: math::IDENTITY,
 			yaw: -lon,
 			tilt: lat,
 			zoom,
@@ -696,6 +697,38 @@ mod tests
 	fn max_z(tiles: &[Tile], pole: i32) -> Option<u32>
 	{
 		tiles.iter().filter(|t| t.pole == pole).map(|t| t.z).max()
+	}
+
+	#[test]
+	fn dated_rotation_keeps_the_same_moon_fixed_tiles()
+	{
+		for (lat, lon) in [(-89.4398, 222.83), (23.4, 17.3), (89.2, -25.7)]
+		{
+			for zoom in [64.0, 1024.0]
+			{
+				let base = view(deg(lat), deg(lon), zoom);
+				let target = math::direction(deg(lat), deg(lon));
+				let expected: HashSet<_> = select(base).into_iter().collect();
+				for utc in [
+					crate::orientation::INITIAL_UTC,
+					crate::orientation::INITIAL_UTC + 86400,
+					2051222400,
+				]
+				{
+					let rotation = crate::orientation::at_utc(utc);
+					let [yaw, tilt] = math::camera_angles(math::transform(rotation, target));
+					let rotated = math::View {
+						rotation,
+						yaw,
+						tilt,
+						..base
+					};
+					assert!(dot(Camera::new(rotated).eye, target) > 0.99999);
+					let actual: HashSet<_> = select(rotated).into_iter().collect();
+					assert_eq!(actual, expected, "lat {lat}, zoom {zoom}, epoch {utc}");
+				}
+			}
+		}
 	}
 
 	#[test]
