@@ -1,0 +1,47 @@
+{
+  "2k": {
+    "width": 2048,
+    "height": 1024,
+    "linear_mean": 0.48285659128086894,
+    "files": {
+      "albedo_2k.jpg": {
+        "bytes": 725020,
+        "sha256": "e9dc2f92100f3d27a0dc9b99208f4e18babb07e0117aef78efc1fc153ae2e396"
+      },
+      "normal_2k.png": {
+        "bytes": 2703533,
+        "sha256": "4b6ae0400651e73718e5403f7ce88f337e5cd84609f52d7704ccb3df8208467c"
+      }
+    }
+  },
+  "4k": {
+    "width": 4096,
+    "height": 2048,
+    "linear_mean": 0.48322406353469954,
+    "files": {
+      "albedo_4k.jpg": {
+        "bytes": 2795173,
+        "sha256": "d88dfcb1a1fe9c0c4c1d69b7343b2b4b9e4dc35cd5e7650a6e4f214b09029240"
+      },
+      "normal_4k.png": {
+        "bytes": 10637334,
+        "sha256": "cbae7784deb8051a71f1980b227eba5e4fed1bdfbaa130f84c736eed28b35170"
+      }
+    }
+  },
+  "8k": {
+    "width": 8192,
+    "height": 4096,
+    "linear_mean": 0.4835626475582773,
+    "files": {
+      "albedo_8k.jpg": {
+        "bytes": 10490203,
+        "sha256": "9ee4c6bc878bfe937fd72e2ef0c92aec004d1cde89ccf34d92e9626c179587ef"
+      },
+      "normal_8k.png": {
+        "bytes": 36756786,
+        "sha256": "f135bb9ffaac650cc7ef39ed39d7d0a2f4e36b7714ef8f3d1676a3b52a524327"
+      }
+    }
+  }
+}
