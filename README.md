@@ -23,7 +23,7 @@ Asset sources, credits and regeneration commands: [`globe/assets/README.md`](glo
 
 ## Build and run
 
-Install Rust and [Trunk](https://trunkrs.dev/). Run from the repository root (native requires OpenGL; the browser requires WebGL2):
+Install Rust and [Trunk](https://trunk-rs.github.io/trunk/). Run from the repository root (native requires OpenGL; the browser requires WebGL2):
 
 ```sh
 cargo test --workspace
