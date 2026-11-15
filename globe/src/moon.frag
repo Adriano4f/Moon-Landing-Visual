@@ -16,6 +16,7 @@ uniform sampler2D u_normal;
 uniform sampler2D u_polar_color;
 uniform sampler2D u_polar_normal;
 uniform float u_polar_ready;
+uniform float u_polar_normal_ready;
 uniform float u_polar_extent;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
@@ -253,10 +254,12 @@ void main()
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
 	// South stereographic: x points east at longitude zero, y points toward longitude zero.
 	vec2 polar_uv = 0.5 + (1737400.0 / u_polar_extent) * vec2(p.x, -p.z) / max(1.0 - p.y, 0.000001);
-	float polar_blend = u_polar_ready * (1.0 - smoothstep(sin(-77.0 * PI / 180.0), sin(-75.0 * PI / 180.0), p.y));
-	if (polar_blend > 0.0)
+	float polar_band = 1.0 - smoothstep(sin(-77.0 * PI / 180.0), sin(-75.0 * PI / 180.0), p.y);
+	float polar_blend = u_polar_ready * polar_band;
+	float polar_normal_blend = u_polar_normal_ready * polar_band;
+	if (polar_normal_blend > 0.0)
 	{
-		n = normalize(mix(n, texture(u_polar_normal, polar_uv).rgb * 2.0 - 1.0, polar_blend));
+		n = normalize(mix(n, texture(u_polar_normal, polar_uv).rgb * 2.0 - 1.0, polar_normal_blend));
 	}
 	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
@@ -272,9 +275,9 @@ void main()
 	float normal_strength = smoothstep(0.35, 0.65, max(dot(geometric, view), 0.0));
 	// Suppress unresolved equirectangular polar detail, rather than displaying longitude streaks as terrain.
 	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
-	polar_fallback *= 1.0 - polar_blend;
 	// Within ten degrees of either pole the overview deliberately uses a schematic sphere normal.
-	normal_strength *= 1.0 - polar_fallback;
+	normal_strength *= 1.0 - polar_fallback * (1.0 - polar_normal_blend);
+	polar_fallback *= 1.0 - polar_blend;
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);

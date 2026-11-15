@@ -300,6 +300,10 @@ impl Renderer
 				if ready { 1.0 } else { 0.0 },
 			);
 			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_polar_normal_ready").as_ref(),
+				if self.polar.as_ref().is_some_and(|p| p.normal.is_some()) { 1.0 } else { 0.0 },
+			);
+			gl.uniform_1_f32(
 				gl.get_uniform_location(program, "u_polar_extent").as_ref(),
 				crate::polar::EXTENT,
 			);

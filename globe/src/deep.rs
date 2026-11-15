@@ -526,6 +526,11 @@ pub(crate) struct State
 
 impl State
 {
+	pub fn is_disabled(&self) -> bool
+	{
+		self.disabled
+	}
+
 	pub fn disable(&mut self, error: String)
 	{
 		self.disabled = true;

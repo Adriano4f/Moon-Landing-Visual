@@ -59,7 +59,7 @@ pub(crate) fn select(max: i32, mobile: bool, forced: Option<&str>) -> Result<u32
 		None =>
 		{
 			// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
-			if mobile
+			if mobile || cfg!(target_arch = "wasm32")
 			{
 				2048
 			}

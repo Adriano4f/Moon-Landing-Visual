@@ -39,7 +39,12 @@ impl Globe
 		};
 		if self.has_visible_moon() && polar::wanted(view)
 		{
-			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
+			polar::advance(
+				&self.polar,
+				self.target_tier <= 2,
+				self.deep.lock().is_disabled(),
+				ui.ctx(),
+			);
 		}
 		if self.has_visible_moon() && self.zoom >= 2.0
 		{
@@ -423,27 +428,19 @@ impl Globe
 		);
 		let caption = if satellite
 		{
-			"Satellite mosaic: shadows are recorded".into()
+			"Satellite mosaic: shadows are recorded"
 		}
 		else if polar.ready
 		{
-			"Polar mosaic: shadows are recorded".into()
+			"Polar mosaic: shadows are recorded"
 		}
 		else if polar.error.is_some()
 		{
-			"Polar detail unavailable; overview retained".into()
-		}
-		else if let Some(spec) = polar.spec
-		{
-			format!(
-				"Polar detail {}/{}; overview retained",
-				polar.uploaded,
-				spec.count()
-			)
+			"Polar detail unavailable; overview retained"
 		}
 		else
 		{
-			"Illustration; satellite detail loads on zoom".into()
+			"Illustration; satellite detail loads on zoom"
 		};
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),
