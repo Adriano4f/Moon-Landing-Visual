@@ -30,6 +30,8 @@ Each tier has the following width and half that height. File hashes and pre-JPEG
 
 Total tier payload: 64,108,049 bytes (64.11 MB). Every file is below 100 MB; the total is below 150 MB. Source TIFFs are cached in ~/plan and are not committed. The earlier embedded 2k JPEG/4-pixels-per-degree PNG and its conversion script have been replaced.
 
+Browser normal maps additionally have lossless WebP equivalents: 2,250,260 bytes at 2k, 8,878,268 at 4k, and 29,849,182 at 8k. Run `python3 globe/assets/web_normals.py` after preparation. It verifies every decoded RGB byte against the PNG. Trunk deploys the WebP copies instead of PNG; native retains PNG. See [progressive loading](../../docs/12-progressive-loading.md) for browser decoding, quality defaults, memory and measurements.
+
 ## Reproduction and quantization
 
 Install Python 3, Pillow, and NumPy, then run:

@@ -1031,6 +1031,8 @@ dependencies = [
  "egui_glow",
  "ehttp",
  "image",
+ "send_wrapper",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

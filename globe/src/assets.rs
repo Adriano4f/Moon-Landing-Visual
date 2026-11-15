@@ -1,7 +1,15 @@
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
+#[cfg(not(target_arch = "wasm32"))]
 use image::RgbImage;
+
+// Native workers return owned RGB bytes; C++ image value alias.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) type TextureImage = RgbImage;
+// Keep DOM images on their creation thread even across Send-bound UI callbacks; C++ checked thread-affine handle.
+#[cfg(target_arch = "wasm32")]
+pub(crate) type TextureImage = send_wrapper::SendWrapper<web_sys::HtmlImageElement>;
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::sync::Arc;
 
@@ -9,7 +17,7 @@ use std::sync::Arc;
 pub(crate) struct Loading
 {
 	// Two optional completion results, albedo first and normals second; C++ array<optional<expected<Image,string>>,2>.
-	pub images: [Option<Result<RgbImage, String>>; 2],
+	pub images: [Option<Result<TextureImage, String>>; 2],
 	// An optional terminal loading/upload diagnostic; C++ optional<string>.
 	pub error: Option<String>,
 }
@@ -108,12 +116,12 @@ pub(crate) fn preferences() -> (bool, Option<String>)
 			// Chain a fallible/optional operation without nesting wrappers; C++ checks then invokes the next callable.
 			.and_then(|p| p.get("moon_tier"));
 		// Return both browser hints without allocating another aggregate; C++ returns pair<bool,optional<string>>.
-		(mobile, forced)
+		(mobile, forced.or_else(|| (!mobile).then(|| "4".into())))
 	}
 }
 
 // Start exactly two asynchronous image reads for one tier; C++ shared_ptr keeps completion state alive.
-pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
+pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 {
 	// Share two pending image results with asynchronous producers; C++ shared_ptr protects a mutex-backed aggregate.
 	let state = Arc::new(Mutex::new(Loading {
@@ -123,7 +131,15 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 		error: None,
 	}));
 	// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-	for (index, filename) in [format!("albedo_{tier}k.jpg"), format!("normal_{tier}k.png")]
+	let normal = if cfg!(target_arch = "wasm32")
+	{
+		format!("normal_{tier}k.webp")
+	}
+	else
+	{
+		format!("normal_{tier}k.png")
+	};
+	for (index, filename) in [format!("albedo_{tier}k.jpg"), normal]
 		// Consume this array into an iterator; C++ iterates its owned local elements.
 		.into_iter()
 		// Attach each element's zero-based index; C++ an indexed range or explicit counter.
@@ -131,6 +147,10 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 	{
 		// Share two pending image results with asynchronous producers; C++ shared_ptr protects a mutex-backed aggregate.
 		let state = Arc::clone(&state);
+		// Wake a paused globe when either upgrade image completes; C++ optional UI event-loop handle.
+		let ctx = ctx.clone();
+		// Decode only native images in Rust; browser images stay in the native browser decoder.
+		#[cfg(not(target_arch = "wasm32"))]
 		// Capture the completion action by ownership; C++ uses a value-capturing callable.
 		let done = move |bytes: Result<Vec<u8>, String>| {
 			// Carry either the next successful value or a diagnostic; C++ could use expected<T,string>.
@@ -144,6 +164,10 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 			});
 			// Access an image-completion slot under exclusive synchronization; C++ locks its mutex before accessing the slot.
 			state.lock().images[index] = Some(result);
+			if let Some(ctx) = ctx
+			{
+				ctx.request_repaint();
+			}
 		};
 		// Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 		#[cfg(not(target_arch = "wasm32"))]
@@ -172,29 +196,31 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 		});
 		// Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 		#[cfg(target_arch = "wasm32")]
-		// Start a browser HTTP fetch without blocking rendering; C++ native HTTP libraries have no direct browser DOM equivalent.
-		ehttp::fetch(
-			// Create a GET request for only this selected tier's relative URL; C++ constructs the corresponding HTTP request.
-			ehttp::Request::get(format!("assets/globe/{filename}")),
-			// Own this fetch completion so it outlives the current frame; C++ captures required state by value.
-			move |response| {
-				// Complete this asset exactly once with bytes or a diagnostic; C++ invokes the captured completion callable.
-				done(response.and_then(|r| {
-					// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
-					if r.ok
-					{
-						// Wrap a successful result without throwing; C++ expected stores its value.
-						Ok(r.bytes)
-					}
-					// Handle the complementary case; C++ uses the same else branch.
-					else
-					{
-						// Return or store the diagnostic instead of continuing with invalid state; C++ expected::unexpected carries the error.
-						Err(format!("HTTP {} loading {filename}", r.status))
-					}
-				}));
-			},
-		);
+		// Browser-native decoding runs asynchronously rather than in the WASM frame; C++ platform decoder task.
+		wasm_bindgen_futures::spawn_local(async move {
+			// Resolve DOM construction failures through the ordinary loader diagnostic; C++ expected-returning factory.
+			let result = match web_sys::HtmlImageElement::new()
+			{
+				Ok(image) =>
+				{
+					// Same-origin assets need no cross-origin permission or JS byte copies; C++ URL assignment.
+					image.set_src(&format!("assets/globe/{filename}"));
+					// Await the browser's own decoder and retain its native upload source; C++ future continuation.
+					wasm_bindgen_futures::JsFuture::from(image.decode())
+						.await
+						.map(|_| send_wrapper::SendWrapper::new(image))
+						.map_err(|e| format!("{filename}: {e:?}"))
+				}
+				Err(e) => Err(format!("{filename}: {e:?}")),
+			};
+			// Publish a complete image or a genuine error, never a half-decoded buffer; C++ synchronized slot.
+			state.lock().images[index] = Some(result);
+			// Background completion must repaint even when the first Moon is already visible; C++ event-loop wake.
+			if let Some(ctx) = ctx
+			{
+				ctx.request_repaint();
+			}
+		});
 	}
 	state
 }
@@ -203,7 +229,7 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 impl Loading
 {
 	// Move both completed images out only when neither is missing or erroneous; C++ expected<optional<array<Image,2>>,string>.
-	pub fn take(&mut self) -> Result<Option<[RgbImage; 2]>, String>
+	pub fn take(&mut self) -> Result<Option<[TextureImage; 2]>, String>
 	{
 		// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 		for result in self.images.iter().flatten()

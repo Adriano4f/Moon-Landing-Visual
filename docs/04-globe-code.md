@@ -134,7 +134,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ehttp = "0.7"
-web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "UrlSearchParams", "console"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "UrlSearchParams", "HtmlImageElement", "WebGl2RenderingContext", "console"] }
+wasm-bindgen-futures = "0.4"
+send_wrapper = "0.6"
 ```
 
 ### 4.2. globe/src/assets.rs
@@ -143,7 +145,15 @@ web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "Url
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
+#[cfg(not(target_arch = "wasm32"))]
 use image::RgbImage;
+
+// Native workers return owned RGB bytes; C++ image value alias.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) type TextureImage = RgbImage;
+// Keep DOM images on their creation thread even across Send-bound UI callbacks; C++ checked thread-affine handle.
+#[cfg(target_arch = "wasm32")]
+pub(crate) type TextureImage = send_wrapper::SendWrapper<web_sys::HtmlImageElement>;
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::sync::Arc;
 
@@ -151,7 +161,7 @@ use std::sync::Arc;
 pub(crate) struct Loading
 {
 	// Two optional completion results, albedo first and normals second; C++ array<optional<expected<Image,string>>,2>.
-	pub images: [Option<Result<RgbImage, String>>; 2],
+	pub images: [Option<Result<TextureImage, String>>; 2],
 	// An optional terminal loading/upload diagnostic; C++ optional<string>.
 	pub error: Option<String>,
 }
@@ -250,12 +260,12 @@ pub(crate) fn preferences() -> (bool, Option<String>)
 			// Chain a fallible/optional operation without nesting wrappers; C++ checks then invokes the next callable.
 			.and_then(|p| p.get("moon_tier"));
 		// Return both browser hints without allocating another aggregate; C++ returns pair<bool,optional<string>>.
-		(mobile, forced)
+		(mobile, forced.or_else(|| (!mobile).then(|| "4".into())))
 	}
 }
 
 // Start exactly two asynchronous image reads for one tier; C++ shared_ptr keeps completion state alive.
-pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
+pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 {
 	// Share two pending image results with asynchronous producers; C++ shared_ptr protects a mutex-backed aggregate.
 	let state = Arc::new(Mutex::new(Loading {
@@ -265,7 +275,15 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 		error: None,
 	}));
 	// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
-	for (index, filename) in [format!("albedo_{tier}k.jpg"), format!("normal_{tier}k.png")]
+	let normal = if cfg!(target_arch = "wasm32")
+	{
+		format!("normal_{tier}k.webp")
+	}
+	else
+	{
+		format!("normal_{tier}k.png")
+	};
+	for (index, filename) in [format!("albedo_{tier}k.jpg"), normal]
 		// Consume this array into an iterator; C++ iterates its owned local elements.
 		.into_iter()
 		// Attach each element's zero-based index; C++ an indexed range or explicit counter.
@@ -273,6 +291,10 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 	{
 		// Share two pending image results with asynchronous producers; C++ shared_ptr protects a mutex-backed aggregate.
 		let state = Arc::clone(&state);
+		// Wake a paused globe when either upgrade image completes; C++ optional UI event-loop handle.
+		let ctx = ctx.clone();
+		// Decode only native images in Rust; browser images stay in the native browser decoder.
+		#[cfg(not(target_arch = "wasm32"))]
 		// Capture the completion action by ownership; C++ uses a value-capturing callable.
 		let done = move |bytes: Result<Vec<u8>, String>| {
 			// Carry either the next successful value or a diagnostic; C++ could use expected<T,string>.
@@ -286,6 +308,10 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 			});
 			// Access an image-completion slot under exclusive synchronization; C++ locks its mutex before accessing the slot.
 			state.lock().images[index] = Some(result);
+			if let Some(ctx) = ctx
+			{
+				ctx.request_repaint();
+			}
 		};
 		// Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 		#[cfg(not(target_arch = "wasm32"))]
@@ -314,29 +340,31 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 		});
 		// Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 		#[cfg(target_arch = "wasm32")]
-		// Start a browser HTTP fetch without blocking rendering; C++ native HTTP libraries have no direct browser DOM equivalent.
-		ehttp::fetch(
-			// Create a GET request for only this selected tier's relative URL; C++ constructs the corresponding HTTP request.
-			ehttp::Request::get(format!("assets/globe/{filename}")),
-			// Own this fetch completion so it outlives the current frame; C++ captures required state by value.
-			move |response| {
-				// Complete this asset exactly once with bytes or a diagnostic; C++ invokes the captured completion callable.
-				done(response.and_then(|r| {
-					// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
-					if r.ok
-					{
-						// Wrap a successful result without throwing; C++ expected stores its value.
-						Ok(r.bytes)
-					}
-					// Handle the complementary case; C++ uses the same else branch.
-					else
-					{
-						// Return or store the diagnostic instead of continuing with invalid state; C++ expected::unexpected carries the error.
-						Err(format!("HTTP {} loading {filename}", r.status))
-					}
-				}));
-			},
-		);
+		// Browser-native decoding runs asynchronously rather than in the WASM frame; C++ platform decoder task.
+		wasm_bindgen_futures::spawn_local(async move {
+			// Resolve DOM construction failures through the ordinary loader diagnostic; C++ expected-returning factory.
+			let result = match web_sys::HtmlImageElement::new()
+			{
+				Ok(image) =>
+				{
+					// Same-origin assets need no cross-origin permission or JS byte copies; C++ URL assignment.
+					image.set_src(&format!("assets/globe/{filename}"));
+					// Await the browser's own decoder and retain its native upload source; C++ future continuation.
+					wasm_bindgen_futures::JsFuture::from(image.decode())
+						.await
+						.map(|_| send_wrapper::SendWrapper::new(image))
+						.map_err(|e| format!("{filename}: {e:?}"))
+				}
+				Err(e) => Err(format!("{filename}: {e:?}")),
+			};
+			// Publish a complete image or a genuine error, never a half-decoded buffer; C++ synchronized slot.
+			state.lock().images[index] = Some(result);
+			// Background completion must repaint even when the first Moon is already visible; C++ event-loop wake.
+			if let Some(ctx) = ctx
+			{
+				ctx.request_repaint();
+			}
+		});
 	}
 	state
 }
@@ -345,7 +373,7 @@ pub(crate) fn load(tier: u32) -> Arc<Mutex<Loading>>
 impl Loading
 {
 	// Move both completed images out only when neither is missing or erroneous; C++ expected<optional<array<Image,2>>,string>.
-	pub fn take(&mut self) -> Result<Option<[RgbImage; 2]>, String>
+	pub fn take(&mut self) -> Result<Option<[TextureImage; 2]>, String>
 	{
 		// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 		for result in self.images.iter().flatten()
@@ -1044,6 +1072,9 @@ pub struct Globe
 	loading: Arc<Mutex<assets::Loading>>,
 	// Selected size label 2/4/8, with width equal to 1,024 times the label; C++ uint32_t.
 	tier: u32,
+	// Requested final detail is independent of the first visible 2k pair; C++ unsigned members.
+	target_tier: u32,
+	max_tier: u32,
 	// Interactive presentation state is independent of ephemeris time; C++ value members.
 	scene: Vec<Marker>,
 	selected: usize,
@@ -1080,6 +1111,8 @@ mod scene_tests
 				error: None,
 			})),
 			tier: 2,
+			target_tier: 2,
+			max_tier: 8,
 			scene: vec![],
 			selected: 0,
 			yaw: 0.0,
@@ -1154,8 +1187,14 @@ impl Globe
 			// Shared optional GPU state, absent while loading; C++ shared_ptr<mutex-protected optional<Renderer>>.
 			renderer: Arc::new(Mutex::new(None)),
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
-			loading: assets::load(tier),
-			tier,
+			loading: assets::load(2, None),
+			tier: 2,
+			target_tier: tier,
+			max_tier: assets::select(
+				unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) },
+				false,
+				Some("8"),
+			)?,
 			// Default to the current Earth line of sight, without artificial spin or tilt; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
@@ -1264,6 +1303,25 @@ impl Globe
 				"Free orbit"
 			}
 		));
+		// Let desktop and phone users explicitly trade download cost for map detail; C++ combo-box row.
+		ui.horizontal_wrapped(|ui| {
+			ui.label("Texture detail");
+			egui::ComboBox::from_id_salt("moon-quality").selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
+				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
+			});
+			help::question(ui, "The Moon always appears in 2k first. Desktop browsers normally improve to 4k; phones keep 2k. Choose 8k only if you want a larger download and have enough memory. Higher detail changes only the globe map, not scientific data. The old Moon remains visible if an upgrade fails.");
+		});
+		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
+		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
+		help::annotated(
+			ui,
+			format!(
+				"Showing {} | requested {}k",
+				displayed.map_or("loading".into(), |t| format!("{t}k")),
+				self.target_tier
+			),
+			"The first number is the currently visible map. The requested detail replaces it only after both images have decoded and uploaded successfully.",
+		);
 	}
 
 	// Draw physical-light display aids separately from camera actions; C++ member function.
@@ -1290,6 +1348,27 @@ impl Globe
 			ui.small("Moon overview");
 			help::question(ui, "Drag to orbit the Moon; wheel or pinch to zoom. Magnification stops at 8 times to avoid misleading polar texture streaks. Markers are published points; click one or use Site. This globe is an illustration, not the detailed terrain silhouette shown in the panorama.");
 		});
+		// Display 2k before starting an optional upgrade; never blank the existing renderer while waiting.
+		if self
+			.renderer
+			.lock()
+			.as_ref()
+			.is_some_and(|r| r.visible_announced)
+			&& self.tier != self.target_tier
+		{
+			// Start one pair per explicit target change, with UI wakeups on completion; C++ state transition.
+			self.tier = self.target_tier;
+			self.loading = assets::load(self.tier, Some(ui.ctx().clone()));
+		}
+		// A failed upgrade leaves the last successful Moon on screen; C++ optional diagnostic display.
+		if let Some(error) = self.loading.lock().error.as_ref()
+		{
+			help::annotated(
+				ui,
+				format!("Texture detail unavailable: {error}"),
+				"The last successful Moon remains visible if higher detail fails. Try another detail level in View / camera after an upgrade fails, or reload the page if the first images fail. Scientific data is independent of globe textures.",
+			);
+		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let time = ui.input(|i| i.time);
 		// Bind this intermediate value for the current operation; C++ local initialization.
@@ -1462,29 +1541,46 @@ impl Globe
 			})
 			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
+		let ctx = ui.ctx().clone();
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
 			let mut renderer = renderer.lock();
 			// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
-			if renderer.is_none() && loading.lock().error.is_none()
+			if loading.lock().error.is_none()
 			{
-				// Carry either the next successful value or a diagnostic; C++ could use expected<T,string>.
-				let result = loading.lock().take().and_then(|images| {
-					images
-						// Transform only a present/successful value; C++ applies a callable after checking optional/expected.
-						.map(|images| Renderer::new(painter.gl(), images))
-						// Convert optional<Result<T,E>> to Result<optional<T>,E>; C++ explicitly handles the three possible states.
-						.transpose()
-				});
-				// Exhaustively branch on the result variant; C++ switch over a variant tag requires explicit extraction.
+				// Consume the completed pair without rebuilding an existing mesh or shader; C++ optional result.
+				let result = loading.lock().take();
 				match result
 				{
-					// Move the completed renderer into its shared slot; C++ moves the success value into optional storage.
-					Ok(Some(ready)) => *renderer = Some(ready),
-					// Report that construction is still pending; C++ optional remains empty without signaling failure.
+					Ok(Some(images)) =>
+					{
+						if let Some(current) = renderer.as_mut()
+						{
+							// Keep old textures until every replacement is uploaded; C++ staged owner transfer.
+							current.begin_upgrade(painter.gl(), images);
+						}
+						else
+						{
+							match Renderer::new(painter.gl(), images)
+							{
+								Ok(ready) => *renderer = Some(ready),
+								Err(error) => loading.lock().error = Some(error),
+							}
+						}
+					}
 					Ok(None) =>
 					{}
-					// Return or store the diagnostic instead of continuing with invalid state; C++ expected::unexpected carries the error.
+					Err(error) => loading.lock().error = Some(error),
+				}
+			}
+			// Upload at most one replacement image per frame, leaving the last Moon usable; C++ incremental task.
+			if let Some(current) = renderer.as_mut()
+			{
+				match current.advance_upgrade(painter.gl())
+				{
+					Ok(true) => ctx.request_repaint(),
+					Ok(false) =>
+					{}
 					Err(error) => loading.lock().error = Some(error),
 				}
 			}
@@ -1494,10 +1590,22 @@ impl Globe
 			if viewport.width_px > 0 && viewport.height_px > 0
 			{
 				// Enter only when the optional handle/value exists and bind it; C++ if(optional) then dereferences it.
-				if let Some(renderer) = renderer.as_ref()
+				if let Some(renderer) = renderer.as_mut()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
 					renderer.paint(painter.gl(), view, &rays, lighting);
+					// Announce a real lit draw, not merely decoded textures with pending sky data; C++ frame diagnostic.
+					if lighting.is_some() && !renderer.visible_announced
+					{
+						let status = format!("Moon visible: {}k", renderer.tier);
+						#[cfg(target_arch = "wasm32")]
+						web_sys::console::log_1(&status.into());
+						#[cfg(not(target_arch = "wasm32"))]
+						eprintln!("{status}");
+						renderer.visible_announced = true;
+						// Give the first visible frame priority before requesting an upgrade; C++ event-loop wake.
+						ctx.request_repaint();
+					}
 				}
 			}
 		});
@@ -1617,13 +1725,20 @@ struct Renderer
 	textures: Vec<glow::Texture>,
 	// Number of indices passed to the draw, not the number of triangles; C++ GLsizei.
 	index_count: i32,
+	// Record the quality actually uploaded, independently of the requested upgrade; C++ unsigned member.
+	tier: u32,
+	// Signal only after the renderer has drawn with real sky directions; C++ bool.
+	visible_announced: bool,
+	// Retain decoded upgrades between bounded GPU-upload frames; C++ optional pair with image iterator.
+	pending: Option<(u32, std::vec::IntoIter<assets::TextureImage>)>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
 impl Renderer
 {
 	// Construct and validate owned state, returning an error instead of throwing; C++ uses a factory returning expected.
-	fn new(gl: &glow::Context, [albedo, normals]: [image::RgbImage; 2]) -> Result<Self, String>
+	fn new(gl: &glow::Context, [albedo, normals]: [assets::TextureImage; 2])
+	-> Result<Self, String>
 	{
 		// Inspect GLSL capabilities rather than assuming desktop syntax; C++ queries GL strings.
 		let version = egui_glow::ShaderVersion::get(gl);
@@ -1650,6 +1765,9 @@ impl Renderer
 			textures: Vec::new(),
 			// Number of indices passed to the draw, not the number of triangles; C++ GLsizei.
 			index_count: 0,
+			tier: albedo.width() / 1024,
+			visible_announced: false,
+			pending: None,
 		};
 		// Run fallible GPU construction in a local closure so partial resources can be cleaned; C++ try/catch is analogous.
 		let initialized = (|| -> Result<(), String> {
@@ -1765,16 +1883,14 @@ impl Renderer
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);
 			}
-			// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-			renderer.upload_texture(gl, albedo.width(), albedo.height(), albedo.as_raw(), true)?;
-			// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-			renderer.upload_texture(
-				gl,
-				normals.width(),
-				normals.height(),
-				normals.as_raw(),
-				false,
-			)?;
+			// Upload each image once; the browser keeps decoded pixels in its native image source.
+			for (image, srgb) in [(albedo, true), (normals, false)]
+			{
+				#[cfg(not(target_arch = "wasm32"))]
+				renderer.upload_texture(gl, image.width(), image.height(), image.as_raw(), srgb)?;
+				#[cfg(target_arch = "wasm32")]
+				renderer.upload_browser_texture(gl, &image, srgb)?;
+			}
 			// Wrap a successful result without throwing; C++ expected stores its value.
 			Ok(())
 		})();
@@ -1798,7 +1914,69 @@ impl Renderer
 		Ok(renderer)
 	}
 
+	// Begin a new quality request while retaining the last complete pair; C++ cancellation and staging.
+	fn begin_upgrade(&mut self, gl: &glow::Context, images: [assets::TextureImage; 2])
+	{
+		// Discard only abandoned replacement textures, never the visible pair; C++ GL owner cleanup.
+		for texture in self.textures.drain(2..)
+		{
+			unsafe {
+				gl.delete_texture(texture);
+			}
+		}
+		// Store the real image width and consume the pair in order; C++ pair<unsigned, image iterator>.
+		self.pending = Some((images[0].width() / 1024, Vec::from(images).into_iter()));
+	}
+
+	// Advance one native/browser upload per frame, then atomically expose the complete pair; C++ state machine.
+	fn advance_upgrade(&mut self, gl: &glow::Context) -> Result<bool, String>
+	{
+		// Temporarily own the in-progress upload, restoring it only after success; C++ optional exchange.
+		let Some((tier, mut images)) = self.pending.take()
+		else
+		{
+			return Ok(false);
+		};
+		// Process only one image in this frame; C++ iterator increment and optional extraction.
+		if let Some(image) = images.next()
+		{
+			// The first replacement is albedo, the second is directional data; C++ bool.
+			let srgb = self.textures.len() == 2;
+			#[cfg(not(target_arch = "wasm32"))]
+			let result =
+				self.upload_texture(gl, image.width(), image.height(), image.as_raw(), srgb);
+			#[cfg(target_arch = "wasm32")]
+			let result = self.upload_browser_texture(gl, &image, srgb);
+			if let Err(error) = result
+			{
+				// SAFETY: this callback owns the current GL context; C++ delete only registered replacement handles.
+				for texture in self.textures.drain(2..)
+				{
+					unsafe {
+						gl.delete_texture(texture);
+					}
+				}
+				return Err(error);
+			}
+			// Resume at the next image in a later frame; C++ iterator move into optional.
+			self.pending = Some((tier, images));
+			return Ok(true);
+		}
+		// SAFETY: old textures are no longer sampled after this callback-local swap; C++ owner retirement.
+		for texture in self.textures.drain(..2)
+		{
+			unsafe {
+				gl.delete_texture(texture);
+			}
+		}
+		// Expose the completed pair and schedule a new actual-visibility diagnostic; C++ member assignments.
+		self.tier = tier;
+		self.visible_announced = false;
+		Ok(false)
+	}
+
 	// Upload RGB bytes and configure mipmapped sampling; C++ receives a const byte span plus dimensions.
+	#[cfg(not(target_arch = "wasm32"))]
 	fn upload_texture(
 		&mut self,
 		gl: &glow::Context,
@@ -1893,6 +2071,79 @@ impl Renderer
 			}
 		}
 		// Wrap a successful result without throwing; C++ expected stores its value.
+		Ok(())
+	}
+
+	// Upload browser-decoded pixels directly, without a WASM RGB buffer; C++ DOM image upload.
+	#[cfg(target_arch = "wasm32")]
+	fn upload_browser_texture(
+		&mut self,
+		gl: &glow::Context,
+		image: &web_sys::HtmlImageElement,
+		srgb: bool,
+	) -> Result<(), String>
+	{
+		// SAFETY: callback runs on the current GL context and the image's creation thread.
+		unsafe {
+			// Register ownership before uploading, so construction failure cleans it; C++ owned GLuint.
+			let texture = gl.create_texture()?;
+			// Register cleanup ownership before using the handle; C++ vector::push_back.
+			self.textures.push(texture);
+			// Select the upload unit explicitly; C++ glActiveTexture.
+			gl.active_texture(glow::TEXTURE0);
+			// Bind this replacement without modifying the visible texture pair; C++ glBindTexture.
+			gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+			// Normal maps are data, not browser color-corrected display images; C++ pixel-store policy.
+			gl.pixel_store_i32(
+				web_sys::WebGl2RenderingContext::UNPACK_COLORSPACE_CONVERSION_WEBGL,
+				glow::NONE as i32,
+			);
+			// Keep the original top-row order, matching the native byte upload; C++ pixel-store policy.
+			gl.pixel_store_i32(web_sys::WebGl2RenderingContext::UNPACK_FLIP_Y_WEBGL, 0);
+			gl.pixel_store_i32(
+				web_sys::WebGl2RenderingContext::UNPACK_PREMULTIPLY_ALPHA_WEBGL,
+				0,
+			);
+			// Upload the browser-owned decoded source without copying through WASM; C++ DOM texture source.
+			gl.tex_image_2d_with_html_image(
+				glow::TEXTURE_2D,
+				0,
+				if srgb { glow::SRGB8_ALPHA8 } else { glow::RGB8 } as i32,
+				if srgb { glow::RGBA } else { glow::RGB },
+				glow::UNSIGNED_BYTE,
+				image,
+			);
+			gl.tex_parameter_i32(
+				glow::TEXTURE_2D,
+				glow::TEXTURE_MIN_FILTER,
+				glow::LINEAR_MIPMAP_LINEAR as i32,
+			);
+			gl.tex_parameter_i32(
+				glow::TEXTURE_2D,
+				glow::TEXTURE_MAG_FILTER,
+				glow::LINEAR as i32,
+			);
+			gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::REPEAT as i32);
+			gl.tex_parameter_i32(
+				glow::TEXTURE_2D,
+				glow::TEXTURE_WRAP_T,
+				glow::CLAMP_TO_EDGE as i32,
+			);
+			gl.generate_mipmap(glow::TEXTURE_2D);
+			// Restore the WebGL default expected by other eframe painters; C++ state restoration.
+			gl.pixel_store_i32(
+				web_sys::WebGl2RenderingContext::UNPACK_COLORSPACE_CONVERSION_WEBGL,
+				web_sys::WebGl2RenderingContext::BROWSER_DEFAULT_WEBGL as i32,
+			);
+			// Leave no upload binding behind; C++ glBindTexture with zero.
+			gl.bind_texture(glow::TEXTURE_2D, None);
+			// Convert driver failures into the normal recoverable loader error; C++ glGetError.
+			let error = gl.get_error();
+			if error != glow::NO_ERROR
+			{
+				return Err(format!("Browser texture upload GL error {error}"));
+			}
+		}
 		Ok(())
 	}
 
@@ -2854,11 +3105,11 @@ fn main()
 	<link data-trunk rel="rust">
 	<link data-trunk rel="copy-dir" href="assets">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_2k.jpg" data-target-path="assets/globe">
-	<link data-trunk rel="copy-file" href="../globe/assets/normal_2k.png" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/normal_2k.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_4k.jpg" data-target-path="assets/globe">
-	<link data-trunk rel="copy-file" href="../globe/assets/normal_4k.png" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/normal_4k.webp" data-target-path="assets/globe">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_8k.jpg" data-target-path="assets/globe">
-	<link data-trunk rel="copy-file" href="../globe/assets/normal_8k.png" data-target-path="assets/globe">
+	<link data-trunk rel="copy-file" href="../globe/assets/normal_8k.webp" data-target-path="assets/globe">
 	<base data-trunk-public-url>
 	<style>
 		html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: black; }
@@ -2885,6 +3136,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `add`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `add_enabled`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `add_triangle`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
+- `advance_upgrade`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `all`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `allocate_exact_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `allocate_painter`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
@@ -2902,6 +3154,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `as_chunks`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `as_deref`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `as_f64`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `as_mut`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `as_raw`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `as_ref`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `asin`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2918,6 +3171,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `available_height`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `available_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `available_width`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `begin_upgrade`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_attrib_location`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -3063,6 +3317,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `heading`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `height`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `help::annotated`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `help::question`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `hline`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `HLine::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -3090,6 +3345,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `is_none_or`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `is_positive`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `is_some`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `is_some_and`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `iter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `join`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `json!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
@@ -3138,6 +3394,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `Mutex::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `navigator`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `next`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `num_columns`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `ok`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `ok_or`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -3229,6 +3486,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `technical`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `technical_controls`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `tex_image_2d`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `tex_image_2d_with_html_image`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `tex_parameter_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `text`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `then`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -3253,11 +3511,13 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `unwrap_or_else`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `update`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `update_earth_margin`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `upload_browser_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `upload_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `use_program`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `user_agent`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `utc_label`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `vec!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `Vec::from`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `Vec::new`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `Vec::with_capacity`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `version_declaration`: [annotated globe/src/lib.rs](#44-globesrclibrs)

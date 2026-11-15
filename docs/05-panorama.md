@@ -121,7 +121,7 @@ $$
 
 The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
 
-Implementation: [globe/src/math.rs:265](../globe/src/math.rs#L265), [globe/src/math.rs:277](../globe/src/math.rs#L277), [globe/src/lib.rs:225](../globe/src/lib.rs#L225).
+Implementation: [globe/src/math.rs:265](../globe/src/math.rs#L265), [globe/src/math.rs:277](../globe/src/math.rs#L277), [globe/src/lib.rs:236](../globe/src/lib.rs#L236).
 
 ## 8. Panorama API index and C++ equivalents
 
