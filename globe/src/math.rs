@@ -85,6 +85,28 @@ impl View
 			projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 		])
 	}
+	// Invert project for the unit sphere: nearest ray hit in Moon-fixed coordinates.
+	pub fn unproject(self, ndc: [f32; 2]) -> Option<[f32; 3]>
+	{
+		let projection = self.projection();
+		let d = [ndc[0] / projection[0], ndc[1] / projection[5], -1.0];
+		// |o + t d|^2 = 1 with o = (0, 0, CAMERA_DISTANCE).
+		let a = d[0] * d[0] + d[1] * d[1] + 1.0;
+		let b = -2.0 * CAMERA_DISTANCE;
+		let c = CAMERA_DISTANCE * CAMERA_DISTANCE - 1.0;
+		let disc = b * b - 4.0 * a * c;
+		if disc < 0.0
+		{
+			return None;
+		}
+		let t = (-b - disc.sqrt()) / (2.0 * a);
+		let p = [t * d[0], t * d[1], CAMERA_DISTANCE - t];
+		// The model matrix is a rotation, so its transpose inverts it.
+		let m = self.model();
+		Some(std::array::from_fn(|j| {
+			m[3 * j] * p[0] + m[3 * j + 1] * p[1] + m[3 * j + 2] * p[2]
+		}))
+	}
 	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
 	pub fn ribbon(self, origin: [f32; 3], end: [f32; 3]) -> Vec<f32>
 	{

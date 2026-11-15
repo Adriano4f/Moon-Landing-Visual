@@ -12,6 +12,7 @@ use renderer::Renderer;
 mod field;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
+mod pick;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
 pub mod help;
 
@@ -125,6 +126,9 @@ pub struct Globe
 	fill: bool,
 	last_time: Option<f64>,
 	focus: Option<(f64, [f32; 3], [f32; 3])>,
+	// Last surface click off any marker, and the highlighted tile (lat, lon, half lat, half lon).
+	pick: Option<(f64, f64)>,
+	tile: Option<[f64; 4]>,
 }
 
 // Exercise scene validation without opening an OpenGL context; C++ isolated test namespace.
@@ -160,6 +164,8 @@ mod scene_tests
 			fill: false,
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
+			pick: None,
+			tile: None,
 		}
 	}
 
@@ -303,6 +309,8 @@ impl Globe
 			fill: false,
 			last_time: None,
 			focus: None,
+			pick: None,
+			tile: None,
 		})
 	}
 

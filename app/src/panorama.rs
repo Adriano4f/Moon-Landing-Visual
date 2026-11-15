@@ -42,6 +42,12 @@ impl Panorama
 	// Start loading once during application construction; C++ a constructor with an asynchronous operation.
 	pub fn new(ctx: egui::Context, file: String) -> Self
 	{
+		Self::with_pending(data::load(ctx, file))
+	}
+
+	// Wrap a result slot filled by another producer, such as a custom-point job.
+	pub fn with_pending(pending: Pending) -> Self
+	{
 		// Native launchers can select a reproducible starting sample; C++ environment parsing with fallback.
 		#[cfg(not(target_arch = "wasm32"))]
 		let index = std::env::var("MOON_SAMPLE_INDEX")
@@ -53,7 +59,7 @@ impl Panorama
 		let index = 0;
 		// Keep the chosen starting sample and a centered 30-day window; C++ aggregate initialization.
 		Self {
-			pending: data::load(ctx, file),
+			pending,
 			data: None,
 			error: None,
 			index,

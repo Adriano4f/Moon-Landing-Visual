@@ -13,7 +13,9 @@ impl MoonApp
 		// Load only the selected site, or the remaining sites when all-rays is explicitly requested; C++ lazy cache initialization.
 		for i in 0..self.catalog.len()
 		{
-			if (i == self.selected || self.all_rays) && self.panoramas[i].is_none()
+			if (i == self.selected || self.all_rays)
+				&& i < self.published
+				&& self.panoramas[i].is_none()
 			{
 				self.panoramas[i] = Some(panorama::Panorama::new(
 					ui.ctx().clone(),

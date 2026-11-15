@@ -1,4 +1,5 @@
 // Compile the validated data loader; C++ includes a project module's declarations.
+mod custom;
 mod data;
 // Compile the immediate-mode panorama view; C++ includes a project module's declarations.
 mod panorama;
@@ -51,6 +52,9 @@ pub struct MoonApp
 	time: Option<i64>,
 	// Persist only whether the phone drawer is open; C++ bool member.
 	menu_open: bool,
+	// Published catalog length; a custom point, if any, is the entry after them.
+	published: usize,
+	custom: Option<custom::Custom>,
 }
 
 // Define application member functions; C++ out-of-class member definitions.
@@ -78,6 +82,7 @@ impl MoonApp
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
+		let published = catalog.len();
 		let mut globe = globe::Globe::new(gl)?;
 		let [sun, earth] =
 			startup::directions(include_bytes!("../assets/data/moon-ephemeris.initial.bin"))?;
@@ -93,11 +98,66 @@ impl MoonApp
 			all_rays: false,
 			time: None,
 			menu_open: false,
+			published,
+			custom: None,
 		})
 	}
+	// Start a job for a new globe click, advance the running job, and highlight its tile.
+	fn update_custom(&mut self, ctx: &eframe::egui::Context)
+	{
+		if let Some((lat, lon)) = self.globe.take_pick()
+		{
+			let tile = lunar_core::anypoint::tile_of(lat, lon);
+			if self.custom.as_ref().is_none_or(|c| c.tile.id != tile.id)
+			{
+				let job = custom::Custom::start(ctx, lat, lon);
+				let entry = Entry {
+					name: job.name.clone(),
+					lat_deg: job.tile.lat_deg,
+					lon_deg: job.tile.lon_deg,
+					source: String::new(),
+				};
+				let view = panorama::Panorama::with_pending(job.pending.clone());
+				self.catalog.truncate(self.published);
+				self.panoramas.truncate(self.published);
+				self.catalog.push(entry);
+				self.panoramas.push(Some(view));
+				self.custom = Some(job);
+			}
+			self.selected = self.published;
+		}
+		if let Some(job) = &mut self.custom
+		{
+			job.step(ctx);
+		}
+		let tile = self
+			.custom
+			.as_ref()
+			.filter(|_| self.selected >= self.published)
+			.map(|c| {
+				[
+					c.tile.lat_deg,
+					c.tile.lon_deg,
+					c.tile.half_lat_deg,
+					c.tile.half_lon_deg,
+				]
+			});
+		self.globe.set_tile(tile);
+	}
+
 	// Render the selected scientific view while preserving the shared epoch; C++ member function.
 	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
 	{
+		if self.selected >= self.published
+			&& let Some(status) = self.custom.as_ref().and_then(|c| c.status())
+		{
+			ui.spinner();
+			globe::help::annotated(
+				ui,
+				&status,
+				"Terrain comes from NASA Moon Trek LOLA elevation maps; the horizon is integrated in this browser in small steps.",
+			);
+		}
 		if self.time.is_none()
 		{
 			globe::help::annotated(
@@ -222,6 +282,7 @@ impl eframe::App for MoonApp
 	// Rebuild responsive UI each frame; C++ virtual draw callback.
 	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
 	{
+		self.update_custom(ui.ctx());
 		self.update_sites(ui);
 		self.synchronize_scene();
 		// Draw settings before the central view so desktop width and phone drawer are independent; C++ responsive panel call.

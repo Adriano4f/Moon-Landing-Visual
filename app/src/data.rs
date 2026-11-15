@@ -126,15 +126,18 @@ pub(crate) fn load(ctx: egui::Context, file: String) -> Pending
 {
 	// None means pending, distinct from success and failure; C++ optional starts disengaged.
 	let pending = Arc::new(Mutex::new(None));
-	// Give the completion its own shared owner; C++ copies a shared_ptr.
 	let completed = Arc::clone(&pending);
-	// Move captured owners into a one-shot callback; C++ a mutable value-capturing lambda.
-	let done = move |bytes: Result<Vec<u8>, String>| {
-		// Decode only on successful I/O, then atomically publish the result; C++ expected::and_then under lock_guard.
+	read_asset(file, move |bytes| {
+		// Decode only on successful I/O, then publish the result; C++ expected::and_then under lock_guard.
 		*completed.lock() = Some(bytes.and_then(|b| SiteData::parse(&b)));
-		// Wake the event loop from either a worker or browser completion; C++ posts a redraw event.
 		ctx.request_repaint();
-	};
+	});
+	pending
+}
+
+// Raw bytes of one shipped asset: disk on native, the Trunk copy over HTTP on the web.
+pub(crate) fn read_asset(file: String, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static)
+{
 	// Compile the disk loader only for native targets; C++ #if around a function body.
 	#[cfg(not(target_arch = "wasm32"))]
 	// Keep disk I/O off the UI thread; C++ std::thread with a value-captured callback.
@@ -155,12 +158,10 @@ pub(crate) fn load(ctx: egui::Context, file: String) -> Pending
 			});
 		// Include the failing path in the error instead of silently switching files; C++ filesystem read with expected.
 		let path = directory.join(&file);
-		// Publish exactly one disk result; C++ invokes the captured completion.
 		done(std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display())));
 	});
-	// Compile HTTP loading only for the browser; C++ #if for platform code.
-	#[cfg(target_arch = "wasm32")]
 	// Fetch the same relative resource copied by Trunk, without embedding it in WASM; C++ asynchronous HTTP request.
+	#[cfg(target_arch = "wasm32")]
 	ehttp::fetch(
 		ehttp::Request::get(format!("assets/data/{file}")),
 		move |response| {
@@ -177,8 +178,6 @@ pub(crate) fn load(ctx: egui::Context, file: String) -> Pending
 			}));
 		},
 	);
-	// Return another owner while completion stays alive independently; C++ returns shared_ptr.
-	pending
 }
 
 // Compile test-only fixtures out of release binaries; C++ conditional test compilation.

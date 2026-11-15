@@ -41,7 +41,9 @@ impl Globe
 			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
 		}
 		self.queue_gl(ui, rect, view, lighting);
+		self.paint_tile(ui, rect, view);
 		let clicked = self.paint_markers(ui, &response, rect, view);
+		self.surface_pick(&response, rect, view, clicked.is_some());
 		Self::legend(ui, rect, &self.polar.lock());
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();

@@ -6,8 +6,8 @@
 //! 118 m global sources approximate, rather than replace, the prepared 5 m DEMs.
 
 use crate::{
-	horizon_origin, terrain_ray, terrain_ray_samples, to_xy, GreatCircle, Horizon, HorizonRay,
-	TerrainSample, MOON_RADIUS_M,
+	GreatCircle, Horizon, HorizonRay, MOON_RADIUS_M, TerrainSample, horizon_origin, terrain_ray,
+	terrain_ray_samples, to_xy,
 };
 
 pub const N_AZ: usize = 720;

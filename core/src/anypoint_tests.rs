@@ -303,19 +303,21 @@ fn incremental_job_and_errors()
 	// A valid origin with no off-origin coverage must fail, not yield a flat horizon.
 	fallback = decode(&fixture(true, false, &[f32::NAN; 9], "nan"), test_window()).unwrap();
 	fallback.values[4] = 0.0;
-	assert!(terrain_ray(
-		HorizonRay {
-			lat: 0.0,
-			lon: 0.0,
-			z0: 2.0,
-			near: 1.0,
-			limit: 100.0,
-			angular: 0.01
-		},
-		0.0,
-		&mut |p, l| sample(std::slice::from_ref(&fallback), p, l)
-	)
-	.is_err());
+	assert!(
+		terrain_ray(
+			HorizonRay {
+				lat: 0.0,
+				lon: 0.0,
+				z0: 2.0,
+				near: 1.0,
+				limit: 100.0,
+				angular: 0.01
+			},
+			0.0,
+			&mut |p, l| sample(std::slice::from_ref(&fallback), p, l)
+		)
+		.is_err()
+	);
 }
 
 #[test]
@@ -425,7 +427,11 @@ fn network_check()
 			.iter()
 			.copied()
 			.fold(f32::NEG_INFINITY, f32::max);
-		println!("{label}: surface={surface:.3} m, horizon=[{min:.6}, {max:.6}] deg, job={:.3} s, worst 20 bins={:.3} ms (native release)", start.elapsed().as_secs_f64(), worst.as_secs_f64() * 1000.0);
+		println!(
+			"{label}: surface={surface:.3} m, horizon=[{min:.6}, {max:.6}] deg, job={:.3} s, worst 20 bins={:.3} ms (native release)",
+			start.elapsed().as_secs_f64(),
+			worst.as_secs_f64() * 1000.0
+		);
 		assert!(min.is_finite() && max.is_finite() && min > -20.0 && max < 45.0);
 		if label == "C1"
 		{
@@ -452,7 +458,11 @@ fn network_check()
 				.collect();
 			let max_error = errors.iter().copied().map(f64::abs).fold(0.0, f64::max);
 			let rms = (errors.iter().map(|v| v * v).sum::<f64>() / errors.len() as f64).sqrt();
-			println!("C1 vs reference ({} bins): max={max_error:.6} deg, RMS={rms:.6} deg; reference surface={} m, observer=2 m", reference_h.h_deg.len(), reference["terrain"]["surface_height_m"]);
+			println!(
+				"C1 vs reference ({} bins): max={max_error:.6} deg, RMS={rms:.6} deg; reference surface={} m, observer=2 m",
+				reference_h.h_deg.len(),
+				reference["terrain"]["surface_height_m"]
+			);
 		}
 	}
 }
