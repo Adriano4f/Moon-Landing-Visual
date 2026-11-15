@@ -11,6 +11,25 @@ fn epoch(s: &str) -> i64
 }
 
 #[test]
+fn default_week_and_presets_use_the_cursor_and_clip_to_coverage()
+{
+	let state=Timeline::default();
+	assert_eq!(state.options.period,Preset::Week.period(START));
+	assert_eq!(state.options.period.label(),"This week: 2027-01-01 → 2027-01-08");
+	let cursor=epoch("2028-01-31")+43200;
+	assert_eq!(Preset::Week.period(cursor).end,cursor+7*86400);
+	assert_eq!(Preset::Month.period(cursor).end,epoch("2028-02-29")+43200);
+	assert_eq!(Preset::Year.period(epoch("2028-02-29")).end,epoch("2029-02-28"));
+	for p in [Preset::Week,Preset::Month,Preset::Year,Preset::All] {
+		for cursor in [i64::MIN,START,STOP-86400,STOP,i64::MAX] {
+			let period=p.period(cursor);
+			assert!(period.start>=START && period.end<=STOP && period.start<period.end);
+		}
+	}
+	assert_eq!(Preset::All.period(cursor),Period {start:START,end:STOP});
+}
+
+#[test]
 fn dates_validate_and_calendar_steps_clamp_month_ends()
 {
 	assert_eq!(epoch("2027-01-01"), START);

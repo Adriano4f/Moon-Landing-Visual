@@ -73,7 +73,7 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 	let stretch = (rect.height() / 20.0) / (rect.width() / 360.0);
 	// Warn about vertical exaggeration rather than depicting the ellipses as true visual aspect ratios; C++ caption.
 	ui.small(format!(
-		"0° is level. Height stretched {stretch:.1}x; faint lines show the selected paths."
+		"Height exaggerated {stretch:.1}×"
 	));
 	// Preserve explicit missing-terrain labeling for legacy data; C++ optional guard.
 	if data.horizon.is_none()

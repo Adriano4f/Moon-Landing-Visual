@@ -64,8 +64,36 @@ pub(crate) struct Period
 	pub end: i64,
 }
 
+#[derive(Clone, Copy)]
+enum Preset { Week, Month, Year, All }
+
+impl Preset
+{
+	fn period(self, cursor:i64) -> Period
+	{
+		if matches!(self,Self::All) { return Period {start:START,end:STOP}; }
+		let shift=|time:i64,direction:i32| match self {
+			Self::Week=>time.checked_add(i64::from(direction)*7*86400),
+			Self::Month=>Step::Month.shift(time,direction),
+			Self::Year=> {
+				let date=DateTime::<Utc>::from_timestamp(time,0)?;
+				if direction>0 {date.checked_add_months(Months::new(12))} else {date.checked_sub_months(Months::new(12))}.map(|d|d.timestamp())
+			},
+			Self::All=>None,
+		};
+		let cursor=cursor.clamp(START,STOP);
+		let start=if cursor==STOP {shift(STOP,-1).unwrap_or(START).max(START)} else {cursor};
+		Period {start,end:shift(start,1).unwrap_or(STOP).min(STOP)}
+	}
+}
+
 impl Period
 {
+	pub fn label(self) -> String
+	{
+		let date=|t|DateTime::<Utc>::from_timestamp(t,0).map(|d|d.format("%Y-%m-%d").to_string()).unwrap_or_default();
+		format!("{}: {} → {}",if self.end-self.start==7*86400 {"This week"} else {"Period"},date(self.start),date(self.end))
+	}
 	pub fn parse(start: &str, end: &str) -> Result<Self, String>
 	{
 		let parse = |s: &str| {
@@ -170,11 +198,11 @@ impl Default for Timeline
 			options: Options {
 				period: Period {
 					start: START,
-					end: 1893456000,
+					end: START+7*86400,
 				},
 				step: Step::Hour,
 			},
-			dates: ["2027-01-01".into(), "2030-01-01".into()],
+			dates: ["2027-01-01".into(), "2027-01-08".into()],
 			validation: None,
 			repeat: Default::default(),
 			sky: None,

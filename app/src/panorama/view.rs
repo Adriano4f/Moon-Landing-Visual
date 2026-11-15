@@ -182,18 +182,12 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 fn summary_cards(ui: &mut egui::Ui, options:crate::timeline::Options, summary: &lunar_core::Stats)
 {
 	// Anchor summary cards to the full period, never the selected path window; C++ subheading.
-	ui.strong("Across the selected period");
-	// Show exact dates rather than an unexplained average; C++ formatted label.
-	ui.small(format!(
-		"{} to {}",
-		utc_label(options.period.start),
-		utc_label(options.period.end)
-	));
+	ui.strong(options.period.label());
 	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
 	let card_width = ((ui.available_width() - 56.0) / 2.0).clamp(90.0, 180.0);
 	card_grid(ui, summary, card_width);
 	// Avoid implying that hourly held-sample statistics are continuous event solutions; C++ disclaimer.
-	ui.small(format!("{} samples; short events may be missed. Sun time counts any visible part. Power and radio service are not guaranteed.",options.step.label()));
+	ui.small(format!("Sampling: {}",options.step.label()));
 }
 
 fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)

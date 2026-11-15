@@ -25,7 +25,19 @@ impl Timeline
 				});
 		});
 		self.step_buttons(ui, cursor);
-		ui.collapsing("Period", |ui| self.period_controls(ui));
+		ui.strong("Period");
+		ui.horizontal(|ui| {
+			ui.spacing_mut().button_padding.x=6.0;
+			ui.spacing_mut().item_spacing.x=6.0;
+			for (label,preset) in [("1 week",Preset::Week),("1 month",Preset::Month),("1 year",Preset::Year),("All",Preset::All)] {
+				if ui.button(label).clicked() {
+					self.options.period=preset.period(*cursor);
+					self.dates=[self.options.period.start,self.options.period.end].map(|t|DateTime::<Utc>::from_timestamp(t,0).unwrap().format("%Y-%m-%d").to_string());
+					self.validation=None;
+				}
+			}
+		});
+		self.period_controls(ui);
 		*cursor = (*cursor).clamp(self.options.period.start, self.options.period.end);
 	}
 
