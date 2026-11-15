@@ -1,6 +1,29 @@
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+// Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
+pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
+{
+	// Normalize the phase-angle dot product independently of small trigonometric roundoff; C++ norm product.
+	let norm =
+		(sun.iter().map(|x| x * x).sum::<f32>() * earth.iter().map(|x| x * x).sum::<f32>()).sqrt();
+	// Invalid or empty directions must not create spurious Earth light; C++ finite/range guard.
+	if !norm.is_finite() || norm < 1e-6
+	{
+		// Invalid input contributes no reflected irradiance; C++ early return.
+		return 0.0;
+	}
+	// Earth's phase is approximately the supplement of the lunar phase at the Moon; C++ acos after clamp.
+	let alpha = PI
+		- ((sun[0] * earth[0] + sun[1] * earth[1] + sun[2] * earth[2]) / norm)
+			.clamp(-1.0, 1.0)
+			.acos();
+	// Integrate a Lambert sphere's illuminated visible disk, normalized to one at full Earth; C++ scalar expression.
+	let phase = ((alpha.sin() + (PI - alpha) * alpha.cos()) / PI).max(0.0);
+	// NASA Earth geometric albedo 0.434, mean radius 6371 km, lunar semimajor axis 384400 km; C++ inverse-square scaling.
+	0.434 * (6371.0_f32 / 384400.0).powi(2) * phase
+}
+
 // Keep all CPU/GPU camera parameters in one copyable value; C++ plain value struct.
 #[derive(Clone, Copy)]
 pub(crate) struct View
@@ -289,6 +312,26 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	// Check full, new, quarter Earth and malformed vectors independently of shader display exposure; C++ test registration.
+	#[test]
+	fn earthshine_phase_and_scale()
+	{
+		// Opposite Sun/Earth directions at the Moon imply full Earth; C++ physical reference value.
+		let full = earthshine_ratio([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]);
+		// Full Earth is about one part in 8388 of sunlight; C++ near-equality assertion.
+		assert!((full - 0.000119214).abs() < 1e-8);
+		// Coincident Sun and Earth directions imply new Earth; C++ zero assertion.
+		assert_eq!(earthshine_ratio([0.0, 0.0, 1.0], [0.0, 0.0, 1.0]), 0.0);
+		// Quarter phase is 1/pi, not one half, for a Lambert sphere; C++ ratio assertion.
+		assert!(
+			(earthshine_ratio([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]) / full - 1.0 / PI).abs() < 1e-6
+		);
+		// Empty direction vectors must not create light; C++ invalid-input assertion.
+		assert_eq!(earthshine_ratio([0.0; 3], [0.0; 3]), 0.0);
+		// Nonfinite ephemerides must not enter shader uniforms; C++ finite-input assertion.
+		assert_eq!(earthshine_ratio([f32::NAN; 3], [1.0; 3]), 0.0);
+	}
 
 	// Camera centering and billboards must agree with the GPU at high zoom; C++ regression registration.
 	#[test]

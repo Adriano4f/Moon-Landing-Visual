@@ -25,6 +25,34 @@ pub struct BodyDirection
 	pub visible: bool,
 }
 
+// Convert a topocentric sky angle to the renderer's Moon-fixed unit vector; C++ optional<array<float,3>>.
+pub fn moon_fixed(lat_deg: f64, lon_deg: f64, body: BodyDirection) -> Option<[f32; 3]>
+{
+	// Reuse the tested east/north/up basis independently of local visibility; C++ checked coordinate transform.
+	math::local_direction(
+		(lat_deg as f32).to_radians(),
+		(lon_deg as f32).to_radians(),
+		body.az_deg.to_radians(),
+		body.el_deg.to_radians(),
+	)
+}
+
+// Snapshot real directions and explicitly optional display aids for one deferred draw; C++ value aggregate.
+#[derive(Clone, Copy)]
+struct Lighting
+{
+	// Store the selected epoch's incoming solar direction; C++ fixed-size vector.
+	sun: [f32; 3],
+	// Store the selected epoch's incoming Earth direction; C++ fixed-size vector.
+	earth: [f32; 3],
+	// Express visible reflected irradiance relative to sunlight; C++ float.
+	ratio: f32,
+	// Keep the optional Earth-only exposure multiplication explicit; C++ bool.
+	boosted: bool,
+	// Keep artificial far-side light independent of physical energy; C++ bool.
+	fill: bool,
+}
+
 // Keep transformed directions distinct from local input angles; C++ internal plain value struct.
 #[derive(Clone, Copy)]
 struct Ray
@@ -68,6 +96,12 @@ pub struct Globe
 	tilt: f32,
 	zoom: f32,
 	paused: bool,
+	// Track the current ephemeris Earth line of sight instead of spinning; C++ bool.
+	earth_view: bool,
+	// Multiply only Earthshine for display when explicitly requested; C++ bool.
+	boosted: bool,
+	// Add an explicitly artificial far-side fill only on request; C++ bool.
+	fill: bool,
 	last_time: Option<f64>,
 	focus: Option<(f64, [f32; 3], [f32; 3])>,
 }
@@ -97,6 +131,9 @@ mod scene_tests
 			tilt: 0.0,
 			zoom: 1.0,
 			paused: true,
+			earth_view: true,
+			boosted: false,
+			fill: false,
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
 		};
@@ -164,13 +201,16 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			loading: assets::load(tier),
 			tier,
-			// Start with an unobstructed overview and automatic rotation; C++ scalar initialization.
+			// Default to the current Earth line of sight, without artificial spin or tilt; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
-			yaw: -0.5,
-			tilt: -std::f32::consts::PI / 6.0,
+			yaw: 0.0,
+			tilt: 0.0,
 			zoom: 1.0,
-			paused: false,
+			paused: true,
+			earth_view: true,
+			boosted: false,
+			fill: false,
 			last_time: None,
 			focus: None,
 		})
@@ -208,6 +248,20 @@ impl Globe
 		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let mut go = false;
+		// Copy the selected site's actual directions, never infer illumination from availability flags; C++ optional transform.
+		let directions = self
+			.scene
+			.iter()
+			.find(|s| s.id == self.selected)
+			.and_then(|s| {
+				// Missing or invalid tracks have no real illumination fallback; C++ optional propagation.
+				let [sun, earth] = s.directions?;
+				// Propagate either invalid sky direction without inventing a light; C++ optional-return aggregate.
+				Some([
+					moon_fixed(s.lat_deg, s.lon_deg, sun)?,
+					moon_fixed(s.lat_deg, s.lon_deg, earth)?,
+				])
+			});
 		// Submit the current interaction or display value; C++ immediate-mode API call.
 		ui.horizontal_wrapped(|ui| {
 			if ui.button("− Zoom").clicked()
@@ -228,19 +282,86 @@ impl Globe
 			{
 				go = true;
 			}
-			// Check this state or input before acting; C++ conditional branch.
-			if self.paused && ui.button("Resume rotation").clicked()
+			// Follow the actual Earth line of sight as the scientific time changes; C++ checked button action.
+			if ui
+				.add_enabled(directions.is_some(), egui::Button::new("View from Earth"))
+				.clicked()
 			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.paused = false;
-				// Update this persistent member explicitly; C++ member assignment.
+				// Restore the full-disk view and cancel any site transition; C++ camera-state assignments.
+				self.earth_view = true;
+				// Earth following and presentation spin are mutually exclusive; C++ bool assignment.
+				self.paused = true;
+				// Return to the full-disk overview instead of retaining a magnified landing view; C++ scalar assignment.
+				self.zoom = 1.0;
+				// Cancel any pending site interpolation; C++ optional reset.
+				self.focus = None;
+			}
+			// Make the previous presentation spin optional and off by default; C++ editable bool.
+			let mut spin = !self.paused;
+			// Manual spin exits the Earth-locked orbital view; C++ checkbox change handler.
+			if ui.checkbox(&mut spin, "Auto-rotate").changed()
+			{
+				// Convert the positive UI control into the existing paused representation; C++ bool assignment.
+				self.paused = !spin;
+				// Artificial spin must not fight the physical Earth camera; C++ mode assignment.
+				self.earth_view = false;
+				// Manual controls supersede an in-flight site animation; C++ optional reset.
 				self.focus = None;
 			}
 			// Submit the current interaction or display value; C++ immediate-mode API call.
 			ui.label(format!("{:.0}×", self.zoom));
+			// Explain whether the time slider moves the camera or only the physical lights; C++ conditional string.
+			ui.label(
+				if self.earth_view
+				{
+					"Earth view: follows time"
+				}
+				else
+				{
+					"Free orbit"
+				},
+			);
 		});
+		// Keep exposure aids explicit, independent and disabled by default; C++ immediate-mode control row.
+		ui.horizontal_wrapped(|ui| {
+			// Edit the Earth-only exposure aid, leaving physical sunlight unchanged; C++ checkbox bound to bool.
+			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)")
+				.on_hover_text(
+					"Exposure aid: multiply only reflected Earth light by 1000, not sunlight.",
+				);
+			// Edit the nonphysical visual aid independently of Earthshine; C++ checkbox bound to bool.
+			ui.checkbox(&mut self.fill, "Far side fill light")
+				.on_hover_text(
+					"Visual aid, not real light: gray-blue fill beyond mean longitudes +/-90 degrees.",
+				);
+		});
+		// Holding this mode reveals real libration rather than artificial animation; C++ conditional camera update.
+		if self.earth_view
+			&& let Some([_, earth]) = directions
+		{
+			// Cancel longitude so the Earth direction projects onto the camera's central meridian; C++ atan2.
+			self.yaw = -earth[0].atan2(earth[2]);
+			// Match camera latitude to sub-Earth latitude without a fixed presentation tilt; C++ asin.
+			self.tilt = earth[1].clamp(-1.0, 1.0).asin();
+		}
+		// Pass an explicit absent light state while the selected track is unavailable; C++ optional snapshot.
+		let lighting = directions.map(|[sun, earth]| Lighting {
+			sun,
+			earth,
+			ratio: math::earthshine_ratio(sun, earth),
+			boosted: self.boosted,
+			fill: self.fill,
+		});
+		// Explain unavailable data rather than silently restoring a fixed presentation Sun; C++ conditional label.
+		if lighting.is_none()
+		{
+			// State why the Moon has no physical illumination instead of fabricating data; C++ immediate-mode text.
+			ui.label("Real lighting unavailable: selected track not loaded");
+		}
 		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
 		{
+			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
+			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let target = -(site.lon_deg as f32).to_radians();
 			// Bind this intermediate value for the current operation; C++ local initialization.
@@ -327,6 +448,8 @@ impl Globe
 		// Check this state or input before acting; C++ conditional branch.
 		if response.dragged()
 		{
+			// Direct orbit manipulation exits Earth lock while preserving the current orientation; C++ mode switch.
+			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let delta = ui.input(|i| i.pointer.delta());
 			// Update this persistent member explicitly; C++ member assignment.
@@ -418,7 +541,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_ref()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays);
+					renderer.paint(painter.gl(), view, &rays, lighting);
 				}
 			}
 		});
@@ -501,7 +624,7 @@ impl Globe
 				}
 			}
 		}
-		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to rotate; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nIllustrative globe; ray lengths not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked
@@ -818,7 +941,13 @@ impl Renderer
 	}
 
 	// Draw one opaque sphere inside egui's already configured viewport; C++ issues the equivalent GL commands.
-	fn paint(&self, gl: &glow::Context, view: math::View, rays: &[([f32; 3], [Ray; 2])])
+	fn paint(
+		&self,
+		gl: &glow::Context,
+		view: math::View,
+		rays: &[([f32; 3], [Ray; 2])],
+		lighting: Option<Lighting>,
+	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
 		let Some(program) = self.program
@@ -853,6 +982,37 @@ impl Renderer
 			gl.front_face(glow::CCW);
 			// Select linked shaders, or unbind them; C++ glUseProgram(handle or 0).
 			gl.use_program(Some(program));
+			// Supply harmless finite directions when ephemerides are absent, but no invented sunlight; C++ optional fallback.
+			let light = lighting.unwrap_or(Lighting {
+				sun: [0.0, 0.0, 1.0],
+				earth: [0.0, 0.0, 1.0],
+				ratio: 0.0,
+				boosted: false,
+				fill: false,
+			});
+			// Send both Moon-fixed light directions into the shared model transform; C++ uniform vector loop.
+			for (name, direction) in [("u_sun", light.sun), ("u_earth", light.earth)]
+			{
+				gl.uniform_3_f32(
+					gl.get_uniform_location(program, name).as_ref(),
+					direction[0],
+					direction[1],
+					direction[2],
+				);
+			}
+			// Keep physical illumination and artificial display aids separate; C++ scalar uniforms.
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_sun_scale").as_ref(),
+				if lighting.is_some() { 1.0 } else { 0.0 },
+			);
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_earthshine").as_ref(),
+				light.ratio * if light.boosted { 1000.0 } else { 1.0 },
+			);
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_far_fill").as_ref(),
+				if light.fill { 1.0 } else { 0.0 },
+			);
 			// Always restore the textured material before drawing the Moon; C++ glUniform1i.
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
 			// Send a column-major projection without transposing; C++ glUniformMatrix4fv.

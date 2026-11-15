@@ -16,6 +16,16 @@ out vec4 out_color;
 uniform highp int u_ray_mode;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
+// Receive the actual Moon-fixed Sun direction; C++ glUniform3f.
+uniform vec3 u_sun;
+// Receive the actual Moon-fixed Earth direction; C++ glUniform3f.
+uniform vec3 u_earth;
+// Disable physical sunlight when ephemerides are unavailable; C++ glUniform1f.
+uniform float u_sun_scale;
+// Scale reflected Earth light relative to solar irradiance; C++ glUniform1f.
+uniform float u_earthshine;
+// Enable a nonphysical visual aid independently of physical energy; C++ glUniform1f.
+uniform float u_far_fill;
 // Define pi once so all angular expressions use radians consistently.
 const float PI = 3.141592653589793;
 // Project mapped normals into the view-facing half-space before renormalizing; dimensionless cosine.
@@ -148,6 +158,23 @@ vec3 linear_to_srgb(vec3 x)
 	return mix(x * 12.92, 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), x));
 }
 
+// Evaluate one directional light without night-side normal-map leakage; C++ float-valued helper.
+float light_response(vec3 n, vec3 geometric, vec3 view, vec3 light, float normal_strength)
+{
+	// Local terrain normals cannot substitute for resolved shadows; C++ geometric visibility guard.
+	if (dot(geometric, light) <= 0.0)
+	{
+		// Suppress this source on its geometric night side; C++ early return.
+		return 0.0;
+	}
+	// Evaluate the mapped response with the shared photometric model; C++ float initialization.
+	float mapped_reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
+	// Evaluate the smooth-sphere response independently of texture normals; C++ float initialization.
+	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
+	// Fade unresolved relief at grazing emission angles; C++ linear-interpolation return.
+	return mix(geometric_reflectance, mapped_reflectance, normal_strength);
+}
+
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
 void main()
 {
@@ -177,10 +204,12 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
-	// Apply the geometry's rigid rotation and south tilt to the normal, preserving lighting-space consistency.
+	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
-	// Fix a normalized directional Sun vector in world space so a terminator is visible.
-	vec3 light = normalize(vec3(1.0, 0.2, 0.6));
+	// Transform real Moon-fixed lights with the same rigid matrix as the Moon and markers.
+	vec3 light = normalize(u_model * u_sun);
+	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
+	vec3 earth_light = normalize(u_model * u_earth);
 	// Point from the surface fragment to the perspective camera at z=3.3.
 	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
@@ -190,25 +219,19 @@ void main()
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
-	// Evaluate radiance factor from incidence, emission, and phase, with no ambient component.
-	float mapped_reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
-	// Evaluate the smooth sphere separately: terrain normals cannot describe resolved visibility at the limb.
-	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
-	// Cross-fade the two sunlight responses, rather than inventing ambient light or clamping the display color.
-	float reflectance = mix(geometric_reflectance, mapped_reflectance, normal_strength);
-	// Prevent local normal tilts lighting the geometric night side without terrain shadows.
-	// Mask the geometric night side because this smooth silhouette cannot cast resolved terrain shadows.
-	if (dot(normalize(v_position), light) <= 0.0)
-	{
-		// Remove sunlight on the geometric back side even if a mapped normal tilts toward the light.
-		reflectance = 0.0;
-	}
+	// Add physically distinct direct solar and phase-scaled reflected Earth contributions.
+	float reflectance = u_sun_scale * light_response(n, geometric, view, light, normal_strength)
+		+ u_earthshine * light_response(n, geometric, view, earth_light, normal_strength);
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
+	// Only longitudes beyond +/-90 degrees from mean Earth longitude zero receive this visual aid.
+	float far_side = smoothstep(0.0, 0.15, -p.z / max(length(p.xz), 0.000001));
+	// This soft gray-blue term is deliberately not labeled physical illumination.
+	radiance += u_far_fill * far_side * vec3(0.035, 0.045, 0.065) * (albedo / 0.4832);
 	// Compress positive linear radiance with the Reinhard operator before display encoding.
 	vec3 mapped = radiance / (vec3(1.0) + radiance);
 	// Encode once to sRGB and set alpha to one; egui_glow disables framebuffer sRGB encoding.

@@ -104,7 +104,7 @@ globe/Cargo.toml makes this an independent library depending only on egui, egui_
 
 assets.rs defines Loading with two optional results and a terminal diagnostic. select parses a requested label, chooses a default from mobile status, then searches descending supported widths under both limits. preferences obtains runtime platform hints. load starts two disk workers or two HTTP completions, decodes each image, and writes its fixed slot under the mutex. Loading::take first returns any existing error; only when both slots exist does it move both out. Otherwise it returns Ok(None). tiers_and_loading covers default/forced/clamped quality, invalid quality/GPU size, incomplete data, a failed slot, successful transfer, and the emptied state.
 
-math.rs defines direction, the trigonometric convention. sphere asserts dimensions, emits interleaved vertices row by row, makes exact poles/seam copies, and appends six indices per cell. perspective constructs the projective matrix derived in the rendering guide. rotation composes geographic-north animation with a 30-degree south presentation tilt; marker projects and sphere-occludes a unit site direction. The [panorama guide](05-panorama.md) derives the shared CPU/GPU transformation. Tests check mesh dimensions, index bounds, exact seams, orientation, winding, depth endpoints, portrait scaling, and the example marker through a full turn.
+math.rs defines direction, the trigonometric convention. sphere asserts dimensions, emits interleaved vertices row by row, makes exact poles/seam copies, and appends six indices per cell. perspective constructs the projective matrix derived in the rendering guide. The test-only legacy rotation helper preserves a former 30-degree presentation example. Production View composes free yaw/tilt and zoom, and its projection sphere-occludes site directions; the default Earth-following camera is described in the real-lighting guide. The [panorama guide](05-panorama.md) derives the shared CPU/GPU transformation. Tests check mesh dimensions, index bounds, exact seams, orientation, winding, depth endpoints, portrait scaling, and the example marker through a full turn.
 
 lib.rs exposes Globe. new queries the GPU limit while eframe's context is current, selects/logs one tier, and starts loading; it does not decode all tiers. show submits a loading/error label if needed, reserves the viewport, computes rotation, captures shared state, and queues CallbackFn. That callback consumes completed images, constructs Renderer on the current GL context, stores errors, and paints when ready. Zero-area viewports are skipped. destroy takes the optional renderer and frees it once.
 
@@ -432,6 +432,29 @@ mod tests
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+// Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
+pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
+{
+	// Normalize the phase-angle dot product independently of small trigonometric roundoff; C++ norm product.
+	let norm =
+		(sun.iter().map(|x| x * x).sum::<f32>() * earth.iter().map(|x| x * x).sum::<f32>()).sqrt();
+	// Invalid or empty directions must not create spurious Earth light; C++ finite/range guard.
+	if !norm.is_finite() || norm < 1e-6
+	{
+		// Invalid input contributes no reflected irradiance; C++ early return.
+		return 0.0;
+	}
+	// Earth's phase is approximately the supplement of the lunar phase at the Moon; C++ acos after clamp.
+	let alpha = PI
+		- ((sun[0] * earth[0] + sun[1] * earth[1] + sun[2] * earth[2]) / norm)
+			.clamp(-1.0, 1.0)
+			.acos();
+	// Integrate a Lambert sphere's illuminated visible disk, normalized to one at full Earth; C++ scalar expression.
+	let phase = ((alpha.sin() + (PI - alpha) * alpha.cos()) / PI).max(0.0);
+	// NASA Earth geometric albedo 0.434, mean radius 6371 km, lunar semimajor axis 384400 km; C++ inverse-square scaling.
+	0.434 * (6371.0_f32 / 384400.0).powi(2) * phase
+}
+
 // Keep all CPU/GPU camera parameters in one copyable value; C++ plain value struct.
 #[derive(Clone, Copy)]
 pub(crate) struct View
@@ -721,6 +744,26 @@ mod tests
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
 
+	// Check full, new, quarter Earth and malformed vectors independently of shader display exposure; C++ test registration.
+	#[test]
+	fn earthshine_phase_and_scale()
+	{
+		// Opposite Sun/Earth directions at the Moon imply full Earth; C++ physical reference value.
+		let full = earthshine_ratio([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]);
+		// Full Earth is about one part in 8388 of sunlight; C++ near-equality assertion.
+		assert!((full - 0.000119214).abs() < 1e-8);
+		// Coincident Sun and Earth directions imply new Earth; C++ zero assertion.
+		assert_eq!(earthshine_ratio([0.0, 0.0, 1.0], [0.0, 0.0, 1.0]), 0.0);
+		// Quarter phase is 1/pi, not one half, for a Lambert sphere; C++ ratio assertion.
+		assert!(
+			(earthshine_ratio([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]) / full - 1.0 / PI).abs() < 1e-6
+		);
+		// Empty direction vectors must not create light; C++ invalid-input assertion.
+		assert_eq!(earthshine_ratio([0.0; 3], [0.0; 3]), 0.0);
+		// Nonfinite ephemerides must not enter shader uniforms; C++ finite-input assertion.
+		assert_eq!(earthshine_ratio([f32::NAN; 3], [1.0; 3]), 0.0);
+	}
+
 	// Camera centering and billboards must agree with the GPU at high zoom; C++ regression registration.
 	#[test]
 	fn centered_site_and_billboard_width()
@@ -932,6 +975,34 @@ pub struct BodyDirection
 	pub visible: bool,
 }
 
+// Convert a topocentric sky angle to the renderer's Moon-fixed unit vector; C++ optional<array<float,3>>.
+pub fn moon_fixed(lat_deg: f64, lon_deg: f64, body: BodyDirection) -> Option<[f32; 3]>
+{
+	// Reuse the tested east/north/up basis independently of local visibility; C++ checked coordinate transform.
+	math::local_direction(
+		(lat_deg as f32).to_radians(),
+		(lon_deg as f32).to_radians(),
+		body.az_deg.to_radians(),
+		body.el_deg.to_radians(),
+	)
+}
+
+// Snapshot real directions and explicitly optional display aids for one deferred draw; C++ value aggregate.
+#[derive(Clone, Copy)]
+struct Lighting
+{
+	// Store the selected epoch's incoming solar direction; C++ fixed-size vector.
+	sun: [f32; 3],
+	// Store the selected epoch's incoming Earth direction; C++ fixed-size vector.
+	earth: [f32; 3],
+	// Express visible reflected irradiance relative to sunlight; C++ float.
+	ratio: f32,
+	// Keep the optional Earth-only exposure multiplication explicit; C++ bool.
+	boosted: bool,
+	// Keep artificial far-side light independent of physical energy; C++ bool.
+	fill: bool,
+}
+
 // Keep transformed directions distinct from local input angles; C++ internal plain value struct.
 #[derive(Clone, Copy)]
 struct Ray
@@ -975,6 +1046,12 @@ pub struct Globe
 	tilt: f32,
 	zoom: f32,
 	paused: bool,
+	// Track the current ephemeris Earth line of sight instead of spinning; C++ bool.
+	earth_view: bool,
+	// Multiply only Earthshine for display when explicitly requested; C++ bool.
+	boosted: bool,
+	// Add an explicitly artificial far-side fill only on request; C++ bool.
+	fill: bool,
 	last_time: Option<f64>,
 	focus: Option<(f64, [f32; 3], [f32; 3])>,
 }
@@ -1004,6 +1081,9 @@ mod scene_tests
 			tilt: 0.0,
 			zoom: 1.0,
 			paused: true,
+			earth_view: true,
+			boosted: false,
+			fill: false,
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
 		};
@@ -1071,13 +1151,16 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			loading: assets::load(tier),
 			tier,
-			// Start with an unobstructed overview and automatic rotation; C++ scalar initialization.
+			// Default to the current Earth line of sight, without artificial spin or tilt; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
-			yaw: -0.5,
-			tilt: -std::f32::consts::PI / 6.0,
+			yaw: 0.0,
+			tilt: 0.0,
 			zoom: 1.0,
-			paused: false,
+			paused: true,
+			earth_view: true,
+			boosted: false,
+			fill: false,
 			last_time: None,
 			focus: None,
 		})
@@ -1115,6 +1198,20 @@ impl Globe
 		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let mut go = false;
+		// Copy the selected site's actual directions, never infer illumination from availability flags; C++ optional transform.
+		let directions = self
+			.scene
+			.iter()
+			.find(|s| s.id == self.selected)
+			.and_then(|s| {
+				// Missing or invalid tracks have no real illumination fallback; C++ optional propagation.
+				let [sun, earth] = s.directions?;
+				// Propagate either invalid sky direction without inventing a light; C++ optional-return aggregate.
+				Some([
+					moon_fixed(s.lat_deg, s.lon_deg, sun)?,
+					moon_fixed(s.lat_deg, s.lon_deg, earth)?,
+				])
+			});
 		// Submit the current interaction or display value; C++ immediate-mode API call.
 		ui.horizontal_wrapped(|ui| {
 			if ui.button("− Zoom").clicked()
@@ -1135,19 +1232,86 @@ impl Globe
 			{
 				go = true;
 			}
-			// Check this state or input before acting; C++ conditional branch.
-			if self.paused && ui.button("Resume rotation").clicked()
+			// Follow the actual Earth line of sight as the scientific time changes; C++ checked button action.
+			if ui
+				.add_enabled(directions.is_some(), egui::Button::new("View from Earth"))
+				.clicked()
 			{
-				// Update this persistent member explicitly; C++ member assignment.
-				self.paused = false;
-				// Update this persistent member explicitly; C++ member assignment.
+				// Restore the full-disk view and cancel any site transition; C++ camera-state assignments.
+				self.earth_view = true;
+				// Earth following and presentation spin are mutually exclusive; C++ bool assignment.
+				self.paused = true;
+				// Return to the full-disk overview instead of retaining a magnified landing view; C++ scalar assignment.
+				self.zoom = 1.0;
+				// Cancel any pending site interpolation; C++ optional reset.
+				self.focus = None;
+			}
+			// Make the previous presentation spin optional and off by default; C++ editable bool.
+			let mut spin = !self.paused;
+			// Manual spin exits the Earth-locked orbital view; C++ checkbox change handler.
+			if ui.checkbox(&mut spin, "Auto-rotate").changed()
+			{
+				// Convert the positive UI control into the existing paused representation; C++ bool assignment.
+				self.paused = !spin;
+				// Artificial spin must not fight the physical Earth camera; C++ mode assignment.
+				self.earth_view = false;
+				// Manual controls supersede an in-flight site animation; C++ optional reset.
 				self.focus = None;
 			}
 			// Submit the current interaction or display value; C++ immediate-mode API call.
 			ui.label(format!("{:.0}×", self.zoom));
+			// Explain whether the time slider moves the camera or only the physical lights; C++ conditional string.
+			ui.label(
+				if self.earth_view
+				{
+					"Earth view: follows time"
+				}
+				else
+				{
+					"Free orbit"
+				},
+			);
 		});
+		// Keep exposure aids explicit, independent and disabled by default; C++ immediate-mode control row.
+		ui.horizontal_wrapped(|ui| {
+			// Edit the Earth-only exposure aid, leaving physical sunlight unchanged; C++ checkbox bound to bool.
+			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)")
+				.on_hover_text(
+					"Exposure aid: multiply only reflected Earth light by 1000, not sunlight.",
+				);
+			// Edit the nonphysical visual aid independently of Earthshine; C++ checkbox bound to bool.
+			ui.checkbox(&mut self.fill, "Far side fill light")
+				.on_hover_text(
+					"Visual aid, not real light: gray-blue fill beyond mean longitudes +/-90 degrees.",
+				);
+		});
+		// Holding this mode reveals real libration rather than artificial animation; C++ conditional camera update.
+		if self.earth_view
+			&& let Some([_, earth]) = directions
+		{
+			// Cancel longitude so the Earth direction projects onto the camera's central meridian; C++ atan2.
+			self.yaw = -earth[0].atan2(earth[2]);
+			// Match camera latitude to sub-Earth latitude without a fixed presentation tilt; C++ asin.
+			self.tilt = earth[1].clamp(-1.0, 1.0).asin();
+		}
+		// Pass an explicit absent light state while the selected track is unavailable; C++ optional snapshot.
+		let lighting = directions.map(|[sun, earth]| Lighting {
+			sun,
+			earth,
+			ratio: math::earthshine_ratio(sun, earth),
+			boosted: self.boosted,
+			fill: self.fill,
+		});
+		// Explain unavailable data rather than silently restoring a fixed presentation Sun; C++ conditional label.
+		if lighting.is_none()
+		{
+			// State why the Moon has no physical illumination instead of fabricating data; C++ immediate-mode text.
+			ui.label("Real lighting unavailable: selected track not loaded");
+		}
 		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
 		{
+			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
+			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let target = -(site.lon_deg as f32).to_radians();
 			// Bind this intermediate value for the current operation; C++ local initialization.
@@ -1234,6 +1398,8 @@ impl Globe
 		// Check this state or input before acting; C++ conditional branch.
 		if response.dragged()
 		{
+			// Direct orbit manipulation exits Earth lock while preserving the current orientation; C++ mode switch.
+			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let delta = ui.input(|i| i.pointer.delta());
 			// Update this persistent member explicitly; C++ member assignment.
@@ -1325,7 +1491,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_ref()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays);
+					renderer.paint(painter.gl(), view, &rays, lighting);
 				}
 			}
 		});
@@ -1408,7 +1574,7 @@ impl Globe
 				}
 			}
 		}
-		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to rotate; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nIllustrative globe; ray lengths not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked
@@ -1725,7 +1891,13 @@ impl Renderer
 	}
 
 	// Draw one opaque sphere inside egui's already configured viewport; C++ issues the equivalent GL commands.
-	fn paint(&self, gl: &glow::Context, view: math::View, rays: &[([f32; 3], [Ray; 2])])
+	fn paint(
+		&self,
+		gl: &glow::Context,
+		view: math::View,
+		rays: &[([f32; 3], [Ray; 2])],
+		lighting: Option<Lighting>,
+	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
 		let Some(program) = self.program
@@ -1760,6 +1932,37 @@ impl Renderer
 			gl.front_face(glow::CCW);
 			// Select linked shaders, or unbind them; C++ glUseProgram(handle or 0).
 			gl.use_program(Some(program));
+			// Supply harmless finite directions when ephemerides are absent, but no invented sunlight; C++ optional fallback.
+			let light = lighting.unwrap_or(Lighting {
+				sun: [0.0, 0.0, 1.0],
+				earth: [0.0, 0.0, 1.0],
+				ratio: 0.0,
+				boosted: false,
+				fill: false,
+			});
+			// Send both Moon-fixed light directions into the shared model transform; C++ uniform vector loop.
+			for (name, direction) in [("u_sun", light.sun), ("u_earth", light.earth)]
+			{
+				gl.uniform_3_f32(
+					gl.get_uniform_location(program, name).as_ref(),
+					direction[0],
+					direction[1],
+					direction[2],
+				);
+			}
+			// Keep physical illumination and artificial display aids separate; C++ scalar uniforms.
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_sun_scale").as_ref(),
+				if lighting.is_some() { 1.0 } else { 0.0 },
+			);
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_earthshine").as_ref(),
+				light.ratio * if light.boosted { 1000.0 } else { 1.0 },
+			);
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_far_fill").as_ref(),
+				if light.fill { 1.0 } else { 0.0 },
+			);
 			// Always restore the textured material before drawing the Moon; C++ glUniform1i.
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
 			// Send a column-major projection without transposing; C++ glUniformMatrix4fv.
@@ -1970,6 +2173,16 @@ out vec4 out_color;
 uniform highp int u_ray_mode;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
+// Receive the actual Moon-fixed Sun direction; C++ glUniform3f.
+uniform vec3 u_sun;
+// Receive the actual Moon-fixed Earth direction; C++ glUniform3f.
+uniform vec3 u_earth;
+// Disable physical sunlight when ephemerides are unavailable; C++ glUniform1f.
+uniform float u_sun_scale;
+// Scale reflected Earth light relative to solar irradiance; C++ glUniform1f.
+uniform float u_earthshine;
+// Enable a nonphysical visual aid independently of physical energy; C++ glUniform1f.
+uniform float u_far_fill;
 // Define pi once so all angular expressions use radians consistently.
 const float PI = 3.141592653589793;
 // Project mapped normals into the view-facing half-space before renormalizing; dimensionless cosine.
@@ -2102,6 +2315,23 @@ vec3 linear_to_srgb(vec3 x)
 	return mix(x * 12.92, 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), x));
 }
 
+// Evaluate one directional light without night-side normal-map leakage; C++ float-valued helper.
+float light_response(vec3 n, vec3 geometric, vec3 view, vec3 light, float normal_strength)
+{
+	// Local terrain normals cannot substitute for resolved shadows; C++ geometric visibility guard.
+	if (dot(geometric, light) <= 0.0)
+	{
+		// Suppress this source on its geometric night side; C++ early return.
+		return 0.0;
+	}
+	// Evaluate the mapped response with the shared photometric model; C++ float initialization.
+	float mapped_reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
+	// Evaluate the smooth-sphere response independently of texture normals; C++ float initialization.
+	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
+	// Fade unresolved relief at grazing emission angles; C++ linear-interpolation return.
+	return mix(geometric_reflectance, mapped_reflectance, normal_strength);
+}
+
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
 void main()
 {
@@ -2131,10 +2361,12 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
-	// Apply the geometry's rigid rotation and south tilt to the normal, preserving lighting-space consistency.
+	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
-	// Fix a normalized directional Sun vector in world space so a terminator is visible.
-	vec3 light = normalize(vec3(1.0, 0.2, 0.6));
+	// Transform real Moon-fixed lights with the same rigid matrix as the Moon and markers.
+	vec3 light = normalize(u_model * u_sun);
+	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
+	vec3 earth_light = normalize(u_model * u_earth);
 	// Point from the surface fragment to the perspective camera at z=3.3.
 	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
@@ -2144,25 +2376,19 @@ void main()
 	// A normal map cannot change silhouette visibility: back-facing mapped facets must not cut black holes.
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
-	// Evaluate radiance factor from incidence, emission, and phase, with no ambient component.
-	float mapped_reflectance = hapke(dot(n, light), dot(n, view), dot(light, view));
-	// Evaluate the smooth sphere separately: terrain normals cannot describe resolved visibility at the limb.
-	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
-	// Cross-fade the two sunlight responses, rather than inventing ambient light or clamping the display color.
-	float reflectance = mix(geometric_reflectance, mapped_reflectance, normal_strength);
-	// Prevent local normal tilts lighting the geometric night side without terrain shadows.
-	// Mask the geometric night side because this smooth silhouette cannot cast resolved terrain shadows.
-	if (dot(normalize(v_position), light) <= 0.0)
-	{
-		// Remove sunlight on the geometric back side even if a mapped normal tilts toward the light.
-		reflectance = 0.0;
-	}
+	// Add physically distinct direct solar and phase-scaled reflected Earth contributions.
+	float reflectance = u_sun_scale * light_response(n, geometric, view, light, normal_strength)
+		+ u_earthshine * light_response(n, geometric, view, earth_light, normal_strength);
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	// Modulate the averaged photometric response by relative spatial color and apply exposure.
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
+	// Only longitudes beyond +/-90 degrees from mean Earth longitude zero receive this visual aid.
+	float far_side = smoothstep(0.0, 0.15, -p.z / max(length(p.xz), 0.000001));
+	// This soft gray-blue term is deliberately not labeled physical illumination.
+	radiance += u_far_fill * far_side * vec3(0.035, 0.045, 0.065) * (albedo / 0.4832);
 	// Compress positive linear radiance with the Reinhard operator before display encoding.
 	vec3 mapped = radiance / (vec3(1.0) + radiance);
 	// Encode once to sRGB and set alpha to one; egui_glow disables framebuffer sRGB encoding.
@@ -2336,6 +2562,65 @@ impl MoonApp
 mod tests
 {
 	use super::*;
+	// Validate the real prepared ephemerides through the same public ENU conversion used by lighting; C++ integration test.
+	#[test]
+	fn moon_fixed_ephemeris_libration_ranges()
+	{
+		// Decode actual hourly data without adding JSON or I/O dependencies to the renderer; C++ test fixture.
+		let data: serde_json::Value =
+			serde_json::from_str(include_str!("../assets/data/connecting-ridge-c1.json")).unwrap();
+		// Use the exact prepared observer position, not a coordinate synthesized to match a range; C++ fixture reads.
+		let lat = data["site"]["lat_deg"].as_f64().unwrap();
+		// Preserve the same east-longitude convention as production markers; C++ checked fixture access.
+		let lon = data["site"]["lon_deg"].as_f64().unwrap();
+		// Check both physical ranges and nonconstant evolution over the three-year series; C++ counted regression loop.
+		for (body, latitude_limit, longitude_limit) in [("sun", 1.61, 180.0), ("earth", 7.4, 8.4)]
+		{
+			// Accumulate transformed latitudes for bounds and temporal-span checks; C++ vector<float>.
+			let mut latitudes = Vec::new();
+			// Accumulate longitudes independently so axis swaps cannot hide; C++ vector<float>.
+			let mut longitudes = Vec::new();
+			// Visit every aligned hourly pair, not merely one hand-picked date; C++ zipped range iteration.
+			for (az, el) in data[body]["az_deg"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.zip(data[body]["el_deg"].as_array().unwrap())
+			{
+				// The same public conversion feeds both real lights and the Earth camera; C++ optional unwrap in a test.
+				let direction = globe::moon_fixed(
+					lat,
+					lon,
+					globe::BodyDirection {
+						az_deg: az.as_f64().unwrap() as f32,
+						el_deg: el.as_f64().unwrap() as f32,
+						visible: false,
+					},
+				)
+				.unwrap();
+				// Recover latitude from the Moon-fixed north component; C++ asin after a roundoff clamp.
+				latitudes.push(direction[1].clamp(-1.0, 1.0).asin().to_degrees());
+				// Recover east longitude from the zero-longitude and east axes; C++ atan2.
+				longitudes.push(direction[0].atan2(direction[2]).to_degrees());
+			}
+			// Latitude and longitude bounds catch swapped basis axes or treating local azimuth as longitude; C++ assertions.
+			assert!(latitudes.iter().all(|x| x.abs() < latitude_limit));
+			// Reject nonphysical lunar libration longitude or a malformed azimuth transform; C++ all_of assertion.
+			assert!(longitudes.iter().all(|x| x.abs() <= longitude_limit));
+			// Reject a constant placeholder with an otherwise plausible latitude; C++ max/min range assertion.
+			assert!(
+				latitudes.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+					- latitudes.iter().copied().fold(f32::INFINITY, f32::min)
+					> if body == "sun" { 2.5 } else { 10.0 }
+			);
+			// Solar longitude must sweep around the Moon; Earth longitude must librate substantially; C++ range assertion.
+			assert!(
+				longitudes.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+					- longitudes.iter().copied().fold(f32::INFINITY, f32::min)
+					> if body == "sun" { 350.0 } else { 10.0 }
+			);
+		}
+	}
 	#[test]
 	fn catalog_and_lazy_filenames()
 	{
@@ -2434,10 +2719,10 @@ impl eframe::App for MoonApp
 					// Stack on phones rather than crushing a 360-degree plot; C++ viewport-width branch.
 					if available.x < 700.0
 					{
-						// Reserve a compact globe so phone controls and both axes remain visible; C++ clamp(height*0.24,140,220).
+						// Reserve room for phone camera and lighting controls; C++ clamp(height*0.32,220,290).
 						let size = eframe::egui::vec2(
 							available.x,
-							(available.y * 0.24).clamp(140.0, 220.0),
+							(available.y * 0.32).clamp(220.0, 290.0),
 						);
 						// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
 						ui.allocate_ui(size, |ui| {
@@ -2625,6 +2910,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `acos`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `active_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `add`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `add_enabled`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `add_triangle`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `all`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `allocate_exact_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2645,6 +2931,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `as_f64`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `as_raw`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `as_ref`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `asin`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `aspect_ratio`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assert!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `assert_eq!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -2652,6 +2939,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `assets::preferences`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assets::select`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `at`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `atan2`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `attach_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `availability`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `available_height`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -2726,6 +3014,8 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `draw_arrays`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `draw_elements`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `dyn_into`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `earthshine_phase_and_scale`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `earthshine_ratio`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `eframe::egui::CentralPanel::default`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `eframe::egui::Frame`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `eframe::egui::Layout::top_down`: [annotated app/src/lib.rs](#47-appsrclibrs)
@@ -2733,6 +3023,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `eframe::egui::vec2`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `eframe::run_native`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eframe::WebRunner::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `egui::Button::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2855,6 +3146,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `marker`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `Marker`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::direction`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `math::earthshine_ratio`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::local_direction`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::marker`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::perspective`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2864,6 +3156,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `mesh_orientation_and_seam`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `min`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `model`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `moon_fixed`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `Mutex::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `navigator`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -2949,6 +3242,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `style`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `style_mut`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `suffix`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `sum`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `summary_uses_full_duration_and_current_clearance`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `super::panorama::segments`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `take`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -2966,6 +3260,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `to_string`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `transpose`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `trim`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `uniform_1_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_1_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_3_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_matrix_3_f32_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)

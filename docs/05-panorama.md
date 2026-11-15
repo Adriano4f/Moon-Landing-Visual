@@ -43,7 +43,7 @@ A stable widget identity lets egui associate this frame's description with its p
 
 CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
 
-Implementation: [app/src/lib.rs:191](../app/src/lib.rs#L191), [app/src/panorama.rs:193](../app/src/panorama.rs#L193).
+Implementation: [app/src/lib.rs:250](../app/src/lib.rs#L250), [app/src/panorama.rs:193](../app/src/panorama.rs#L193).
 
 ## 4. Asynchronous loading and ownership
 
@@ -111,7 +111,7 @@ $$
 
 math::rotation returns this column-major nine-float matrix. Its sin_cos call returns sine then cosine; C++ calls std::sin and std::cos separately. The GL uniform_matrix_3_f32_slice upload corresponds to glUniformMatrix3fv with transpose=false. Both shaders use u_model for geometry and mapped normals. The CPU marker uses the same matrix, rather than a separate animation or sign convention. std::array::from_fn computes each row's dot product with the input direction; C++ can fill an std::array in a counted loop.
 
-Why 30 degrees? At camera $C=(0,0,3.3)$, a unit sphere point is front-facing only if $\mathbf p_w\cdot(C-\mathbf p_w)>0$, or $3.3p_{w,z}>1$. An equatorial view hides the 89.45-degree-south example behind the perspective limb even though it lies close to the drawn silhouette. The tilt moves the south pole to $(0,-\sqrt3/2,1/2)$, giving $3.3/2-1=0.65>0$: it is visible throughout rotation. At zero animation angle and a square viewport, that pole projects to approximately $(0,-0.7467)$ NDC, inside the lower part of the Moon. This is a deliberate geographic presentation view, not an orbital camera derived from Horizons. North still maps to the geographic +y object axis; the tilt does not alter latitude or longitude.
+Historical presentation example, not the current default: why 30 degrees? At camera $C=(0,0,3.3)$, a unit sphere point is front-facing only if $\mathbf p_w\cdot(C-\mathbf p_w)>0$, or $3.3p_{w,z}>1$. An equatorial view hides the 89.45-degree-south example behind the perspective limb even though it lies close to the drawn silhouette. The tilt moves the south pole to $(0,-\sqrt3/2,1/2)$, giving $3.3/2-1=0.65>0$: it is visible throughout rotation. At zero animation angle and a square viewport, that pole projects to approximately $(0,-0.7467)$ NDC, inside the lower part of the Moon. This is a deliberate geographic presentation view, not an orbital camera derived from Horizons. North still maps to the geographic +y object axis; the tilt does not alter latitude or longitude.
 
 For world point $\mathbf p_w=M\mathbf p$, the shader's clip divisor is $w=3.3-p_{w,z}$. Reusing math::perspective gives $x_{ndc}=P_{00}p_{w,x}/w$ and $y_{ndc}=P_{11}p_{w,y}/w$. NDC is mapped into the UI rectangle centered at $(c_x,c_y)$ with dimensions $(W,H)$:
 
@@ -121,7 +121,7 @@ $$
 
 The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
 
-Implementation: [globe/src/math.rs:242](../globe/src/math.rs#L242), [globe/src/math.rs:254](../globe/src/math.rs#L254), [globe/src/lib.rs:180](../globe/src/lib.rs#L180).
+Implementation: [globe/src/math.rs:265](../globe/src/math.rs#L265), [globe/src/math.rs:277](../globe/src/math.rs#L277), [globe/src/lib.rs:220](../globe/src/lib.rs#L220).
 
 ## 8. Panorama API index and C++ equivalents
 

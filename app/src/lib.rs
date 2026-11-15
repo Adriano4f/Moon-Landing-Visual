@@ -161,6 +161,65 @@ impl MoonApp
 mod tests
 {
 	use super::*;
+	// Validate the real prepared ephemerides through the same public ENU conversion used by lighting; C++ integration test.
+	#[test]
+	fn moon_fixed_ephemeris_libration_ranges()
+	{
+		// Decode actual hourly data without adding JSON or I/O dependencies to the renderer; C++ test fixture.
+		let data: serde_json::Value =
+			serde_json::from_str(include_str!("../assets/data/connecting-ridge-c1.json")).unwrap();
+		// Use the exact prepared observer position, not a coordinate synthesized to match a range; C++ fixture reads.
+		let lat = data["site"]["lat_deg"].as_f64().unwrap();
+		// Preserve the same east-longitude convention as production markers; C++ checked fixture access.
+		let lon = data["site"]["lon_deg"].as_f64().unwrap();
+		// Check both physical ranges and nonconstant evolution over the three-year series; C++ counted regression loop.
+		for (body, latitude_limit, longitude_limit) in [("sun", 1.61, 180.0), ("earth", 7.4, 8.4)]
+		{
+			// Accumulate transformed latitudes for bounds and temporal-span checks; C++ vector<float>.
+			let mut latitudes = Vec::new();
+			// Accumulate longitudes independently so axis swaps cannot hide; C++ vector<float>.
+			let mut longitudes = Vec::new();
+			// Visit every aligned hourly pair, not merely one hand-picked date; C++ zipped range iteration.
+			for (az, el) in data[body]["az_deg"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.zip(data[body]["el_deg"].as_array().unwrap())
+			{
+				// The same public conversion feeds both real lights and the Earth camera; C++ optional unwrap in a test.
+				let direction = globe::moon_fixed(
+					lat,
+					lon,
+					globe::BodyDirection {
+						az_deg: az.as_f64().unwrap() as f32,
+						el_deg: el.as_f64().unwrap() as f32,
+						visible: false,
+					},
+				)
+				.unwrap();
+				// Recover latitude from the Moon-fixed north component; C++ asin after a roundoff clamp.
+				latitudes.push(direction[1].clamp(-1.0, 1.0).asin().to_degrees());
+				// Recover east longitude from the zero-longitude and east axes; C++ atan2.
+				longitudes.push(direction[0].atan2(direction[2]).to_degrees());
+			}
+			// Latitude and longitude bounds catch swapped basis axes or treating local azimuth as longitude; C++ assertions.
+			assert!(latitudes.iter().all(|x| x.abs() < latitude_limit));
+			// Reject nonphysical lunar libration longitude or a malformed azimuth transform; C++ all_of assertion.
+			assert!(longitudes.iter().all(|x| x.abs() <= longitude_limit));
+			// Reject a constant placeholder with an otherwise plausible latitude; C++ max/min range assertion.
+			assert!(
+				latitudes.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+					- latitudes.iter().copied().fold(f32::INFINITY, f32::min)
+					> if body == "sun" { 2.5 } else { 10.0 }
+			);
+			// Solar longitude must sweep around the Moon; Earth longitude must librate substantially; C++ range assertion.
+			assert!(
+				longitudes.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+					- longitudes.iter().copied().fold(f32::INFINITY, f32::min)
+					> if body == "sun" { 350.0 } else { 10.0 }
+			);
+		}
+	}
 	#[test]
 	fn catalog_and_lazy_filenames()
 	{
@@ -259,10 +318,10 @@ impl eframe::App for MoonApp
 					// Stack on phones rather than crushing a 360-degree plot; C++ viewport-width branch.
 					if available.x < 700.0
 					{
-						// Reserve a compact globe so phone controls and both axes remain visible; C++ clamp(height*0.24,140,220).
+						// Reserve room for phone camera and lighting controls; C++ clamp(height*0.32,220,290).
 						let size = eframe::egui::vec2(
 							available.x,
-							(available.y * 0.24).clamp(140.0, 220.0),
+							(available.y * 0.32).clamp(220.0, 290.0),
 						);
 						// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
 						ui.allocate_ui(size, |ui| {
