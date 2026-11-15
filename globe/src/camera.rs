@@ -10,7 +10,7 @@ impl Globe
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(1.0); self.focus = None; }
 			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Zoom in, up to 8 times. Higher magnification enlarges misleading polar texture streaks. Choose close neighbors in Site; the panorama uses the detailed terrain horizon.");
+			help::question(ui, "Enlarge the Moon up to eight times. The overview has limited detail; use the site list to distinguish nearby points.");
 		});
 		self.site_camera(ui);
 		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
@@ -21,7 +21,7 @@ impl Globe
 		ui.horizontal(|ui| {
 			if ui.add_enabled(ready, egui::Button::new("View from Earth")).clicked()
 			{ self.earth_view = true; self.paused = true; self.zoom = 1.0; self.focus = None; }
-			help::question(ui, "Look along the current Earth direction. The apparent rocking changes with time. This is a direction-correct illustration, not a camera at Earth's true distance.");
+			help::question(ui, "Look toward the Moon from Earth's current direction. Its slight rocking changes with the date; distances are not to scale.");
 		});
 		// Keep synthetic camera spin optional; C++ bool edit.
 		let mut spin = !self.paused;
@@ -51,12 +51,12 @@ impl Globe
 		// Explain that increased exposure is not increased power; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
-			help::question(ui, "Earthshine is sunlight reflected by Earth onto the Moon. It is normally thousands of times weaker than sunlight. This exposure boost changes only the illustration, not solar power or communication.");
+			help::question(ui, "Make faint sunlight reflected by Earth 1,000 times brighter. This changes only the picture, not sunlight or radio results.");
 		});
 		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.fill, "Far side fill light");
-			help::question(ui, "Soft gray-blue light helps you inspect the mean far side after dragging around the Moon. It is a visual aid, not real light, and changes no scientific result.");
+			help::question(ui, "Add invented gray-blue light to inspect the far side. This is a visual aid, not real illumination.");
 		});
 	}
 
@@ -65,7 +65,7 @@ impl Globe
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
-			help::question(ui, "Parallel yellow rays arrive from the real Sun direction at this date and end on the sunlit sphere. About 256 of 512 evenly distributed points are lit. Lengths are illustrative; this is not terrain shadow tracing. The Moon hides rays behind its surface.");
+			help::question(ui, "Show incoming sunlight across the lit half of the Moon. Lines follow the real Sun direction, but lengths and ground shadows are illustrative.");
 		});
 	}
 }
@@ -115,7 +115,7 @@ impl Globe
 			egui::ComboBox::from_id_salt("moon-quality").selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
 				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
 			});
-			help::question(ui, "The Moon always appears in 2k first. Desktop browsers normally improve to 4k; phones keep 2k. Choose 8k only if you want a larger download and have enough memory. Higher detail changes only the globe map, not scientific data. The old Moon remains visible if an upgrade fails.");
+			help::question(ui, "Choose map detail. Higher settings download more and need more memory; they change only the globe picture, not the sky results.");
 		});
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
@@ -126,7 +126,7 @@ impl Globe
 				displayed.map_or("loading".into(), |t| format!("{t}k")),
 				self.target_tier
 			),
-			"The first number is the currently visible map. The requested detail replaces it only after both images have decoded and uploaded successfully.",
+			"Showing is the detail visible now. Requested detail replaces it only when ready.",
 		);
 	}
 }

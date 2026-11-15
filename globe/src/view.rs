@@ -53,7 +53,7 @@ impl Globe
 		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
 		ui.horizontal(|ui| {
 			ui.small("Moon overview");
-			help::question(ui, "Drag to orbit the Moon; wheel or pinch to zoom. Magnification stops at 8 times to avoid misleading polar texture streaks. Markers are published points; click one or use Site. This globe is an illustration, not the detailed terrain silhouette shown in the panorama.");
+			help::question(ui, "Drag to turn the Moon; pinch or scroll to zoom. Click a marker to select it; the globe is an illustration.");
 		});
 		// Display 2k before starting an optional upgrade; never blank the existing renderer while waiting.
 		if self
@@ -73,7 +73,7 @@ impl Globe
 			help::annotated(
 				ui,
 				format!("Texture detail unavailable: {error}"),
-				"The last successful Moon remains visible if higher detail fails. Try another detail level in View / camera after an upgrade fails, or reload the page if the first images fail. Scientific data is independent of globe textures.",
+				"A failed detail upgrade keeps the current Moon visible. Try another detail setting; sky results do not depend on these pictures.",
 			);
 		}
 	}
@@ -314,12 +314,18 @@ impl Globe
 		painter.rect_filled(
 			egui::Rect::from_min_size(
 				rect.left_top() + egui::vec2(5.0, 5.0),
-				egui::vec2(258.0, 59.0),
+				egui::vec2(258.0, 36.0),
 			),
 			3.0,
 			egui::Color32::from_black_alpha(225),
 		);
-		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
+		painter.text(
+			rect.left_top() + egui::vec2(8.0, 8.0),
+			egui::Align2::LEFT_TOP,
+			"Drag to orbit; scroll or pinch to zoom\nIllustration only; polar cap schematic",
+			egui::FontId::proportional(11.0),
+			egui::Color32::LIGHT_GRAY,
+		);
 	}
 }
 

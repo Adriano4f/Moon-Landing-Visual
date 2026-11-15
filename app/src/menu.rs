@@ -63,7 +63,7 @@ impl MoonApp
 			// Apply the UI event only when requested; C++ conditional branch.
 			if phone && ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Compare published lunar south-pole landing points and dates for sunlight and a direct radio path to Earth. Open Menu for grouped settings and Explanations. The globe is illustrative; the panorama uses the computed terrain horizon. This is not an engineering or landing-safety assessment.");
+			question(ui, "Compare places and dates for sunlight and a clear view of Earth. This is not a landing-safety assessment.");
 		}); });
 		// A floating phone drawer leaves the stacked main view at its natural width; C++ modal-free settings window.
 		if phone
@@ -74,10 +74,10 @@ impl MoonApp
 				.id(egui::Id::unique("phone-menu"))
 				.open(&mut open)
 				.collapsible(false)
-				.default_pos([8.0, 38.0])
+				.default_pos([8.0, 66.0])
 				.default_width(300.0)
 				.max_width(320.0)
-				.max_height((ctx.content_rect().height() - 60.0).max(100.0))
+				.max_height((ctx.content_rect().height() - 90.0).max(100.0))
 				.vscroll(true)
 				.show(&ctx, |ui| self.menu_contents(ui));
 			// Persist the presentation change between frames; C++ member assignment.
@@ -87,8 +87,8 @@ impl MoonApp
 		{
 			// A bounded sidebar gives the main views the remaining desktop width; C++ side-container callback.
 			egui::Panel::left("settings")
-				.default_size(270.0)
-				.size_range(250.0..=320.0)
+				.default_size(290.0)
+				.size_range(280.0..=340.0)
 				.show(root, |ui| {
 					egui::ScrollArea::vertical().show(ui, |ui| self.menu_contents(ui));
 				});
@@ -101,6 +101,25 @@ impl MoonApp
 		// Wrap every explanation to the sidebar width; C++ local text policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 		self.site_time_sections(ui);
+		section(
+			ui,
+			"More options",
+			false,
+			"Camera, lighting, rays and extra radio clearance. These settings are optional.",
+			|ui| self.advanced_sections(ui),
+		);
+		section(
+			ui,
+			"Explanations",
+			false,
+			"A short guide to the picture, results and their limits.",
+			explanations,
+		);
+	}
+
+	// Hide specialist settings until requested, retaining established groups; C++ nested menu helper.
+	fn advanced_sections(&mut self, ui: &mut egui::Ui)
+	{
 		section(
 			ui,
 			"View / camera",
@@ -148,13 +167,6 @@ impl MoonApp
 				}
 			},
 		);
-		section(
-			ui,
-			"Explanations",
-			false,
-			"A short guide to what this app shows, how to read it and what it does not predict.",
-			explanations,
-		);
 	}
 
 	// Keep loading progress and failures beside the mode that requested background tracks; C++ member function.
@@ -166,14 +178,14 @@ impl MoonApp
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, false, "Selected site only");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Show only the chosen site's Sun and Earth directions. Bright means available under the local terrain and radio test; dim means blocked. The disks and ray lengths are not to scale.");
+			question(ui, "Show this site's Sun and Earth directions. Bright means clear; dim means blocked, and lengths are not real distances.");
 		});
 		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, true, "All sites");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Load and show every site's own directions at the shared date. This downloads additional data. Back-facing sites remain hidden by the globe; readiness and errors appear below.");
+			question(ui, "Show each site's directions at the same time. This downloads more data; the Moon still hides points on its back.");
 		});
 		// Apply the UI event only when requested; C++ conditional branch.
 		if self.all_rays
@@ -215,31 +227,31 @@ fn explanations(ui: &mut egui::Ui)
 	for (title, text) in [
 		(
 			"Horizon and panorama",
-			"The horizon is the edge of the ground against the sky. The strip looks all the way around you: north, east, south, west, then north again. Height is stretched and labeled. Gray hills hide parts of the Sun and Earth; faint lines show their paths over your chosen window.",
+			"Read the strip from north through east, south and west to north again. Gray ground hides anything below its edge. Heights are stretched.",
 		),
 		(
 			"Sun and power",
-			"Yellow is the Sun. Its visible percentage is the area of its round face above the hills. Even a small visible part counts as some sunlight. This is not guaranteed electrical power: panel direction, dust, equipment and eclipses are not modeled.",
+			"Yellow is the Sun. Its percentage is the visible area above hills, not electricity produced. Equipment, dust and eclipses are not included.",
 		),
 		(
 			"Earth, direct communication and margin",
-			"Blue is Earth. A direct signal travels straight to Earth without a relay. The safety margin asks for extra room above the hills; a partly visible blue disk can still fail that test. The app does not predict antennas, Earth-station schedules or interference.",
+			"Blue is Earth. A direct signal needs a clear path plus extra room above hills. Antennas and ground-station availability are not predicted.",
 		),
 		(
 			"Time and summaries",
-			"UTC is the shared world clock. Data is sampled once per hour, so short events can be missed. Summary percentages cover the full stated period, not just the path window. A day in the longest-night card is 24 hours.",
+			"UTC is the world clock. Hourly samples can miss short events. Summaries cover the stated period, not just the paths; one day is 24 hours.",
 		),
 		(
 			"Rays and camera",
-			"Yellow and blue rays are direction diagrams at the selected date, not distances or physical beams. Dim means blocked at that site. Drag to orbit the Moon or use View from Earth. Go to site centers your point. The globe has limited texture detail; use Site to separate close neighbors.",
+			"Rays show directions, not distances; dim means blocked. Drag to orbit, pinch or scroll to zoom, and use Go to site to center a point.",
 		),
 		(
 			"Lighting, earthshine and fill",
-			"Real Sun and Earth directions change with time. Earthshine is faint reflected sunlight from Earth; boosted exposure makes only that contribution 1000 times brighter. Far side fill is invented gray-blue light for inspection, not real illumination. Neither aid changes the scientific results.",
+			"Earthshine is faint sunlight reflected by Earth. Boost makes it 1,000 times brighter. Far-side fill is invented light for inspection; neither changes results.",
 		),
 		(
 			"Data sources and limits",
-			"Coordinates come from published polar studies and are cited in Site. Sky directions come from NASA/JPL Horizons. Terrain uses NASA LOLA elevation products, with a 2 m observer. The globe uses NASA color and relief maps, but is not a detailed terrain simulation. Relays, heat, landing safety, equipment and short between-hour events are not predicted.",
+			"Published coordinates are cited under Site. NASA Horizons supplies sky directions; LOLA supplies terrain with a 2 m observer. The globe is not a landing-safety model.",
 		),
 	]
 	{
@@ -264,15 +276,24 @@ impl MoonApp
 			|ui| {
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
 				ui.horizontal_wrapped(|ui| {
-				egui::ComboBox::from_id_salt("published-site").selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
+				let width = (ui.available_width() - 54.0).max(100.0);
+				egui::ComboBox::from_id_salt("published-site").width(width).wrap_mode(egui::TextWrapMode::Truncate).selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
 					// Visit each explanatory item in order; C++ range-for loop.
-					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name).on_hover_text(&entry.source); }
+					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name); }
 				});
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				question(ui, "Select a published landing point. Its local sky, statuses and summaries replace the previous site's data while preserving the shared date. Data loads only when needed; coordinates are not moved to improve results.");
+				question(ui, "Choose a published point to update the sky and results. Nearby places can have very different hills.");
 			});
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				ui.small(&self.catalog[self.selected].source);
+				section(
+					ui,
+					"Source",
+					false,
+					"Published coordinates and their citation. These points are not moved to improve the results.",
+					|ui| {
+						ui.small(&self.catalog[self.selected].source);
+					},
+				);
 			},
 		);
 		section(

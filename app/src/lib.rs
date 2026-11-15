@@ -7,6 +7,7 @@ mod sky;
 // Keep grouped presentation settings outside scientific orchestration; C++ module declaration.
 mod layout;
 mod menu;
+mod theme;
 
 // Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
 #[derive(serde::Deserialize)]
@@ -212,6 +213,8 @@ impl eframe::App for MoonApp
 		self.synchronize_scene();
 		// Draw settings before the central view so desktop width and phone drawer are independent; C++ responsive panel call.
 		let phone = ui.ctx().content_rect().width() < 760.0;
+		theme::apply(ui.ctx(), phone);
+		ui.set_style(ui.ctx().style_of(eframe::egui::Theme::Dark));
 		self.settings(ui, phone);
 		self.central_view(ui);
 	}

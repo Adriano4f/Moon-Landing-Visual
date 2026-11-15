@@ -201,32 +201,44 @@ impl Panorama
 		// Always identify the chosen time and clock convention; C++ formatted label.
 		ui.strong(utc_label(data.sun.t[self.index]));
 		// Let the time slider fill the available width; C++ local style assignment.
-		ui.spacing_mut().slider_width = (ui.available_width() - 65.0).max(100.0);
+		ui.spacing_mut().slider_width = (ui.available_width() - 112.0).max(80.0);
 		// Select only real hourly samples; C++ bounded integer slider.
 		ui.horizontal(|ui| {
-		ui.add(
-			egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
-				.show_value(false)
-				.text("Time"),
-		);
-			globe::help::question(ui, "Choose the shared hourly UTC date. UTC is the world clock, not local time. All views use this date; between-hour events may be missed.");
+			ui.add(
+				egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
+					.show_value(false)
+					.text("Time"),
+			);
+			globe::help::question(
+				ui,
+				"Choose the world-clock date for every view. Hourly samples can miss short events.",
+			);
 		});
 		// Wrapping rows remain usable when narrow; C++ flow layout callback.
-		ui.horizontal_wrapped(|ui| {
+		ui.horizontal(|ui| {
 			// Saturating subtraction keeps the first sample safe; C++ clamped decrement.
-			globe::help::question(ui, "Move one hourly sample backward. At the first date it stays at the start.");
-			if ui.button("< 1 hour").clicked()
+			if ui.button("< 1 h").clicked()
 			{
 				// Update this persistent member explicitly; C++ member assignment.
 				self.index = self.index.saturating_sub(1);
 			}
+			globe::help::question(
+				ui,
+				"Move one hourly sample backward. At the first date it stays at the start.",
+			);
 			// Clamp at the inclusive final epoch; C++ clamped increment.
-			globe::help::question(ui, "Move one hourly sample forward. At the final date it stays at the end.");
-			if ui.button("1 hour >").clicked()
+			if ui.button("1 h >").clicked()
 			{
 				// Update this persistent member explicitly; C++ member assignment.
 				self.index = (self.index + 1).min(data.sun.t.len() - 1);
 			}
+			globe::help::question(
+				ui,
+				"Move one hourly sample forward. At the final date it stays at the end.",
+			);
+		});
+		ui.horizontal(|ui| {
+			ui.small("Paths");
 			// Explain that the window controls faint paths, not summary percentages; C++ combo box.
 			egui::ComboBox::from_id_salt("time_window")
 				.selected_text(window_label(self.hours))
@@ -278,7 +290,7 @@ impl Panorama
 
 		globe::help::question(
 			ui,
-			"Require extra angular clearance above the hills for a direct radio signal: 0.5 to 1 degree. A degree is 1/360 of a full turn. This does not model antennas, relays, Earth stations or interference; a visible blue disk alone does not guarantee a link.",
+			"Ask for extra room above hills before counting a clear Earth path. Seeing part of Earth does not guarantee radio service.",
 		);
 	}
 	// Preserve detailed plots as an opt-in setting; C++ member function.
@@ -286,7 +298,7 @@ impl Panorama
 	{
 		ui.horizontal(|ui| {
 			ui.checkbox(&mut self.technical, "Technical view");
-			globe::help::question(ui, "Replace the standing-view strip with the numerical azimuth/elevation plot. Azimuth runs north through east, south and west; elevation is height above your horizontal plane. It uses exactly the same data.");
+			globe::help::question(ui, "Show the same sky as a numbered graph. Direction runs clockwise from north; height is measured above horizontal.");
 		});
 	}
 }

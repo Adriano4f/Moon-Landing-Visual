@@ -10,7 +10,7 @@ impl Panorama
 		globe::help::annotated(
 			ui,
 			egui::RichText::new("Standing on the Moon").heading(),
-			"Imagine standing at the selected point. The strip shows every direction around you; gray is terrain, yellow is Sun, blue is Earth. Hills hide the parts below their edge. Height is stretched and labeled. Faint paths cover the menu time window; this is not a landing-safety or thermal model.",
+			"Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched.",
 		);
 		// Never draw invented tracks while waiting or after an error; C++ optional extraction.
 		let Some(data) = &mut self.data
@@ -125,19 +125,13 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 	let (sun_text, sun_color) = if fraction > 0.0
 	{
 		(
-			format!(
-				"Sun visible: solar power available ({:.1}% of the disk)",
-				fraction * 100.0
-			),
+			format!("Sunlight: {:.1}% of Sun visible", fraction * 100.0),
 			Color32::LIGHT_GREEN,
 		)
 	}
 	else
 	{
-		(
-			"Sun hidden behind terrain: no solar power".into(),
-			Color32::LIGHT_RED,
-		)
+		("Sunlight: blocked by hills".into(), Color32::LIGHT_RED)
 	};
 	// Use large wrapping text so the whole status fits a phone; C++ rich-text widget.
 	globe::help::annotated(
@@ -146,7 +140,7 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 			.size(18.0)
 			.strong()
 			.color(sun_color),
-		"Sunlight can reach the site when some of the yellow disk clears the terrain. The percentage is the visible area of the disk, not guaranteed electrical output. Panel direction, hardware, dust and eclipses are not modeled.",
+		"This is the part of the Sun visible above hills now, not electricity produced. Equipment, dust and eclipses are not included.",
 	);
 }
 
@@ -160,11 +154,11 @@ fn earth_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 		egui::RichText::new(
 			if earth_visible
 			{
-				"Earth visible: direct communication possible"
+				"Earth link: clear above hills"
 			}
 			else
 			{
-				"Earth hidden: no direct communication"
+				"Earth link: blocked or too close to hills"
 			},
 		)
 		.size(18.0)
@@ -179,7 +173,7 @@ fn earth_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 				Color32::LIGHT_RED
 			},
 		),
-		"A direct radio signal could reach Earth without terrain blocking it, including the chosen safety margin. This is a geometric opportunity, not guaranteed service; relays, antennas and Earth stations are not modeled.",
+		"Earth clears the hills only when it also meets your extra clearance setting. A clear path does not guarantee radio service.",
 	);
 	// Qualify a blocked radio link that may still have a partly visible disk; C++ explanatory label.
 	ui.small("Radio status includes the safety margin, not just the visible blue disk.");
@@ -196,7 +190,7 @@ fn summary_cards(ui: &mut egui::Ui, data: &SiteData, summary: &lunar_core::Stats
 		utc_label(*data.sun.t.last().unwrap())
 	));
 	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
-	let card_width = ((ui.available_width() - 40.0) / 2.0).clamp(90.0, 180.0);
+	let card_width = ((ui.available_width() - 56.0) / 2.0).clamp(90.0, 180.0);
 	card_grid(ui, summary, card_width);
 	// Avoid implying that hourly held-sample statistics are continuous event solutions; C++ disclaimer.
 	ui.small("Hourly estimates. Sun time means at least part of the disk is visible. Power and radio service are not guaranteed.");
@@ -235,8 +229,10 @@ fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
 fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_width: f32)
 {
 	// A filled frame separates each summary from controls; C++ styled card container.
-	egui::Frame::group(ui.style())
-						.fill(Color32::from_gray(28))
+	egui::Frame::NONE
+						.inner_margin(10.0)
+						.corner_radius(10.0)
+						.fill(Color32::from_rgb(18, 25, 33))
 						.show(ui, |ui| {
 							// Stack each number above its caption instead of inheriting the grid's row layout; C++ column container.
 							ui.vertical(|ui| {
@@ -245,7 +241,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Fraction of the entire data period with at least some Sun visible. Partial disks count; this is not energy yield.", 1 => "Fraction of the entire period with direct Earth clearance at your chosen radio margin, not guaranteed radio service.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest continuous sampled interval without any Sun, measured in days. A day here is 24 hours; short events between hourly samples can be missed." }); });
+								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the stated period with any Sun visible. A small visible part counts; this is not electricity produced.", 1 => "Share of the stated period with Earth clear of hills and your extra clearance. Radio service is not guaranteed.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest stretch without any Sun in the hourly samples. One day is 24 hours; short events may be missed." }); });
 							});
 						});
 }

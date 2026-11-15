@@ -4,7 +4,13 @@
 
 The small crescent and Karaya Explorer name remain visible in the header. On a desktop, settings occupy a bounded left sidebar. On a phone, Menu opens a scrollable floating drawer, so opening settings does not squeeze the stacked globe and panorama into a narrow strip. Close menu or the drawer close button hides it again.
 
-Site and Time start expanded. View / camera, Lighting, Rays, Radio margin, Technical and Explanations start collapsed. A triangle opens each group. Every setting has a nearby question mark. Hovering gives a short explanation; clicking or tapping opens the same text in a closable window. Statuses and all four summary cards have their own question marks. These describe both the meaning and the limits of the result.
+The top level has four groups: Site, Time, More options and Explanations. Only Site and Time start expanded. More options contains the collapsed View / camera, Lighting, Rays, Radio margin and Technical groups. Published citations live behind Source instead of occupying the open panel. A triangle opens each group.
+
+Every setting, status and summary card has a nearby question mark. Hover or tap displays at most 25 words, generally one or two plain sentences. Shared word limiting also bounds future callers. Help content is capped at 232 logical pixels, approximately 260 pixels including window chrome, and cannot be resized wider. Longer context belongs only in the trimmed Explanations section. The phone drawer remains independently scrollable.
+
+The shared dark palette uses one blue interaction accent, separate from the scientific yellow/blue body colors and green/red availability statuses. Heading, body, button and caption sizes are 24, 15, 14 and 12 logical pixels. Controls reserve at least 36 pixels of height on desktop and 44 on phones, with 10 pixels between items, 12 by 8 pixels of button padding and 8 to 10 pixel corner radii. A small circular question-mark glyph sits inside the full interaction target; it is muted until hovered. Summary surfaces use low-contrast fills without border boxes.
+
+A question mark beside Sky height explains the local reference: 0 degrees is eye level over perfectly flat ground, positive is above it and negative below. This is an angle from the observer's horizontal plane, not an absolute elevation or a claim that the computed terrain lies at zero. Window height follows its short content instead of preserving an empty scroll area.
 
 Explanations defines the horizon, angular panorama, visible solar area, direct Earth communication, clearance margin, shared UTC clock, full-period statistics, rays, camera modes, real lighting, earthshine, artificial fill and published data sources. It explicitly excludes relays, thermal predictions, landing safety, equipment performance and events missed between hourly samples.
 
@@ -14,7 +20,9 @@ The panel does not copy the scientific model. Site selection still indexes the l
 
 `menu::section` uses `CollapsingState` with a stable identifier. `show_header` paints the triangle, title and real help button; `body` submits controls only when expanded. This is immediate-mode UI: functions describe this frame, while the UI context retains expansion state. The C++ equivalent is a callback-based widget builder plus a persistent state table, not retained widget ownership.
 
-`globe::help::question` stores only a dialog-open boolean under the widget's stable identifier. `Window::open` writes back the close-button state. `on_hover_text` supplies the same ordinary-language text to mouse users, while the explicit button supports touch. `annotated` reserves a narrow help column so long status text wraps rather than pushing the question mark off screen. No help action mutates scientific data.
+`globe::help::question` stores only a dialog-open boolean under the widget's stable identifier. `Window::open` writes back the close-button state. A width-bounded `on_hover_ui` supplies the same ordinary-language text to mouse users, while the explicit button supports touch. `brief` splits at word boundaries without cutting Unicode characters. `annotated` reserves a narrow help column so long status text wraps rather than pushing the question mark off screen. No help action mutates scientific data.
+
+The angular panorama now has a visible Sun/Earth/ground legend, degree signs on elevation and compass ticks, and an emphasized zero-height reference. Faint paths still represent the selected window, while summaries cover the labeled full period. Height stretching remains explicitly quantified. Green/red statuses describe sunlight and Earth clearance without promising electrical output or radio service. The scientific predicates and prepared results are unchanged.
 
 The vector mark uses two filled circles: one blue-gray disk and a smaller background-colored cutout. It is decorative branding, not a lunar phase display. It uses logical screen units and needs no remote asset or font.
 
@@ -98,7 +106,7 @@ impl MoonApp
 			// Apply the UI event only when requested; C++ conditional branch.
 			if phone && ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Compare published lunar south-pole landing points and dates for sunlight and a direct radio path to Earth. Open Menu for grouped settings and Explanations. The globe is illustrative; the panorama uses the computed terrain horizon. This is not an engineering or landing-safety assessment.");
+			question(ui, "Compare places and dates for sunlight and a clear view of Earth. This is not a landing-safety assessment.");
 		}); });
 		// A floating phone drawer leaves the stacked main view at its natural width; C++ modal-free settings window.
 		if phone
@@ -109,10 +117,10 @@ impl MoonApp
 				.id(egui::Id::unique("phone-menu"))
 				.open(&mut open)
 				.collapsible(false)
-				.default_pos([8.0, 38.0])
+				.default_pos([8.0, 66.0])
 				.default_width(300.0)
 				.max_width(320.0)
-				.max_height((ctx.content_rect().height() - 60.0).max(100.0))
+				.max_height((ctx.content_rect().height() - 90.0).max(100.0))
 				.vscroll(true)
 				.show(&ctx, |ui| self.menu_contents(ui));
 			// Persist the presentation change between frames; C++ member assignment.
@@ -122,8 +130,8 @@ impl MoonApp
 		{
 			// A bounded sidebar gives the main views the remaining desktop width; C++ side-container callback.
 			egui::Panel::left("settings")
-				.default_size(270.0)
-				.size_range(250.0..=320.0)
+				.default_size(290.0)
+				.size_range(280.0..=340.0)
 				.show(root, |ui| {
 					egui::ScrollArea::vertical().show(ui, |ui| self.menu_contents(ui));
 				});
@@ -136,6 +144,25 @@ impl MoonApp
 		// Wrap every explanation to the sidebar width; C++ local text policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 		self.site_time_sections(ui);
+		section(
+			ui,
+			"More options",
+			false,
+			"Camera, lighting, rays and extra radio clearance. These settings are optional.",
+			|ui| self.advanced_sections(ui),
+		);
+		section(
+			ui,
+			"Explanations",
+			false,
+			"A short guide to the picture, results and their limits.",
+			explanations,
+		);
+	}
+
+	// Hide specialist settings until requested, retaining established groups; C++ nested menu helper.
+	fn advanced_sections(&mut self, ui: &mut egui::Ui)
+	{
 		section(
 			ui,
 			"View / camera",
@@ -183,13 +210,6 @@ impl MoonApp
 				}
 			},
 		);
-		section(
-			ui,
-			"Explanations",
-			false,
-			"A short guide to what this app shows, how to read it and what it does not predict.",
-			explanations,
-		);
 	}
 
 	// Keep loading progress and failures beside the mode that requested background tracks; C++ member function.
@@ -201,14 +221,14 @@ impl MoonApp
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, false, "Selected site only");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Show only the chosen site's Sun and Earth directions. Bright means available under the local terrain and radio test; dim means blocked. The disks and ray lengths are not to scale.");
+			question(ui, "Show this site's Sun and Earth directions. Bright means clear; dim means blocked, and lengths are not real distances.");
 		});
 		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, true, "All sites");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Load and show every site's own directions at the shared date. This downloads additional data. Back-facing sites remain hidden by the globe; readiness and errors appear below.");
+			question(ui, "Show each site's directions at the same time. This downloads more data; the Moon still hides points on its back.");
 		});
 		// Apply the UI event only when requested; C++ conditional branch.
 		if self.all_rays
@@ -250,31 +270,31 @@ fn explanations(ui: &mut egui::Ui)
 	for (title, text) in [
 		(
 			"Horizon and panorama",
-			"The horizon is the edge of the ground against the sky. The strip looks all the way around you: north, east, south, west, then north again. Height is stretched and labeled. Gray hills hide parts of the Sun and Earth; faint lines show their paths over your chosen window.",
+			"Read the strip from north through east, south and west to north again. Gray ground hides anything below its edge. Heights are stretched.",
 		),
 		(
 			"Sun and power",
-			"Yellow is the Sun. Its visible percentage is the area of its round face above the hills. Even a small visible part counts as some sunlight. This is not guaranteed electrical power: panel direction, dust, equipment and eclipses are not modeled.",
+			"Yellow is the Sun. Its percentage is the visible area above hills, not electricity produced. Equipment, dust and eclipses are not included.",
 		),
 		(
 			"Earth, direct communication and margin",
-			"Blue is Earth. A direct signal travels straight to Earth without a relay. The safety margin asks for extra room above the hills; a partly visible blue disk can still fail that test. The app does not predict antennas, Earth-station schedules or interference.",
+			"Blue is Earth. A direct signal needs a clear path plus extra room above hills. Antennas and ground-station availability are not predicted.",
 		),
 		(
 			"Time and summaries",
-			"UTC is the shared world clock. Data is sampled once per hour, so short events can be missed. Summary percentages cover the full stated period, not just the path window. A day in the longest-night card is 24 hours.",
+			"UTC is the world clock. Hourly samples can miss short events. Summaries cover the stated period, not just the paths; one day is 24 hours.",
 		),
 		(
 			"Rays and camera",
-			"Yellow and blue rays are direction diagrams at the selected date, not distances or physical beams. Dim means blocked at that site. Drag to orbit the Moon or use View from Earth. Go to site centers your point. The globe has limited texture detail; use Site to separate close neighbors.",
+			"Rays show directions, not distances; dim means blocked. Drag to orbit, pinch or scroll to zoom, and use Go to site to center a point.",
 		),
 		(
 			"Lighting, earthshine and fill",
-			"Real Sun and Earth directions change with time. Earthshine is faint reflected sunlight from Earth; boosted exposure makes only that contribution 1000 times brighter. Far side fill is invented gray-blue light for inspection, not real illumination. Neither aid changes the scientific results.",
+			"Earthshine is faint sunlight reflected by Earth. Boost makes it 1,000 times brighter. Far-side fill is invented light for inspection; neither changes results.",
 		),
 		(
 			"Data sources and limits",
-			"Coordinates come from published polar studies and are cited in Site. Sky directions come from NASA/JPL Horizons. Terrain uses NASA LOLA elevation products, with a 2 m observer. The globe uses NASA color and relief maps, but is not a detailed terrain simulation. Relays, heat, landing safety, equipment and short between-hour events are not predicted.",
+			"Published coordinates are cited under Site. NASA Horizons supplies sky directions; LOLA supplies terrain with a 2 m observer. The globe is not a landing-safety model.",
 		),
 	]
 	{
@@ -299,15 +319,24 @@ impl MoonApp
 			|ui| {
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
 				ui.horizontal_wrapped(|ui| {
-				egui::ComboBox::from_id_salt("published-site").selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
+				let width = (ui.available_width() - 54.0).max(100.0);
+				egui::ComboBox::from_id_salt("published-site").width(width).wrap_mode(egui::TextWrapMode::Truncate).selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
 					// Visit each explanatory item in order; C++ range-for loop.
-					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name).on_hover_text(&entry.source); }
+					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name); }
 				});
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				question(ui, "Select a published landing point. Its local sky, statuses and summaries replace the previous site's data while preserving the shared date. Data loads only when needed; coordinates are not moved to improve results.");
+				question(ui, "Choose a published point to update the sky and results. Nearby places can have very different hills.");
 			});
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				ui.small(&self.catalog[self.selected].source);
+				section(
+					ui,
+					"Source",
+					false,
+					"Published coordinates and their citation. These points are not moved to improve the results.",
+					|ui| {
+						ui.small(&self.catalog[self.selected].source);
+					},
+				);
 			},
 		);
 		section(
@@ -341,30 +370,83 @@ impl MoonApp
 // Draw a hover explanation that can also be opened by touch; C++ immediate-mode helper.
 pub fn question(ui: &mut egui::Ui, text: &str)
 {
+	// Bound touch windows and hover tooltips, including future callers; C++ capped text and width.
+	let brief = brief(text);
+	let width = (ui.ctx().content_rect().width() - 48.0).clamp(60.0, 232.0);
 	// Namespace persistent state by this widget's location and explanation; C++ stable widget identifier.
 	let id = ui.make_persistent_id(text);
 	// Restore only presentation state, never scientific values; C++ optional bool with default.
 	let mut open = ui.ctx().data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
 	// A question mark supports both pointer hover and a phone tap; C++ button event.
-	if ui.small_button("?").on_hover_text(text).clicked()
+	if icon(ui)
+		.on_hover_ui(|ui| {
+			ui.set_max_width(width);
+			ui.add(egui::Label::new(&brief).wrap());
+		})
+		.clicked()
 	{
 		// Toggle the modeless explanation without consuming other controls; C++ bool assignment.
 		open = !open;
 	}
-	// Keep long explanations readable and scrollable on a phone; C++ modeless dialog.
-	egui::Window::new("Explanation")
+	// Keep short explanations inside a phone-sized window; C++ bounded modeless dialog.
+	egui::Window::new("Help")
 		.id(id)
 		.open(&mut open)
-		.default_width(280.0)
-		.vscroll(true)
+		.collapsible(false)
+		.auto_sized()
+		.default_width(width)
+		.max_width(width)
+		.resizable(false)
 		.show(ui.ctx(), |ui| {
 			// Wrap to the available screen rather than widening the application; C++ text layout policy.
-			ui.set_max_width(280.0);
+			ui.set_max_width(width);
 			// Display static, ordinary-language help without executing its content; C++ text widget.
-			ui.label(text);
+			ui.add(egui::Label::new(&brief).wrap());
 		});
 	// Preserve the close button or tap result for the next frame; C++ widget-state store.
 	ui.ctx().data_mut(|d| d.insert_temp(id, open));
+}
+
+// Keep a small visual icon inside a full touch target; C++ custom button drawing.
+fn icon(ui: &mut egui::Ui) -> egui::Response
+{
+	let size = ui.spacing().interact_size.y.max(36.0);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+	let color = if response.hovered()
+	{
+		ui.visuals().hyperlink_color
+	}
+	else
+	{
+		ui.visuals().weak_text_color()
+	};
+	ui.painter()
+		.circle_filled(rect.center(), 10.0, ui.visuals().window_fill);
+	ui.painter().circle_stroke(
+		rect.center(),
+		10.0,
+		egui::Stroke::new(0.7, color.gamma_multiply(0.5)),
+	);
+	ui.painter().text(
+		rect.center(),
+		egui::Align2::CENTER_CENTER,
+		"?",
+		egui::FontId::proportional(13.0),
+		color,
+	);
+	response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+// Keep every explanation within 25 words without cutting a Unicode character; C++ bounded word join.
+fn brief(text: &str) -> String
+{
+	let mut words = text.split_whitespace();
+	let mut result = words.by_ref().take(25).collect::<Vec<_>>().join(" ");
+	if words.next().is_some()
+	{
+		result.push_str("...");
+	}
+	result
 }
 
 // Keep a question mark adjacent to wrapping status text; C++ labeled-row helper.
@@ -373,7 +455,10 @@ pub fn annotated(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, explanati
 	// Reserve a small help column even when the prose spans multiple lines; C++ row layout.
 	ui.horizontal_top(|ui| {
 		// Bound the label before submitting it so the help cannot be pushed off-screen; C++ width calculation.
-		let width = (ui.available_width() - 28.0).max(40.0);
+		let width = (ui.available_width()
+			- ui.spacing().interact_size.y.max(36.0)
+			- ui.spacing().item_spacing.x)
+			.max(40.0);
 		// Use a vertical child to obtain automatic wrapping height; C++ child text container.
 		ui.vertical(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
@@ -392,6 +477,46 @@ mod tests
 {
 	// Import the helpers under test without exporting test state; C++ test namespace import.
 	use super::*;
+	#[test]
+	fn short_empty_and_overlong_explanations()
+	{
+		assert_eq!(brief(""), "");
+		assert_eq!(brief("Sun above hills."), "Sun above hills.");
+		let long = brief(&"Moon lumière ".repeat(30));
+		assert_eq!(long.split_whitespace().count(), 25);
+		assert!(long.ends_with("..."));
+	}
+
+	#[test]
+	fn compact_window_on_desktop_and_phone()
+	{
+		for screen_width in [1440.0, 412.0]
+		{
+			let ctx = egui::Context::default();
+			let mut bounds = None;
+			for _ in 0..2
+			{
+				let input = egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(screen_width, 850.0),
+					)),
+					..Default::default()
+				};
+				let mut output = ctx.run_ui(input, |ui| {
+					let text = "Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched.";
+					let id = ui.make_persistent_id(text);
+					ui.ctx().data_mut(|d| d.insert_temp(id, true));
+					question(ui, text);
+					bounds = ui.ctx().memory(|m| m.area_rect(id));
+				});
+				output.textures_delta.clear();
+			}
+			let rect = bounds.unwrap();
+			assert!(rect.width() <= 260.0, "{rect:?}");
+			assert!(rect.height() <= 180.0, "{rect:?}");
+		}
+	}
 	// Verify rendering does not depend on application data or nonempty text; C++ test registration.
 	#[test]
 	fn empty_and_long_help()
@@ -410,6 +535,97 @@ mod tests
 }
 ```
 
+### 4.3. app/src/theme.rs
+
+```rust
+//! Shared dark palette, typography and responsive interaction sizes.
+
+use eframe::egui::{self, Color32, CornerRadius, FontId, Stroke, TextStyle};
+
+// Apply presentation only when the responsive size changes; C++ idempotent style initialization.
+pub(crate) fn apply(ctx: &egui::Context, phone: bool)
+{
+	let height = if phone { 44.0 } else { 36.0 };
+	if ctx.style_of(egui::Theme::Dark).spacing.interact_size.y == height
+	{
+		return;
+	}
+	ctx.style_mut_of(egui::Theme::Dark, |style| {
+		style.spacing.interact_size = egui::vec2(height, height);
+		style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+		style.spacing.button_padding = egui::vec2(12.0, 8.0);
+		style.spacing.window_margin = egui::Margin::same(12);
+		style.spacing.menu_margin = egui::Margin::same(8);
+		for (kind, size) in [
+			(TextStyle::Heading, 24.0),
+			(TextStyle::Body, 15.0),
+			(TextStyle::Button, 14.0),
+			(TextStyle::Small, 12.0),
+		]
+		{
+			style.text_styles.insert(kind, FontId::proportional(size));
+		}
+		palette(&mut style.visuals);
+	});
+}
+
+// Reserve blue for interaction, retaining semantic Sun/Earth and status colors; C++ palette setup.
+fn palette(visuals: &mut egui::Visuals)
+{
+	let accent = Color32::from_rgb(124, 193, 244);
+	visuals.panel_fill = Color32::from_rgb(16, 21, 28);
+	visuals.window_fill = Color32::from_rgb(22, 29, 38);
+	visuals.extreme_bg_color = Color32::from_rgb(9, 13, 18);
+	visuals.override_text_color = Some(Color32::from_rgb(225, 232, 240));
+	visuals.hyperlink_color = accent;
+	visuals.selection.bg_fill = Color32::from_rgb(35, 76, 109);
+	visuals.selection.stroke = Stroke::new(1.0, accent);
+	visuals.window_corner_radius = CornerRadius::same(10);
+	visuals.menu_corner_radius = CornerRadius::same(10);
+	visuals.window_stroke = Stroke::new(1.0, Color32::from_rgb(44, 57, 72));
+	for widget in [
+		&mut visuals.widgets.noninteractive,
+		&mut visuals.widgets.inactive,
+		&mut visuals.widgets.hovered,
+		&mut visuals.widgets.active,
+		&mut visuals.widgets.open,
+	]
+	{
+		widget.corner_radius = CornerRadius::same(8);
+		widget.bg_stroke = Stroke::NONE;
+		widget.bg_fill = Color32::from_rgb(29, 39, 51);
+		widget.weak_bg_fill = Color32::from_rgb(23, 31, 42);
+	}
+	visuals.widgets.hovered.bg_fill = Color32::from_rgb(39, 59, 79);
+	visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, accent);
+	visuals.widgets.active.bg_fill = visuals.selection.bg_fill;
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn responsive_sizes_and_stable_palette()
+	{
+		let ctx = egui::Context::default();
+		for phone in [false, true, true, false]
+		{
+			apply(&ctx, phone);
+			let style = ctx.style_of(egui::Theme::Dark);
+			assert_eq!(
+				style.spacing.interact_size.y,
+				if phone { 44.0 } else { 36.0 }
+			);
+			assert_eq!(style.visuals.window_corner_radius, CornerRadius::same(10));
+			assert_eq!(style.text_styles[&TextStyle::Body].size, 15.0);
+			assert_eq!(style.visuals.panel_fill, Color32::from_rgb(16, 21, 28));
+		}
+	}
+}
+```
+
 ## 5. Alphabetical presentation API index
 
 - `active_texture`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -417,6 +633,7 @@ mod tests
 - `add_enabled`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `add_space`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `advance_upgrade`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `advanced_sections`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `allocate_exact_size`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `allocate_ui`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `allow_double_click_reset`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
@@ -428,8 +645,10 @@ mod tests
 - `annotated`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `announce`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `any`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `apply`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `Arc::clone`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `Arc::new`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `area_rect`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `as_chunks`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `as_deref`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `as_mut`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -437,10 +656,13 @@ mod tests
 - `as_ref`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `asin`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `aspect_ratio`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `assert!`: [annotated globe/src/help.rs](#42-globesrchelprs)
+- `assert_eq!`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `assets::load`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `at`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `atan2`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `attach_shader`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `auto_sized`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `available_size`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `available_width`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `begin_frame`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -451,12 +673,14 @@ mod tests
 - `bind_vertex_array`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `blend_func`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `body`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `brief`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `browser_filter`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `buffer_data_u8_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `build_program`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `build_ray_layout`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `build_sphere`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `button`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `by_ref`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `bytemuck::cast_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `camera_controls`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `card_grid`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
@@ -475,12 +699,15 @@ mod tests
 - `collapsible`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `collect`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `color`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
-- `Color32::from_gray`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `Color32::from_rgb`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `columns`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `compact_window_on_desktop_and_phone`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `compile_shader`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `compile_stages`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `contains`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `content_rect`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `corner_radius`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `CornerRadius::same`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `count`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `crate::sky::show`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `create_buffer`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
@@ -492,6 +719,7 @@ mod tests
 - `cull_face`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `data`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `data_mut`: [annotated globe/src/help.rs](#42-globesrchelprs)
+- `Default::default`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `default_pos`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `default_size`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `default_width`: [annotated app/src/menu.rs](#41-appsrcmenurs)
@@ -527,15 +755,17 @@ mod tests
 - `egui::ComboBox::from_id_salt`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `egui::Context::default`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `egui::FontId::proportional`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `egui::Frame::group`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `egui::Grid::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `egui::Id::unique`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `egui::Label::new`: [annotated globe/src/help.rs](#42-globesrchelprs)
+- `egui::Margin::same`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `egui::Panel::left`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `egui::Panel::top`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `egui::RawInput::default`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `egui::Rect::from_min_size`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::RichText::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `egui::ScrollArea::vertical`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `egui::Sense::click`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `egui::Sense::click_and_drag`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Sense::hover`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `egui::Stroke::new`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -548,6 +778,7 @@ mod tests
 - `enable`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `enable_vertex_attrib_array`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `end_row`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `ends_with`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `enumerate`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `eprintln!`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `exp`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -562,9 +793,11 @@ mod tests
 - `find`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `flat_map`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `flatten`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `FontId::proportional`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `format!`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `frame`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `front_face`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `gamma_multiply`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `generate_mipmap`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `get_error`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `get_parameter_i32`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
@@ -589,12 +822,15 @@ mod tests
 - `horizontal_top`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `horizontal_wrapped`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `hovered`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `icon`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `id`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `include_str!`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `include_y`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `initialize`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `inner_margin`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `input`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `input_mut`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `insert`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `insert_temp`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `interact_pointer_pos`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `into`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
@@ -605,6 +841,7 @@ mod tests
 - `is_some`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `is_some_and`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `iter`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `join`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `last`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `left_top`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -633,6 +870,7 @@ mod tests
 - `max`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `max_height`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `max_width`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `memory`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `menu_contents`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `min`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `model`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -641,7 +879,8 @@ mod tests
 - `new`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `next`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `num_columns`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
-- `on_hover_text`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `on_hover_cursor`: [annotated globe/src/help.rs](#42-globesrchelprs)
+- `on_hover_ui`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `open`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `or_else`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `orbit_input`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -652,6 +891,7 @@ mod tests
 - `paint_surface_rays`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `painter`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `painter_at`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `palette`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `panorama::Panorama::new`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `pending_label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `phone_views`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
@@ -665,6 +905,7 @@ mod tests
 - `project`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `projection`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `push`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `push_str`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `question`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `queue_gl`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `radio_controls`: [annotated app/src/menu.rs](#41-appsrcmenurs)
@@ -677,6 +918,8 @@ mod tests
 - `repeat`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `replace`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `request_repaint`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `resizable`: [annotated globe/src/help.rs](#42-globesrchelprs)
+- `responsive_sizes_and_stable_palette`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `ribbon`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `run_ui`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `scene_lighting`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -701,6 +944,7 @@ mod tests
 - `set_width`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `settings`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `shader_source`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `short_empty_and_overlong_explanations`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `show`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `show_header`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `show_panorama`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
@@ -711,13 +955,15 @@ mod tests
 - `size`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `size_range`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `small`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `small_button`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `solar_status`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `spacing`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `split_whitespace`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `std::array::from_fn`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `Stroke::new`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `strong`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
-- `style`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `style_mut`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `style_mut_of`: [annotated app/src/theme.rs](#43-appsrcthemers)
+- `style_of`: [annotated app/src/theme.rs](#43-appsrcthemers)
 - `summary_card`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `summary_cards`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `surface_ray_controls`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
@@ -758,9 +1004,12 @@ mod tests
 - `viewport_in_pixels`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `visuals`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `vscroll`: [annotated app/src/menu.rs](#41-appsrcmenurs)
+- `weak_text_color`: [annotated globe/src/help.rs](#42-globesrchelprs)
 - `web_sys::console::log_1`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `width`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `with_layout`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `wrap`: [annotated globe/src/help.rs](#42-globesrchelprs)
+- `wrap_mode`: [annotated app/src/menu.rs](#41-appsrcmenurs)
 - `x_axis_formatter`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `x_axis_label`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `x_grid_spacer`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)

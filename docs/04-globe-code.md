@@ -1601,6 +1601,7 @@ mod sky;
 // Keep grouped presentation settings outside scientific orchestration; C++ module declaration.
 mod layout;
 mod menu;
+mod theme;
 
 // Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
 #[derive(serde::Deserialize)]
@@ -1806,6 +1807,8 @@ impl eframe::App for MoonApp
 		self.synchronize_scene();
 		// Draw settings before the central view so desktop width and phone drawer are independent; C++ responsive panel call.
 		let phone = ui.ctx().content_rect().width() < 760.0;
+		theme::apply(ui.ctx(), phone);
+		ui.set_style(ui.ctx().style_of(eframe::egui::Theme::Dark));
 		self.settings(ui, phone);
 		self.central_view(ui);
 	}
@@ -2895,7 +2898,7 @@ impl Globe
 		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
 		ui.horizontal(|ui| {
 			ui.small("Moon overview");
-			help::question(ui, "Drag to orbit the Moon; wheel or pinch to zoom. Magnification stops at 8 times to avoid misleading polar texture streaks. Markers are published points; click one or use Site. This globe is an illustration, not the detailed terrain silhouette shown in the panorama.");
+			help::question(ui, "Drag to turn the Moon; pinch or scroll to zoom. Click a marker to select it; the globe is an illustration.");
 		});
 		// Display 2k before starting an optional upgrade; never blank the existing renderer while waiting.
 		if self
@@ -2915,7 +2918,7 @@ impl Globe
 			help::annotated(
 				ui,
 				format!("Texture detail unavailable: {error}"),
-				"The last successful Moon remains visible if higher detail fails. Try another detail level in View / camera after an upgrade fails, or reload the page if the first images fail. Scientific data is independent of globe textures.",
+				"A failed detail upgrade keeps the current Moon visible. Try another detail setting; sky results do not depend on these pictures.",
 			);
 		}
 	}
@@ -3156,12 +3159,18 @@ impl Globe
 		painter.rect_filled(
 			egui::Rect::from_min_size(
 				rect.left_top() + egui::vec2(5.0, 5.0),
-				egui::vec2(258.0, 59.0),
+				egui::vec2(258.0, 36.0),
 			),
 			3.0,
 			egui::Color32::from_black_alpha(225),
 		);
-		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
+		painter.text(
+			rect.left_top() + egui::vec2(8.0, 8.0),
+			egui::Align2::LEFT_TOP,
+			"Drag to orbit; scroll or pinch to zoom\nIllustration only; polar cap schematic",
+			egui::FontId::proportional(11.0),
+			egui::Color32::LIGHT_GRAY,
+		);
 	}
 }
 
@@ -3314,7 +3323,7 @@ impl Globe
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(1.0); self.focus = None; }
 			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Zoom in, up to 8 times. Higher magnification enlarges misleading polar texture streaks. Choose close neighbors in Site; the panorama uses the detailed terrain horizon.");
+			help::question(ui, "Enlarge the Moon up to eight times. The overview has limited detail; use the site list to distinguish nearby points.");
 		});
 		self.site_camera(ui);
 		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
@@ -3325,7 +3334,7 @@ impl Globe
 		ui.horizontal(|ui| {
 			if ui.add_enabled(ready, egui::Button::new("View from Earth")).clicked()
 			{ self.earth_view = true; self.paused = true; self.zoom = 1.0; self.focus = None; }
-			help::question(ui, "Look along the current Earth direction. The apparent rocking changes with time. This is a direction-correct illustration, not a camera at Earth's true distance.");
+			help::question(ui, "Look toward the Moon from Earth's current direction. Its slight rocking changes with the date; distances are not to scale.");
 		});
 		// Keep synthetic camera spin optional; C++ bool edit.
 		let mut spin = !self.paused;
@@ -3355,12 +3364,12 @@ impl Globe
 		// Explain that increased exposure is not increased power; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
-			help::question(ui, "Earthshine is sunlight reflected by Earth onto the Moon. It is normally thousands of times weaker than sunlight. This exposure boost changes only the illustration, not solar power or communication.");
+			help::question(ui, "Make faint sunlight reflected by Earth 1,000 times brighter. This changes only the picture, not sunlight or radio results.");
 		});
 		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.fill, "Far side fill light");
-			help::question(ui, "Soft gray-blue light helps you inspect the mean far side after dragging around the Moon. It is a visual aid, not real light, and changes no scientific result.");
+			help::question(ui, "Add invented gray-blue light to inspect the far side. This is a visual aid, not real illumination.");
 		});
 	}
 
@@ -3369,7 +3378,7 @@ impl Globe
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
-			help::question(ui, "Parallel yellow rays arrive from the real Sun direction at this date and end on the sunlit sphere. About 256 of 512 evenly distributed points are lit. Lengths are illustrative; this is not terrain shadow tracing. The Moon hides rays behind its surface.");
+			help::question(ui, "Show incoming sunlight across the lit half of the Moon. Lines follow the real Sun direction, but lengths and ground shadows are illustrative.");
 		});
 	}
 }
@@ -3419,7 +3428,7 @@ impl Globe
 			egui::ComboBox::from_id_salt("moon-quality").selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
 				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
 			});
-			help::question(ui, "The Moon always appears in 2k first. Desktop browsers normally improve to 4k; phones keep 2k. Choose 8k only if you want a larger download and have enough memory. Higher detail changes only the globe map, not scientific data. The old Moon remains visible if an upgrade fails.");
+			help::question(ui, "Choose map detail. Higher settings download more and need more memory; they change only the globe picture, not the sky results.");
 		});
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
@@ -3430,7 +3439,7 @@ impl Globe
 				displayed.map_or("loading".into(), |t| format!("{t}k")),
 				self.target_tier
 			),
-			"The first number is the currently visible map. The requested detail replaces it only after both images have decoded and uploaded successfully.",
+			"Showing is the detail visible now. Requested detail replaces it only when ready.",
 		);
 	}
 }
@@ -3603,7 +3612,7 @@ impl Panorama
 		globe::help::annotated(
 			ui,
 			egui::RichText::new("Standing on the Moon").heading(),
-			"Imagine standing at the selected point. The strip shows every direction around you; gray is terrain, yellow is Sun, blue is Earth. Hills hide the parts below their edge. Height is stretched and labeled. Faint paths cover the menu time window; this is not a landing-safety or thermal model.",
+			"Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched.",
 		);
 		// Never draw invented tracks while waiting or after an error; C++ optional extraction.
 		let Some(data) = &mut self.data
@@ -3718,19 +3727,13 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 	let (sun_text, sun_color) = if fraction > 0.0
 	{
 		(
-			format!(
-				"Sun visible: solar power available ({:.1}% of the disk)",
-				fraction * 100.0
-			),
+			format!("Sunlight: {:.1}% of Sun visible", fraction * 100.0),
 			Color32::LIGHT_GREEN,
 		)
 	}
 	else
 	{
-		(
-			"Sun hidden behind terrain: no solar power".into(),
-			Color32::LIGHT_RED,
-		)
+		("Sunlight: blocked by hills".into(), Color32::LIGHT_RED)
 	};
 	// Use large wrapping text so the whole status fits a phone; C++ rich-text widget.
 	globe::help::annotated(
@@ -3739,7 +3742,7 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 			.size(18.0)
 			.strong()
 			.color(sun_color),
-		"Sunlight can reach the site when some of the yellow disk clears the terrain. The percentage is the visible area of the disk, not guaranteed electrical output. Panel direction, hardware, dust and eclipses are not modeled.",
+		"This is the part of the Sun visible above hills now, not electricity produced. Equipment, dust and eclipses are not included.",
 	);
 }
 
@@ -3753,11 +3756,11 @@ fn earth_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 		egui::RichText::new(
 			if earth_visible
 			{
-				"Earth visible: direct communication possible"
+				"Earth link: clear above hills"
 			}
 			else
 			{
-				"Earth hidden: no direct communication"
+				"Earth link: blocked or too close to hills"
 			},
 		)
 		.size(18.0)
@@ -3772,7 +3775,7 @@ fn earth_status(ui: &mut egui::Ui, data: &SiteData, index: usize)
 				Color32::LIGHT_RED
 			},
 		),
-		"A direct radio signal could reach Earth without terrain blocking it, including the chosen safety margin. This is a geometric opportunity, not guaranteed service; relays, antennas and Earth stations are not modeled.",
+		"Earth clears the hills only when it also meets your extra clearance setting. A clear path does not guarantee radio service.",
 	);
 	// Qualify a blocked radio link that may still have a partly visible disk; C++ explanatory label.
 	ui.small("Radio status includes the safety margin, not just the visible blue disk.");
@@ -3789,7 +3792,7 @@ fn summary_cards(ui: &mut egui::Ui, data: &SiteData, summary: &lunar_core::Stats
 		utc_label(*data.sun.t.last().unwrap())
 	));
 	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
-	let card_width = ((ui.available_width() - 40.0) / 2.0).clamp(90.0, 180.0);
+	let card_width = ((ui.available_width() - 56.0) / 2.0).clamp(90.0, 180.0);
 	card_grid(ui, summary, card_width);
 	// Avoid implying that hourly held-sample statistics are continuous event solutions; C++ disclaimer.
 	ui.small("Hourly estimates. Sun time means at least part of the disk is visible. Power and radio service are not guaranteed.");
@@ -3828,8 +3831,10 @@ fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
 fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_width: f32)
 {
 	// A filled frame separates each summary from controls; C++ styled card container.
-	egui::Frame::group(ui.style())
-						.fill(Color32::from_gray(28))
+	egui::Frame::NONE
+						.inner_margin(10.0)
+						.corner_radius(10.0)
+						.fill(Color32::from_rgb(18, 25, 33))
 						.show(ui, |ui| {
 							// Stack each number above its caption instead of inheriting the grid's row layout; C++ column container.
 							ui.vertical(|ui| {
@@ -3838,7 +3843,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Fraction of the entire data period with at least some Sun visible. Partial disks count; this is not energy yield.", 1 => "Fraction of the entire period with direct Earth clearance at your chosen radio margin, not guaranteed radio service.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest continuous sampled interval without any Sun, measured in days. A day here is 24 hours; short events between hourly samples can be missed." }); });
+								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the stated period with any Sun visible. A small visible part counts; this is not electricity produced.", 1 => "Share of the stated period with Earth clear of hills and your extra clearance. Radio service is not guaranteed.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest stretch without any Sun in the hourly samples. One day is 24 hours; short events may be missed." }); });
 							});
 						});
 }
@@ -3990,6 +3995,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `compile_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `compile_stages`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `contains`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `corner_radius`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `cos`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `crate::sky::show`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `create_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4126,6 +4132,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `include_str!`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `include_y`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `initialize`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `inner_margin`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `inner_width`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `input`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `input_mut`: [annotated globe/src/lib.rs](#44-globesrclibrs)

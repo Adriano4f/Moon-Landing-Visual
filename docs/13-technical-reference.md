@@ -299,6 +299,10 @@ Go to site targets $\alpha=-\lambda$, $\theta=\phi$, mapping the site's radial v
 
 ## 9. Application state and interface
 
+The compact menu exposes Site and Time, with specialist groups under collapsed More options and a separate shortened Explanations section. Citations are collapsed under Source. Shared help rendering limits every question-mark explanation to 25 words and 232 logical pixels of content, approximately 260 pixels including window chrome, for hover and tap alike. Longer help cannot widen a phone screen. The panorama labels both angular axes in degrees, names Sun/Earth/ground in a persistent legend, emphasizes zero height, and keeps the actual vertical stretch visible. Short green/red statuses indicate availability without promising electrical output or radio service; no scientific results change with this presentation.
+
+The shared dark style uses a blue interaction accent, 10 pixel item spacing, 8 to 10 pixel corner radii and a 24/15/14/12 pixel heading/body/button/caption hierarchy. Ordinary controls reserve 36 pixel desktop and 44 pixel phone heights. Small circular help glyphs use the same full interaction target. Zero-height help explicitly identifies the observer's local horizontal plane: positive angles are above eye level and negative angles below it, independent of terrain altitude. Theme changes never alter scientific state.
+
 Only the catalog is embedded. Selecting a site starts its native disk or browser HTTP load once and caches the validated result. Switching back reuses it. All-sites ray mode requests other tracks on demand and displays readiness and individual failures. Each completion slot belongs to its own model, preventing an older request from replacing another site's state.
 
 Native resource directories can be overridden with `MOON_DATA_DIR` and `MOON_ASSET_DIR`; `MOON_TIER` selects a native texture target subject to hardware limits. Browser resources use relative `assets/data/` and `assets/globe/` paths. The page title is Karaya Explorer.

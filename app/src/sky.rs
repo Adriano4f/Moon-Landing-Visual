@@ -51,7 +51,7 @@ fn project(rect: Rect, az: f64, el: f64) -> Pos2
 pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, index: usize, range: Range<usize>)
 {
 	// Name body colors without requiring a legend click; C++ caption.
-	ui.small("Looking all around: yellow Sun, blue Earth, grey ground");
+	legend(ui);
 	// A fixed-height strip remains usable within the outer scrolling layout; C++ layout allocation.
 	let (response, painter) = ui.allocate_painter(
 		egui::vec2(ui.available_width(), 210.0),
@@ -72,7 +72,9 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, index: usize, range: Rang
 	// Calculate the actual nonuniform angular display scale from the allocated rectangle; C++ ratio of pixels per degree.
 	let stretch = (rect.height() / 20.0) / (rect.width() / 360.0);
 	// Warn about vertical exaggeration rather than depicting the ellipses as true visual aspect ratios; C++ caption.
-	ui.small(format!("Height in degrees; vertical scale stretched {stretch:.1}x. Disks use true angular size. Paths: selected window."));
+	ui.small(format!(
+		"0° is level. Height stretched {stretch:.1}x; faint lines show the selected paths."
+	));
 	// Preserve explicit missing-terrain labeling for legacy data; C++ optional guard.
 	if data.horizon.is_none()
 	{
@@ -81,6 +83,21 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, index: usize, range: Rang
 			"Flat horizon (no DEM yet): hills are not modeled.",
 		);
 	}
+}
+
+// Keep colors, units and the occluding ground explicit beside the graph; C++ legend row.
+fn legend(ui: &mut egui::Ui)
+{
+	ui.horizontal_wrapped(|ui| {
+		ui.small("Sky height (°)");
+		globe::help::question(
+			ui,
+			"0° is eye level over perfectly flat ground. Positive is above it; negative is below.",
+		);
+		ui.colored_label(Color32::YELLOW, "● Sun");
+		ui.colored_label(Color32::LIGHT_BLUE, "● Earth");
+		ui.colored_label(Color32::GRAY, "■ Ground blocks view");
+	});
 }
 
 // Compile pure geometry tests without starting a window or a GL context; C++ test translation unit.
@@ -134,26 +151,36 @@ fn guides(painter: &egui::Painter, sky: &egui::Painter, rect: Rect)
 		// Draw faint horizontal guides behind the bodies; C++ line primitive.
 		sky.line_segment(
 			[p, egui::pos2(rect.right(), p.y)],
-			Stroke::new(0.5, Color32::from_gray(38)),
+			Stroke::new(
+				if el == 0.0 { 1.0 } else { 0.5 },
+				Color32::from_gray(if el == 0.0 { 85 } else { 38 }),
+			),
 		);
 		// Label degrees outside the scene's clipping rectangle; C++ positioned text.
 		painter.text(
 			egui::pos2(rect.left() - 4.0, p.y),
 			egui::Align2::RIGHT_CENTER,
-			format!("{el:+.0}"),
+			format!("{el:+.0}°"),
 			egui::FontId::proportional(10.0),
 			Color32::GRAY,
 		);
 	}
 	// Cardinal marks describe direction around the observer; C++ counted loop.
-	for (i, label) in ["N", "E", "S", "W", "N"].iter().enumerate()
+	for (i, label) in ["N 0°", "E 90°", "S 180°", "W 270°", "N 360°"]
+		.iter()
+		.enumerate()
 	{
 		// Include both north endpoints without joining paths across the wrap; C++ affine transform.
 		let p = project(rect, i as f64 * 90.0, -10.0);
 		// Compass labels stay readable against the outer panel; C++ text primitive.
 		painter.text(
 			p + egui::vec2(0.0, 13.0),
-			egui::Align2::CENTER_CENTER,
+			match i
+			{
+				0 => egui::Align2::LEFT_CENTER,
+				4 => egui::Align2::RIGHT_CENTER,
+				_ => egui::Align2::CENTER_CENTER,
+			},
 			*label,
 			egui::FontId::proportional(13.0),
 			Color32::WHITE,

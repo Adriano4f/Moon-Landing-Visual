@@ -43,7 +43,7 @@ A stable widget identity lets egui associate this frame's description with its p
 
 CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
 
-Implementation: [app/src/lib.rs:209](../app/src/lib.rs#L209), [app/src/panorama/view.rs:6](../app/src/panorama/view.rs#L6).
+Implementation: [app/src/lib.rs:210](../app/src/lib.rs#L210), [app/src/panorama/view.rs:6](../app/src/panorama/view.rs#L6).
 
 ## 4. Asynchronous loading and ownership
 
@@ -71,7 +71,7 @@ The first displayed index is the first timestamp at least $t_{\min}$; the exclus
 
 For example, on hourly timestamps [0,3600,7200], a 1-hour centered window around 3600 covers [1800,5400] seconds and contains only index 1. A 2-hour centered window covers [0,7200] and includes all three. Tests also use a deliberately irregular time grid to distinguish true duration selection from a sample-count approximation.
 
-Implementation: [app/src/panorama.rs:333](../app/src/panorama.rs#L333), [app/src/panorama.rs:310](../app/src/panorama.rs#L310).
+Implementation: [app/src/panorama.rs:345](../app/src/panorama.rs#L345), [app/src/panorama.rs:322](../app/src/panorama.rs#L322).
 
 ## 6. Plot construction and north-wrap handling
 
@@ -85,7 +85,7 @@ An empty selection yields no lines. A one-point piece remains safe; the separate
 
 For a supplied Horizon with $m$ uniform bins, the renderer samples at $\max(m,360)$ intervals including both endpoints. Each point calls Horizon::at; all original bin boundaries are included, and the 360-degree endpoint interpolates back to north. It does not read a DEM or recompute terrain rays. The terrain line remains distinct from the zero reference.
 
-Implementation: [app/src/panorama/view.rs:76](../app/src/panorama/view.rs#L76), [app/src/panorama.rs:348](../app/src/panorama.rs#L348).
+Implementation: [app/src/panorama/view.rs:76](../app/src/panorama/view.rs#L76), [app/src/panorama.rs:360](../app/src/panorama.rs#L360).
 
 ## 7. Visibility and the rotating site marker
 
@@ -678,32 +678,44 @@ impl Panorama
 		// Always identify the chosen time and clock convention; C++ formatted label.
 		ui.strong(utc_label(data.sun.t[self.index]));
 		// Let the time slider fill the available width; C++ local style assignment.
-		ui.spacing_mut().slider_width = (ui.available_width() - 65.0).max(100.0);
+		ui.spacing_mut().slider_width = (ui.available_width() - 112.0).max(80.0);
 		// Select only real hourly samples; C++ bounded integer slider.
 		ui.horizontal(|ui| {
-		ui.add(
-			egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
-				.show_value(false)
-				.text("Time"),
-		);
-			globe::help::question(ui, "Choose the shared hourly UTC date. UTC is the world clock, not local time. All views use this date; between-hour events may be missed.");
+			ui.add(
+				egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
+					.show_value(false)
+					.text("Time"),
+			);
+			globe::help::question(
+				ui,
+				"Choose the world-clock date for every view. Hourly samples can miss short events.",
+			);
 		});
 		// Wrapping rows remain usable when narrow; C++ flow layout callback.
-		ui.horizontal_wrapped(|ui| {
+		ui.horizontal(|ui| {
 			// Saturating subtraction keeps the first sample safe; C++ clamped decrement.
-			globe::help::question(ui, "Move one hourly sample backward. At the first date it stays at the start.");
-			if ui.button("< 1 hour").clicked()
+			if ui.button("< 1 h").clicked()
 			{
 				// Update this persistent member explicitly; C++ member assignment.
 				self.index = self.index.saturating_sub(1);
 			}
+			globe::help::question(
+				ui,
+				"Move one hourly sample backward. At the first date it stays at the start.",
+			);
 			// Clamp at the inclusive final epoch; C++ clamped increment.
-			globe::help::question(ui, "Move one hourly sample forward. At the final date it stays at the end.");
-			if ui.button("1 hour >").clicked()
+			if ui.button("1 h >").clicked()
 			{
 				// Update this persistent member explicitly; C++ member assignment.
 				self.index = (self.index + 1).min(data.sun.t.len() - 1);
 			}
+			globe::help::question(
+				ui,
+				"Move one hourly sample forward. At the final date it stays at the end.",
+			);
+		});
+		ui.horizontal(|ui| {
+			ui.small("Paths");
 			// Explain that the window controls faint paths, not summary percentages; C++ combo box.
 			egui::ComboBox::from_id_salt("time_window")
 				.selected_text(window_label(self.hours))
@@ -755,7 +767,7 @@ impl Panorama
 
 		globe::help::question(
 			ui,
-			"Require extra angular clearance above the hills for a direct radio signal: 0.5 to 1 degree. A degree is 1/360 of a full turn. This does not model antennas, relays, Earth stations or interference; a visible blue disk alone does not guarantee a link.",
+			"Ask for extra room above hills before counting a clear Earth path. Seeing part of Earth does not guarantee radio service.",
 		);
 	}
 	// Preserve detailed plots as an opt-in setting; C++ member function.
@@ -763,7 +775,7 @@ impl Panorama
 	{
 		ui.horizontal(|ui| {
 			ui.checkbox(&mut self.technical, "Technical view");
-			globe::help::question(ui, "Replace the standing-view strip with the numerical azimuth/elevation plot. Azimuth runs north through east, south and west; elevation is height above your horizontal plane. It uses exactly the same data.");
+			globe::help::question(ui, "Show the same sky as a numbered graph. Direction runs clockwise from north; height is measured above horizontal.");
 		});
 	}
 }
