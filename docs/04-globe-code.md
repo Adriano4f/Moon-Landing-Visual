@@ -558,11 +558,11 @@ impl View
 		let length = dx.hypot(dy).max(1e-6);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let offset = [
-			-dy / length * 2.8 * self.scale / self.pixels[0],
-			dx / length * 2.8 * self.scale / self.pixels[1],
+			-dy / length * 2.5 * self.scale / self.pixels[0],
+			dx / length * 2.5 * self.scale / self.pixels[1],
 		];
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut vertices = Vec::with_capacity(330);
+		let mut vertices = Vec::with_capacity(462);
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for (p, sign) in [
 			(origin, -1.0),
@@ -573,7 +573,15 @@ impl View
 			(origin, 1.0),
 		]
 		{
-			vertices.extend_from_slice(&[p[0], p[1], p[2], offset[0] * sign, offset[1] * sign]);
+			vertices.extend_from_slice(&[
+				p[0],
+				p[1],
+				p[2],
+				offset[0] * sign,
+				offset[1] * sign,
+				sign,
+				0.0,
+			]);
 		}
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for i in 0..20
@@ -588,11 +596,19 @@ impl View
 				// Bind this intermediate value for the current operation; C++ local initialization.
 				let uv = angle.map_or([0.0, 0.0], |a| {
 					[
-						a.cos() * 11.0 * self.scale / self.pixels[0],
-						a.sin() * 11.0 * self.scale / self.pixels[1],
+						a.cos() * 4.0 * self.scale / self.pixels[0],
+						a.sin() * 4.0 * self.scale / self.pixels[1],
 					]
 				});
-				vertices.extend_from_slice(&[end[0], end[1], end[2], uv[0], uv[1]]);
+				vertices.extend_from_slice(&[
+					end[0],
+					end[1],
+					end[2],
+					uv[0],
+					uv[1],
+					angle.map_or(0.0, f32::cos),
+					angle.map_or(0.0, f32::sin),
+				]);
 			}
 		}
 		vertices
@@ -818,13 +834,13 @@ mod tests
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
 		// Enforce the independent regression expectation; C++ test assertion.
-		assert_eq!(vertices.len(), 330);
+		assert_eq!(vertices.len(), 462);
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(vertices.iter().all(|v| v.is_finite()));
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let width = (vertices[3].powi(2) + vertices[4].powi(2)).sqrt() * 800.0;
 		// Enforce the independent regression expectation; C++ test assertion.
-		assert!((width - 5.6).abs() < 1e-4);
+		assert!((width - 5.0).abs() < 1e-4);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let aligned = view.ribbon(point, point);
 		// Enforce the independent regression expectation; C++ test assertion.
@@ -834,9 +850,9 @@ mod tests
 		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
 		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
 		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
-		assert_eq!(aligned.len(), 330);
-		// The first outer disk vertex is 5.5 logical points from its center; C++ screen-space radius check.
-		assert!((aligned[38].hypot(aligned[39]) * 400.0 - 11.0).abs() < 1e-4);
+		assert_eq!(aligned.len(), 462);
+		// The first outer disk vertex is 2 logical points from its center; C++ screen-space radius check.
+		assert!((aligned[52].hypot(aligned[53]) * 400.0 - 4.0).abs() < 1e-4);
 	}
 
 	// Register an independent local-frame regression; C++ test registration.
@@ -981,6 +997,7 @@ mod tests
 
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
+mod field;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
@@ -1075,6 +1092,8 @@ pub struct Globe
 	// Requested final detail is independent of the first visible 2k pair; C++ unsigned members.
 	target_tier: u32,
 	max_tier: u32,
+	// Optional illustrative parallel Sun rays; C++ bool.
+	surface_rays: bool,
 	// Interactive presentation state is independent of ephemeris time; C++ value members.
 	scene: Vec<Marker>,
 	selected: usize,
@@ -1113,6 +1132,7 @@ mod scene_tests
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
+			surface_rays: false,
 			scene: vec![],
 			selected: 0,
 			yaw: 0.0,
@@ -1187,6 +1207,7 @@ impl Globe
 			// Shared optional GPU state, absent while loading; C++ shared_ptr<mutex-protected optional<Renderer>>.
 			renderer: Arc::new(Mutex::new(None)),
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
+			surface_rays: false,
 			loading: assets::load(2, None),
 			tier: 2,
 			target_tier: tier,
@@ -1322,6 +1343,15 @@ impl Globe
 			),
 			"The first number is the currently visible map. The requested detail replaces it only after both images have decoded and uploaded successfully.",
 		);
+	}
+
+	// Expose the independent surface field without requesting more site tracks; C++ checkbox.
+	pub fn surface_ray_controls(&mut self, ui: &mut egui::Ui)
+	{
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
+			help::question(ui, "Parallel yellow rays arrive from the real Sun direction at this date and end on the sunlit sphere. About 256 of 512 evenly distributed points are lit. Lengths are illustrative; this is not terrain shadow tracing. The Moon hides rays behind its surface.");
+		});
 	}
 
 	// Draw physical-light display aids separately from camera actions; C++ member function.
@@ -1541,6 +1571,7 @@ impl Globe
 			})
 			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
+		let surface_rays = self.surface_rays;
 		let ctx = ui.ctx().clone();
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -1593,7 +1624,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_mut()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays, lighting);
+					renderer.paint(painter.gl(), view, &rays, lighting, surface_rays);
 					// Announce a real lit draw, not merely decoded textures with pending sky data; C++ frame diagnostic.
 					if lighting.is_some() && !renderer.visible_announced
 					{
@@ -1688,6 +1719,15 @@ impl Globe
 				}
 			}
 		}
+		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
+		painter.rect_filled(
+			egui::Rect::from_min_size(
+				rect.left_top() + egui::vec2(5.0, 5.0),
+				egui::vec2(258.0, 59.0),
+			),
+			3.0,
+			egui::Color32::from_black_alpha(225),
+		);
 		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
@@ -1811,6 +1851,7 @@ impl Renderer
 				gl.bind_attrib_location(program, 0, "a_position");
 				// Fix the input location to match the vertex layout; C++ glBindAttribLocation before linking.
 				gl.bind_attrib_location(program, 1, "a_uv");
+				gl.bind_attrib_location(program, 2, "a_coverage");
 				// Connect vertex outputs to fragment inputs; C++ glLinkProgram.
 				gl.link_program(program);
 				// Reject incompatible stages; C++ glGetProgramiv with GL_LINK_STATUS.
@@ -1875,9 +1916,11 @@ impl Renderer
 				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
 				gl.enable_vertex_attrib_array(0);
 				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
-				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 28, 0);
 				gl.enable_vertex_attrib_array(1);
-				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
+				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 28, 12);
+				gl.enable_vertex_attrib_array(2);
+				gl.vertex_attrib_pointer_f32(2, 2, glow::FLOAT, false, 28, 20);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -2154,6 +2197,7 @@ impl Renderer
 		view: math::View,
 		rays: &[([f32; 3], [Ray; 2])],
 		lighting: Option<Lighting>,
+		surface_rays: bool,
 	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
@@ -2249,6 +2293,14 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// Smooth alpha coverage needs blending on native and WebGL; C++ glEnable/glBlendFunc.
+			gl.enable(glow::BLEND);
+			gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+			gl.depth_mask(false);
+			if surface_rays
+			{
+				self.paint_surface_rays(gl, program, view, lighting);
+			}
 			// These are direction diagrams, not physical beams: retain blocked rays on the visible surface; C++ depth-state change.
 			gl.disable(glow::DEPTH_TEST);
 			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
@@ -2292,11 +2344,14 @@ impl Renderer
 					);
 					// Draw both ribbon faces and the endpoint fan as portable triangles; C++ glDrawArrays(GL_TRIANGLES).
 					gl.disable(glow::CULL_FACE);
-					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 5) as i32);
+					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 7) as i32);
 				}
 				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);
 			}
+			// Restore write/blend policy after transparent diagrams; C++ GL state restoration.
+			gl.depth_mask(true);
+			gl.disable(glow::BLEND);
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
@@ -2315,6 +2370,51 @@ impl Renderer
 			gl.disable(glow::DEPTH_TEST);
 			// Disable blending for opaque drawing, or restore depth/culling after it; C++ glDisable.
 			gl.disable(glow::CULL_FACE);
+		}
+	}
+
+	// Batch the entire Sun field into one cheap draw; C++ dynamic interleaved vertex vector.
+	fn paint_surface_rays(
+		&self,
+		gl: &glow::Context,
+		program: glow::Program,
+		view: math::View,
+		lighting: Option<Lighting>,
+	)
+	{
+		let Some(light) = lighting
+		else
+		{
+			return;
+		};
+		let mut vertices = Vec::new();
+		for point in field::illuminated_points(light.sun)
+		{
+			let origin = std::array::from_fn(|i| point[i] + 0.6 / view.zoom * light.sun[i]);
+			let mut ribbon = view.ribbon(origin, point);
+			ribbon.truncate(42);
+			vertices.extend(ribbon);
+		}
+		// SAFETY: the callback owns the current GL context; the ray layout matches seven floats per vertex.
+		unsafe {
+			gl.enable(glow::DEPTH_TEST);
+			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
+			gl.uniform_3_f32(
+				gl.get_uniform_location(program, "u_ray_color").as_ref(),
+				1.0,
+				0.9,
+				0.05,
+			);
+			gl.bind_vertex_array(self.ray_vao);
+			gl.bind_buffer(glow::ARRAY_BUFFER, self.ray_buffer);
+			gl.buffer_data_u8_slice(
+				glow::ARRAY_BUFFER,
+				bytemuck::cast_slice(&vertices),
+				glow::STREAM_DRAW,
+			);
+			gl.disable(glow::CULL_FACE);
+			gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 7) as i32);
+			gl.bind_buffer(glow::ARRAY_BUFFER, None);
 		}
 	}
 
@@ -2377,6 +2477,9 @@ precision highp float;
 in vec3 a_position;
 // Read the mesh UV from location one; fragment shading reconstructs UV from direction for seam-safe derivatives.
 in vec2 a_uv;
+// Signed cross-strip or circular coordinates for analytic ray coverage; C++ vertex attribute.
+in vec2 a_coverage;
+out vec2 v_coverage;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
 // Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
@@ -2400,6 +2503,7 @@ void main()
 	v_position = p;
 	// Export the mesh UV, while the fragment stage uses analytic direction-based sampling.
 	v_uv = a_uv;
+	v_coverage = a_coverage;
 	// Export the original direction for texture lookup independently of rotation.
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.
@@ -2428,6 +2532,8 @@ uniform mat3 u_model;
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
 uniform highp int u_ray_mode;
+// Interpolated signed-distance coordinates, independent of clip-space offsets.
+in vec2 v_coverage;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
 // Receive the actual Moon-fixed Sun direction; C++ glUniform3f.
@@ -2596,7 +2702,7 @@ void main()
 	if (u_ray_mode != 0)
 	{
 		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
-		out_color = vec4(u_ray_color, 1.0);
+		out_color = vec4(u_ray_color, 1.0 - smoothstep(0.15, 1.0, length(v_coverage)));
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;
 	}
@@ -3176,6 +3282,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `bind_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_vertex_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `blend_func`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `BodyDirection`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bottom`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `Box::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
@@ -3252,6 +3359,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `eframe::run_native`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eframe::WebRunner::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `egui::Button::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `egui::Color32::from_black_alpha`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -3259,6 +3367,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `egui::Grid::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::Mesh::default`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `egui::pos2`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
+- `egui::Rect::from_min_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::RichText::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::Sense::click_and_drag`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Sense::hover`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -3283,8 +3392,10 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `exp`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `expand`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `expect`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `extend`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `field::illuminated_points`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `fill`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `filter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `filter_map`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -3401,6 +3512,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `on_hover_text`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `open`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `paint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `paint_surface_rays`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `painter_at`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `panic!`: [annotated app/src/main.rs](#48-appsrcmainrs)
@@ -3481,6 +3593,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `sum`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `summary_uses_full_duration_and_current_clearance`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `super::panorama::segments`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
+- `surface_ray_controls`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `take`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `tan`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `technical`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -3499,6 +3612,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `to_string`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `transpose`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `trim`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `truncate`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_1_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_1_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_3_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)

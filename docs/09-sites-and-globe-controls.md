@@ -94,7 +94,7 @@ Markers are six logical points in radius, with a two-point white outline; the se
 
 ## 19. Thick rays and endpoint disks
 
-WebGL implementations commonly support only one-pixel GL_LINES, so glLineWidth is not a portable solution. Each ray is now a pair of triangles, a camera-facing ribbon. Its endpoint carries a twenty-triangle circular billboard disk. Position uses three floats and the clip-space offset uses two more, matching a twenty-byte vertex stride. This reuses the existing vertex-buffer ownership and constant-color material branch.
+WebGL implementations commonly support only one-pixel GL_LINES, so glLineWidth is not a portable solution. Each ray is a pair of triangles, a camera-facing ribbon. Its endpoint carries a twenty-triangle circular billboard disk. Position uses three floats, clip-space offset two, and coverage coordinates two more, matching a twenty-eight-byte vertex stride. This reuses the existing vertex-buffer ownership and constant-color material branch. The optional global Sun field batches its triangle strips into one additional draw.
 
 The shared u_ray_mode integer uniform explicitly uses highp in both shader stages. WebGL's linker rejects the default mismatch between vertex high precision and fragment medium precision; native linking alone does not catch it. Browser verification exposed this mismatch and the explicit qualifier fixes it. A source-contract regression guards both declarations.
 
@@ -102,7 +102,7 @@ Let projected endpoints be a and b in normalized device coordinates. Convert b-a
 
 $$\delta_x=n_x\frac{ws}{W},\qquad \delta_y=n_y\frac{ws}{H}.$$
 
-W and H are the physical viewport dimensions. Vertices receive plus/minus delta. The vertex shader adds offset times homogeneous clip w to clip x/y. Perspective division then cancels that w, leaving a constant screen width rather than a ribbon that collapses with depth. Width is 2.8 logical points; endpoint radius is 5.5 points. A degenerate camera-aligned ray is guarded against division by zero and still receives an endpoint disk.
+W and H are the physical viewport dimensions. Vertices receive plus/minus delta. The vertex shader adds offset times homogeneous clip w to clip x/y. Perspective division then cancels that w, leaving a constant screen width rather than a ribbon that collapses with depth. The billboard support is 2.5 logical points wide, with smooth alpha coverage giving approximately 1.44 points of effective width. Endpoint support radius is 2 points and also has smooth coverage. A degenerate camera-aligned ray is guarded against division by zero and still receives an endpoint disk.
 
 The direction remains the ENU-derived Moon-fixed unit vector from the preceding guide. For legibility at high zoom, illustrative ray length becomes 0.6 divided by zeta lunar radii. This preserves roughly similar on-screen reach and keeps endpoint disks in useful proximity to the magnified marker. It is explicitly not a distance scale.
 
@@ -154,6 +154,7 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `bind_buffer`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `bind_texture`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `bind_vertex_array`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
+- `blend_func`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `BodyDirection`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `buffer_data_u8_slice`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `bundled_three_years_are_aligned_hourly_and_have_terrain`: [annotated app/src/data.rs](#212-appsrcdatars)
@@ -219,11 +220,13 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `eframe::egui::ScrollArea::vertical`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::vec2`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `egui::Button::new`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
+- `egui::Color32::from_black_alpha`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `egui::Frame::group`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Grid::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `egui::Rect::from_min_size`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `egui::RichText::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Sense::click_and_drag`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `egui::Slider::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -241,8 +244,10 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `eprintln!`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `exp`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `expand`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
+- `extend`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](08-rays.md#141-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `field::illuminated_points`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `filename`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `fill`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `filter`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
@@ -352,6 +357,7 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `on_exit`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `or_else`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `paint`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
+- `paint_surface_rays`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `painter_at`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `panorama::Panorama::new`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
@@ -373,6 +379,7 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `push`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `radio_controls`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `radius`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `rect_filled`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `rejects_invalid_inputs`: [annotated app/src/data.rs](#212-appsrcdatars)
 - `rem_euclid`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Renderer::new`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
@@ -424,6 +431,7 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `suffix`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `sum`: [annotated globe/src/math.rs](08-rays.md#141-globesrcmathrs)
 - `summary_uses_full_duration_and_current_clearance`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `surface_ray_controls`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `take`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `tan`: [annotated globe/src/math.rs](08-rays.md#141-globesrcmathrs)
 - `technical`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -439,6 +447,7 @@ Tests cover catalog identifiers/filenames, shared-epoch lookup with out-of-range
 - `to_radians`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `to_string`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `trim`: [annotated app/src/data.rs](#212-appsrcdatars)
+- `truncate`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `ui`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `uniform_1_f32`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
 - `uniform_1_i32`: [annotated globe/src/lib.rs](08-rays.md#142-globesrclibrs)
@@ -833,6 +842,9 @@ precision highp float;
 in vec3 a_position;
 // Read the mesh UV from location one; fragment shading reconstructs UV from direction for seam-safe derivatives.
 in vec2 a_uv;
+// Signed cross-strip or circular coordinates for analytic ray coverage; C++ vertex attribute.
+in vec2 a_coverage;
+out vec2 v_coverage;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
 // Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
@@ -856,6 +868,7 @@ void main()
 	v_position = p;
 	// Export the mesh UV, while the fragment stage uses analytic direction-based sampling.
 	v_uv = a_uv;
+	v_coverage = a_coverage;
 	// Export the original direction for texture lookup independently of rotation.
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.

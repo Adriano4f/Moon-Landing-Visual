@@ -197,6 +197,7 @@ impl MoonApp
 	// Keep loading progress and failures beside the mode that requested background tracks; C++ member function.
 	fn ray_controls(&mut self, ui: &mut egui::Ui)
 	{
+		self.globe.surface_ray_controls(ui);
 		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.

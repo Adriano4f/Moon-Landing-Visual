@@ -1,5 +1,11 @@
 # Sun and Earth directions on the rotating Moon
 
+## Thin coverage and the optional global Sun field
+
+Site ribbons use a 2.5-logical-point support with alpha `1 - smoothstep(0.15, 1, abs(x))` across signed transverse coordinate x. Its integrated width is approximately 1.44 logical points. Endpoint disks have a 2-point support radius and the same smooth radial coverage. Seven floats per vertex carry position, clip offset and independent coverage coordinates. Alpha blending is enabled only for diagrams; sphere opacity is unchanged. This works with WebGL triangles, without implementation-dependent line width.
+
+The Rays section includes a separate, initially disabled **Rays across the whole Moon** option. A 512-point Fibonacci sphere uses equal-area latitude bands and a golden-angle longitude. Only points with positive dot product against the current Moon-fixed Sun direction contribute, approximately 256 rays. Each ray runs from an illustrative upstream endpoint to its surface intersection. These parallel incoming rays use the actual slider-time direction, sphere depth occlusion and a single batched draw. They do not request other sites, calculate terrain shadows or affect statistics. There are no global Earth rays. Missing lighting draws no field; invalid/zero directions produce no samples.
+
 ## 9. The local frame from zero
 
 The panorama describes the sky at one landing site. Its azimuth A is a direction around the observer, measured from geographic north toward east. Elevation e is the angle above the observer's horizontal plane. A ray in the globe must first convert those angles into a three-dimensional direction fixed to the Moon, then apply the same presentation rotation as the site marker. It must not treat azimuth as longitude or elevation as latitude on the Moon.
@@ -55,7 +61,7 @@ P is the zoomed perspective matrix, M the shared rigid rotation, alpha the longi
 
 A separate vertex array object stores the ray layout. A small buffer receives the ribbon and endpoint triangles with STREAM_DRAW, meaning frequently replaced data. It is registered immediately in the renderer's existing owned buffer inventory; the additional vertex array is destroyed on shutdown and on partial initialization failure. The ray-buffer field is an alias, not a second owner. Cleanup clears it after deleting the owned buffers, preventing double deletion. The textured sphere's static mesh is never overwritten.
 
-The same vertex shader is reused. A uniform integer u_ray_mode chooses a constant-color early return in the fragment shader before texture derivatives, normal mapping or Hapke calculations. Zero is restored before every Moon draw; one is selected only for the diagrams. Yellow is Sun, blue is Earth. Available directions use full RGB brightness; blocked directions use 0.35 times those display values. This is dimming, not blending. The Moon remains opaque and depth-tested.
+The same vertex shader is reused. A uniform integer u_ray_mode chooses a constant-color early return in the fragment shader before texture derivatives, normal mapping or Hapke calculations. Zero is restored before every Moon draw; one is selected only for the diagrams. Yellow is Sun, blue is Earth. Available directions use full RGB brightness; blocked directions use 0.35 times those display values. Blocked-state dimming remains independent of smooth edge-alpha blending. The Moon remains opaque and depth-tested.
 
 The sphere is drawn first. The newer ribbons are direction diagrams over its visible surface: their origins must face the camera, but their segments do not depth-test against the smooth sphere. This keeps a blocked body's direction readable at high zoom instead of hiding its entire short segment underground. Their exact origin can be covered by the outlined marker, drawn afterward. Real terrain determines dimming in the app. The [real-lighting extension](10-real-lighting-and-orbit.md) now lights the globe using that same scientific Sun direction, independently of the unlit ray colors.
 
@@ -63,7 +69,7 @@ The sphere is drawn first. The newer ribbons are direction diagrams over its vis
 
 Run workspace tests, clippy, native release and WASM checks. Build Trunk from app/ and verify Chrome phone emulation has no page or console errors. Native captures at sample 0 and sample 1138 exercise opposite sunlight/radio states. Inspect rays.png and rays_dark.png, plus rays_mobile.png and a close crop around the marker: origins agree, colors follow the selected status, and the low-elevation Sun ray lies near the local tangent rather than pointing radially away from the pole. Browser testing uses Pixel 7 emulation with DPR 2; it is not a physical phone or the user's GPU.
 
-The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight the Moon or modify solar/radio statistics. Camera controls, thick ribbons, endpoint disks and all-sites selection are documented in the next guide. A nearly camera-aligned direction can project to a short segment; that is perspective, not a changed scientific elevation.
+The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight the Moon or modify solar/radio statistics. Camera controls, thin anti-aliased ribbons, endpoint disks and all-sites selection are documented in the next guide. A nearly camera-aligned direction can project to a short segment; that is perspective, not a changed scientific elevation.
 
 ## 13. Ray API index
 
@@ -109,6 +115,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `bind_buffer`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `bind_texture`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `bind_vertex_array`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `blend_func`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `BodyDirection`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `buffer_data_u8_slice`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `button`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -172,11 +179,13 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `eframe::egui::ScrollArea::vertical`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::vec2`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `egui::Button::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `egui::Color32::from_black_alpha`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::Frame::group`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Grid::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `egui::Rect::from_min_size`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::RichText::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Sense::click_and_drag`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::Slider::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -191,8 +200,10 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `eprintln!`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `exp`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `expand`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `extend`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `field::illuminated_points`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `filename`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `fill`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `filter`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -295,6 +306,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `on_exit`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `or_else`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `paint`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `paint_surface_rays`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `painter_at`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `panorama::Panorama::new`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
@@ -314,6 +326,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `push`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `radio_controls`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `radius`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `rect_filled`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `rem_euclid`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `Renderer::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `replace`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -358,6 +371,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `suffix`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `sum`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `summary_uses_full_duration_and_current_clearance`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `surface_ray_controls`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `take`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `tan`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `technical`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -372,6 +386,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `to_degrees`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `to_radians`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `to_string`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `truncate`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `u_ray_color`: [annotated fragment shader](#143-globesrcmoonfrag)
 - `u_ray_mode`: [annotated fragment shader](#143-globesrcmoonfrag)
 - `ui`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
@@ -517,11 +532,11 @@ impl View
 		let length = dx.hypot(dy).max(1e-6);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let offset = [
-			-dy / length * 2.8 * self.scale / self.pixels[0],
-			dx / length * 2.8 * self.scale / self.pixels[1],
+			-dy / length * 2.5 * self.scale / self.pixels[0],
+			dx / length * 2.5 * self.scale / self.pixels[1],
 		];
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut vertices = Vec::with_capacity(330);
+		let mut vertices = Vec::with_capacity(462);
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for (p, sign) in [
 			(origin, -1.0),
@@ -532,7 +547,15 @@ impl View
 			(origin, 1.0),
 		]
 		{
-			vertices.extend_from_slice(&[p[0], p[1], p[2], offset[0] * sign, offset[1] * sign]);
+			vertices.extend_from_slice(&[
+				p[0],
+				p[1],
+				p[2],
+				offset[0] * sign,
+				offset[1] * sign,
+				sign,
+				0.0,
+			]);
 		}
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for i in 0..20
@@ -547,11 +570,19 @@ impl View
 				// Bind this intermediate value for the current operation; C++ local initialization.
 				let uv = angle.map_or([0.0, 0.0], |a| {
 					[
-						a.cos() * 11.0 * self.scale / self.pixels[0],
-						a.sin() * 11.0 * self.scale / self.pixels[1],
+						a.cos() * 4.0 * self.scale / self.pixels[0],
+						a.sin() * 4.0 * self.scale / self.pixels[1],
 					]
 				});
-				vertices.extend_from_slice(&[end[0], end[1], end[2], uv[0], uv[1]]);
+				vertices.extend_from_slice(&[
+					end[0],
+					end[1],
+					end[2],
+					uv[0],
+					uv[1],
+					angle.map_or(0.0, f32::cos),
+					angle.map_or(0.0, f32::sin),
+				]);
 			}
 		}
 		vertices
@@ -777,13 +808,13 @@ mod tests
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
 		// Enforce the independent regression expectation; C++ test assertion.
-		assert_eq!(vertices.len(), 330);
+		assert_eq!(vertices.len(), 462);
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(vertices.iter().all(|v| v.is_finite()));
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let width = (vertices[3].powi(2) + vertices[4].powi(2)).sqrt() * 800.0;
 		// Enforce the independent regression expectation; C++ test assertion.
-		assert!((width - 5.6).abs() < 1e-4);
+		assert!((width - 5.0).abs() < 1e-4);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let aligned = view.ribbon(point, point);
 		// Enforce the independent regression expectation; C++ test assertion.
@@ -793,9 +824,9 @@ mod tests
 		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
 		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
 		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
-		assert_eq!(aligned.len(), 330);
-		// The first outer disk vertex is 5.5 logical points from its center; C++ screen-space radius check.
-		assert!((aligned[38].hypot(aligned[39]) * 400.0 - 11.0).abs() < 1e-4);
+		assert_eq!(aligned.len(), 462);
+		// The first outer disk vertex is 2 logical points from its center; C++ screen-space radius check.
+		assert!((aligned[52].hypot(aligned[53]) * 400.0 - 4.0).abs() < 1e-4);
 	}
 
 	// Register an independent local-frame regression; C++ test registration.
@@ -940,6 +971,7 @@ mod tests
 
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
+mod field;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
@@ -1034,6 +1066,8 @@ pub struct Globe
 	// Requested final detail is independent of the first visible 2k pair; C++ unsigned members.
 	target_tier: u32,
 	max_tier: u32,
+	// Optional illustrative parallel Sun rays; C++ bool.
+	surface_rays: bool,
 	// Interactive presentation state is independent of ephemeris time; C++ value members.
 	scene: Vec<Marker>,
 	selected: usize,
@@ -1072,6 +1106,7 @@ mod scene_tests
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
+			surface_rays: false,
 			scene: vec![],
 			selected: 0,
 			yaw: 0.0,
@@ -1146,6 +1181,7 @@ impl Globe
 			// Shared optional GPU state, absent while loading; C++ shared_ptr<mutex-protected optional<Renderer>>.
 			renderer: Arc::new(Mutex::new(None)),
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
+			surface_rays: false,
 			loading: assets::load(2, None),
 			tier: 2,
 			target_tier: tier,
@@ -1281,6 +1317,15 @@ impl Globe
 			),
 			"The first number is the currently visible map. The requested detail replaces it only after both images have decoded and uploaded successfully.",
 		);
+	}
+
+	// Expose the independent surface field without requesting more site tracks; C++ checkbox.
+	pub fn surface_ray_controls(&mut self, ui: &mut egui::Ui)
+	{
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
+			help::question(ui, "Parallel yellow rays arrive from the real Sun direction at this date and end on the sunlit sphere. About 256 of 512 evenly distributed points are lit. Lengths are illustrative; this is not terrain shadow tracing. The Moon hides rays behind its surface.");
+		});
 	}
 
 	// Draw physical-light display aids separately from camera actions; C++ member function.
@@ -1500,6 +1545,7 @@ impl Globe
 			})
 			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
+		let surface_rays = self.surface_rays;
 		let ctx = ui.ctx().clone();
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -1552,7 +1598,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_mut()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays, lighting);
+					renderer.paint(painter.gl(), view, &rays, lighting, surface_rays);
 					// Announce a real lit draw, not merely decoded textures with pending sky data; C++ frame diagnostic.
 					if lighting.is_some() && !renderer.visible_announced
 					{
@@ -1647,6 +1693,15 @@ impl Globe
 				}
 			}
 		}
+		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
+		painter.rect_filled(
+			egui::Rect::from_min_size(
+				rect.left_top() + egui::vec2(5.0, 5.0),
+				egui::vec2(258.0, 59.0),
+			),
+			3.0,
+			egui::Color32::from_black_alpha(225),
+		);
 		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
@@ -1770,6 +1825,7 @@ impl Renderer
 				gl.bind_attrib_location(program, 0, "a_position");
 				// Fix the input location to match the vertex layout; C++ glBindAttribLocation before linking.
 				gl.bind_attrib_location(program, 1, "a_uv");
+				gl.bind_attrib_location(program, 2, "a_coverage");
 				// Connect vertex outputs to fragment inputs; C++ glLinkProgram.
 				gl.link_program(program);
 				// Reject incompatible stages; C++ glGetProgramiv with GL_LINK_STATUS.
@@ -1834,9 +1890,11 @@ impl Renderer
 				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
 				gl.enable_vertex_attrib_array(0);
 				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
-				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 28, 0);
 				gl.enable_vertex_attrib_array(1);
-				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
+				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 28, 12);
+				gl.enable_vertex_attrib_array(2);
+				gl.vertex_attrib_pointer_f32(2, 2, glow::FLOAT, false, 28, 20);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -2113,6 +2171,7 @@ impl Renderer
 		view: math::View,
 		rays: &[([f32; 3], [Ray; 2])],
 		lighting: Option<Lighting>,
+		surface_rays: bool,
 	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
@@ -2208,6 +2267,14 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// Smooth alpha coverage needs blending on native and WebGL; C++ glEnable/glBlendFunc.
+			gl.enable(glow::BLEND);
+			gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+			gl.depth_mask(false);
+			if surface_rays
+			{
+				self.paint_surface_rays(gl, program, view, lighting);
+			}
 			// These are direction diagrams, not physical beams: retain blocked rays on the visible surface; C++ depth-state change.
 			gl.disable(glow::DEPTH_TEST);
 			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
@@ -2251,11 +2318,14 @@ impl Renderer
 					);
 					// Draw both ribbon faces and the endpoint fan as portable triangles; C++ glDrawArrays(GL_TRIANGLES).
 					gl.disable(glow::CULL_FACE);
-					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 5) as i32);
+					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 7) as i32);
 				}
 				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);
 			}
+			// Restore write/blend policy after transparent diagrams; C++ GL state restoration.
+			gl.depth_mask(true);
+			gl.disable(glow::BLEND);
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
@@ -2274,6 +2344,51 @@ impl Renderer
 			gl.disable(glow::DEPTH_TEST);
 			// Disable blending for opaque drawing, or restore depth/culling after it; C++ glDisable.
 			gl.disable(glow::CULL_FACE);
+		}
+	}
+
+	// Batch the entire Sun field into one cheap draw; C++ dynamic interleaved vertex vector.
+	fn paint_surface_rays(
+		&self,
+		gl: &glow::Context,
+		program: glow::Program,
+		view: math::View,
+		lighting: Option<Lighting>,
+	)
+	{
+		let Some(light) = lighting
+		else
+		{
+			return;
+		};
+		let mut vertices = Vec::new();
+		for point in field::illuminated_points(light.sun)
+		{
+			let origin = std::array::from_fn(|i| point[i] + 0.6 / view.zoom * light.sun[i]);
+			let mut ribbon = view.ribbon(origin, point);
+			ribbon.truncate(42);
+			vertices.extend(ribbon);
+		}
+		// SAFETY: the callback owns the current GL context; the ray layout matches seven floats per vertex.
+		unsafe {
+			gl.enable(glow::DEPTH_TEST);
+			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
+			gl.uniform_3_f32(
+				gl.get_uniform_location(program, "u_ray_color").as_ref(),
+				1.0,
+				0.9,
+				0.05,
+			);
+			gl.bind_vertex_array(self.ray_vao);
+			gl.bind_buffer(glow::ARRAY_BUFFER, self.ray_buffer);
+			gl.buffer_data_u8_slice(
+				glow::ARRAY_BUFFER,
+				bytemuck::cast_slice(&vertices),
+				glow::STREAM_DRAW,
+			);
+			gl.disable(glow::CULL_FACE);
+			gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 7) as i32);
+			gl.bind_buffer(glow::ARRAY_BUFFER, None);
 		}
 	}
 
@@ -2346,6 +2461,8 @@ uniform mat3 u_model;
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
 uniform highp int u_ray_mode;
+// Interpolated signed-distance coordinates, independent of clip-space offsets.
+in vec2 v_coverage;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
 // Receive the actual Moon-fixed Sun direction; C++ glUniform3f.
@@ -2514,7 +2631,7 @@ void main()
 	if (u_ray_mode != 0)
 	{
 		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
-		out_color = vec4(u_ray_color, 1.0);
+		out_color = vec4(u_ray_color, 1.0 - smoothstep(0.15, 1.0, length(v_coverage)));
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;
 	}
@@ -2574,5 +2691,53 @@ void main()
 	vec3 mapped = radiance / (vec3(1.0) + radiance);
 	// Encode once to sRGB and set alpha to one; egui_glow disables framebuffer sRGB encoding.
 	out_color = vec4(linear_to_srgb(mapped), 1.0);
+}
+```
+
+## 15. Surface field source
+
+### 15.1. globe/src/field.rs
+
+```rust
+// Sample equal-area Fibonacci directions on the sunlit hemisphere; C++ vector<array<float,3>>.
+pub(crate) fn illuminated_points(sun: [f32; 3]) -> Vec<[f32; 3]>
+{
+	// Reject absent/invalid directions instead of inventing a light; C++ finite-vector guard.
+	if sun.iter().any(|v| !v.is_finite()) || sun.iter().map(|v| v * v).sum::<f32>() < 1e-12
+	{
+		return Vec::new();
+	}
+	// Half-offset latitudes avoid singular pole samples; C++ indexed loop with a golden-angle longitude.
+	(0..512)
+		.filter_map(|i| {
+			let y = 1.0 - 2.0 * (i as f32 + 0.5) / 512.0;
+			let r = (1.0 - y * y).sqrt();
+			let a = i as f32 * 2.3999631;
+			let p = [r * a.cos(), y, r * a.sin()];
+			(p.iter().zip(sun).map(|(p, s)| p * s).sum::<f32>() > 0.0).then_some(p)
+		})
+		.collect()
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+	#[test]
+	fn field_is_finite_even_and_sunlit()
+	{
+		for sun in [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]]
+		{
+			let points = illuminated_points(sun);
+			assert!((250..=262).contains(&points.len()));
+			for p in points
+			{
+				assert!((p.iter().map(|v| v * v).sum::<f32>() - 1.0).abs() < 1e-5);
+				assert!(p.iter().zip(sun).map(|(v, s)| v * s).sum::<f32>() > 0.0);
+			}
+		}
+		assert!(illuminated_points([0.0; 3]).is_empty());
+		assert!(illuminated_points([f32::NAN, 0.0, 0.0]).is_empty());
+	}
 }
 ```

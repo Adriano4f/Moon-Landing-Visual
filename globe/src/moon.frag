@@ -14,6 +14,8 @@ uniform mat3 u_model;
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
 uniform highp int u_ray_mode;
+// Interpolated signed-distance coordinates, independent of clip-space offsets.
+in vec2 v_coverage;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
 // Receive the actual Moon-fixed Sun direction; C++ glUniform3f.
@@ -182,7 +184,7 @@ void main()
 	if (u_ray_mode != 0)
 	{
 		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
-		out_color = vec4(u_ray_color, 1.0);
+		out_color = vec4(u_ray_color, 1.0 - smoothstep(0.15, 1.0, length(v_coverage)));
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;
 	}

@@ -3,6 +3,7 @@
 
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
+mod field;
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod math;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
@@ -97,6 +98,8 @@ pub struct Globe
 	// Requested final detail is independent of the first visible 2k pair; C++ unsigned members.
 	target_tier: u32,
 	max_tier: u32,
+	// Optional illustrative parallel Sun rays; C++ bool.
+	surface_rays: bool,
 	// Interactive presentation state is independent of ephemeris time; C++ value members.
 	scene: Vec<Marker>,
 	selected: usize,
@@ -135,6 +138,7 @@ mod scene_tests
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
+			surface_rays: false,
 			scene: vec![],
 			selected: 0,
 			yaw: 0.0,
@@ -209,6 +213,7 @@ impl Globe
 			// Shared optional GPU state, absent while loading; C++ shared_ptr<mutex-protected optional<Renderer>>.
 			renderer: Arc::new(Mutex::new(None)),
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
+			surface_rays: false,
 			loading: assets::load(2, None),
 			tier: 2,
 			target_tier: tier,
@@ -344,6 +349,15 @@ impl Globe
 			),
 			"The first number is the currently visible map. The requested detail replaces it only after both images have decoded and uploaded successfully.",
 		);
+	}
+
+	// Expose the independent surface field without requesting more site tracks; C++ checkbox.
+	pub fn surface_ray_controls(&mut self, ui: &mut egui::Ui)
+	{
+		ui.horizontal_wrapped(|ui| {
+			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
+			help::question(ui, "Parallel yellow rays arrive from the real Sun direction at this date and end on the sunlit sphere. About 256 of 512 evenly distributed points are lit. Lengths are illustrative; this is not terrain shadow tracing. The Moon hides rays behind its surface.");
+		});
 	}
 
 	// Draw physical-light display aids separately from camera actions; C++ member function.
@@ -563,6 +577,7 @@ impl Globe
 			})
 			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
+		let surface_rays = self.surface_rays;
 		let ctx = ui.ctx().clone();
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -615,7 +630,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_mut()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(painter.gl(), view, &rays, lighting);
+					renderer.paint(painter.gl(), view, &rays, lighting, surface_rays);
 					// Announce a real lit draw, not merely decoded textures with pending sky data; C++ frame diagnostic.
 					if lighting.is_some() && !renderer.visible_announced
 					{
@@ -710,6 +725,15 @@ impl Globe
 				}
 			}
 		}
+		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
+		painter.rect_filled(
+			egui::Rect::from_min_size(
+				rect.left_top() + egui::vec2(5.0, 5.0),
+				egui::vec2(258.0, 59.0),
+			),
+			3.0,
+			egui::Color32::from_black_alpha(225),
+		);
 		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to orbit; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nReal light; fill is a visual aid; rays not to scale\nPolar cap schematic; terrain detail in panorama",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
@@ -833,6 +857,7 @@ impl Renderer
 				gl.bind_attrib_location(program, 0, "a_position");
 				// Fix the input location to match the vertex layout; C++ glBindAttribLocation before linking.
 				gl.bind_attrib_location(program, 1, "a_uv");
+				gl.bind_attrib_location(program, 2, "a_coverage");
 				// Connect vertex outputs to fragment inputs; C++ glLinkProgram.
 				gl.link_program(program);
 				// Reject incompatible stages; C++ glGetProgramiv with GL_LINK_STATUS.
@@ -897,9 +922,11 @@ impl Renderer
 				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
 				gl.enable_vertex_attrib_array(0);
 				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
-				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 28, 0);
 				gl.enable_vertex_attrib_array(1);
-				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
+				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 28, 12);
+				gl.enable_vertex_attrib_array(2);
+				gl.vertex_attrib_pointer_f32(2, 2, glow::FLOAT, false, 28, 20);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -1176,6 +1203,7 @@ impl Renderer
 		view: math::View,
 		rays: &[([f32; 3], [Ray; 2])],
 		lighting: Option<Lighting>,
+		surface_rays: bool,
 	)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
@@ -1271,6 +1299,14 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// Smooth alpha coverage needs blending on native and WebGL; C++ glEnable/glBlendFunc.
+			gl.enable(glow::BLEND);
+			gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+			gl.depth_mask(false);
+			if surface_rays
+			{
+				self.paint_surface_rays(gl, program, view, lighting);
+			}
 			// These are direction diagrams, not physical beams: retain blocked rays on the visible surface; C++ depth-state change.
 			gl.disable(glow::DEPTH_TEST);
 			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
@@ -1314,11 +1350,14 @@ impl Renderer
 					);
 					// Draw both ribbon faces and the endpoint fan as portable triangles; C++ glDrawArrays(GL_TRIANGLES).
 					gl.disable(glow::CULL_FACE);
-					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 5) as i32);
+					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 7) as i32);
 				}
 				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);
 			}
+			// Restore write/blend policy after transparent diagrams; C++ GL state restoration.
+			gl.depth_mask(true);
+			gl.disable(glow::BLEND);
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
@@ -1337,6 +1376,51 @@ impl Renderer
 			gl.disable(glow::DEPTH_TEST);
 			// Disable blending for opaque drawing, or restore depth/culling after it; C++ glDisable.
 			gl.disable(glow::CULL_FACE);
+		}
+	}
+
+	// Batch the entire Sun field into one cheap draw; C++ dynamic interleaved vertex vector.
+	fn paint_surface_rays(
+		&self,
+		gl: &glow::Context,
+		program: glow::Program,
+		view: math::View,
+		lighting: Option<Lighting>,
+	)
+	{
+		let Some(light) = lighting
+		else
+		{
+			return;
+		};
+		let mut vertices = Vec::new();
+		for point in field::illuminated_points(light.sun)
+		{
+			let origin = std::array::from_fn(|i| point[i] + 0.6 / view.zoom * light.sun[i]);
+			let mut ribbon = view.ribbon(origin, point);
+			ribbon.truncate(42);
+			vertices.extend(ribbon);
+		}
+		// SAFETY: the callback owns the current GL context; the ray layout matches seven floats per vertex.
+		unsafe {
+			gl.enable(glow::DEPTH_TEST);
+			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
+			gl.uniform_3_f32(
+				gl.get_uniform_location(program, "u_ray_color").as_ref(),
+				1.0,
+				0.9,
+				0.05,
+			);
+			gl.bind_vertex_array(self.ray_vao);
+			gl.bind_buffer(glow::ARRAY_BUFFER, self.ray_buffer);
+			gl.buffer_data_u8_slice(
+				glow::ARRAY_BUFFER,
+				bytemuck::cast_slice(&vertices),
+				glow::STREAM_DRAW,
+			);
+			gl.disable(glow::CULL_FACE);
+			gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 7) as i32);
+			gl.bind_buffer(glow::ARRAY_BUFFER, None);
 		}
 	}
 

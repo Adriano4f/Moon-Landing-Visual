@@ -99,11 +99,11 @@ impl View
 		let length = dx.hypot(dy).max(1e-6);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let offset = [
-			-dy / length * 2.8 * self.scale / self.pixels[0],
-			dx / length * 2.8 * self.scale / self.pixels[1],
+			-dy / length * 2.5 * self.scale / self.pixels[0],
+			dx / length * 2.5 * self.scale / self.pixels[1],
 		];
 		// Bind this intermediate value for the current operation; C++ local initialization.
-		let mut vertices = Vec::with_capacity(330);
+		let mut vertices = Vec::with_capacity(462);
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for (p, sign) in [
 			(origin, -1.0),
@@ -114,7 +114,15 @@ impl View
 			(origin, 1.0),
 		]
 		{
-			vertices.extend_from_slice(&[p[0], p[1], p[2], offset[0] * sign, offset[1] * sign]);
+			vertices.extend_from_slice(&[
+				p[0],
+				p[1],
+				p[2],
+				offset[0] * sign,
+				offset[1] * sign,
+				sign,
+				0.0,
+			]);
 		}
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for i in 0..20
@@ -129,11 +137,19 @@ impl View
 				// Bind this intermediate value for the current operation; C++ local initialization.
 				let uv = angle.map_or([0.0, 0.0], |a| {
 					[
-						a.cos() * 11.0 * self.scale / self.pixels[0],
-						a.sin() * 11.0 * self.scale / self.pixels[1],
+						a.cos() * 4.0 * self.scale / self.pixels[0],
+						a.sin() * 4.0 * self.scale / self.pixels[1],
 					]
 				});
-				vertices.extend_from_slice(&[end[0], end[1], end[2], uv[0], uv[1]]);
+				vertices.extend_from_slice(&[
+					end[0],
+					end[1],
+					end[2],
+					uv[0],
+					uv[1],
+					angle.map_or(0.0, f32::cos),
+					angle.map_or(0.0, f32::sin),
+				]);
 			}
 		}
 		vertices
@@ -359,13 +375,13 @@ mod tests
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
 		// Enforce the independent regression expectation; C++ test assertion.
-		assert_eq!(vertices.len(), 330);
+		assert_eq!(vertices.len(), 462);
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(vertices.iter().all(|v| v.is_finite()));
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let width = (vertices[3].powi(2) + vertices[4].powi(2)).sqrt() * 800.0;
 		// Enforce the independent regression expectation; C++ test assertion.
-		assert!((width - 5.6).abs() < 1e-4);
+		assert!((width - 5.0).abs() < 1e-4);
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let aligned = view.ribbon(point, point);
 		// Enforce the independent regression expectation; C++ test assertion.
@@ -375,9 +391,9 @@ mod tests
 		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
 		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
 		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
-		assert_eq!(aligned.len(), 330);
-		// The first outer disk vertex is 5.5 logical points from its center; C++ screen-space radius check.
-		assert!((aligned[38].hypot(aligned[39]) * 400.0 - 11.0).abs() < 1e-4);
+		assert_eq!(aligned.len(), 462);
+		// The first outer disk vertex is 2 logical points from its center; C++ screen-space radius check.
+		assert!((aligned[52].hypot(aligned[53]) * 400.0 - 4.0).abs() < 1e-4);
 	}
 
 	// Register an independent local-frame regression; C++ test registration.

@@ -4,6 +4,9 @@ precision highp float;
 in vec3 a_position;
 // Read the mesh UV from location one; fragment shading reconstructs UV from direction for seam-safe derivatives.
 in vec2 a_uv;
+// Signed cross-strip or circular coordinates for analytic ray coverage; C++ vertex attribute.
+in vec2 a_coverage;
+out vec2 v_coverage;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
 // Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
@@ -27,6 +30,7 @@ void main()
 	v_position = p;
 	// Export the mesh UV, while the fragment stage uses analytic direction-based sampling.
 	v_uv = a_uv;
+	v_coverage = a_coverage;
 	// Export the original direction for texture lookup independently of rotation.
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.
