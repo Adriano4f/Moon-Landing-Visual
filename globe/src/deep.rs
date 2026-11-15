@@ -515,6 +515,7 @@ pub(crate) struct State
 	pub resident: HashSet<Tile>,
 	// Last download error, cleared by the next success.
 	pub error: Option<String>,
+	disabled: bool,
 	flight: HashSet<Tile>,
 	failed: HashMap<Tile, Failure>,
 	// Insertion order of failed, oldest first, for the bound.
@@ -524,6 +525,14 @@ pub(crate) struct State
 
 impl State
 {
+	pub fn disable(&mut self, error: String)
+	{
+		self.disabled = true;
+		self.error = Some(error);
+		self.pending.clear();
+		self.resident.clear();
+	}
+
 	fn have(&self, tile: Tile) -> bool
 	{
 		self.resident.contains(&tile) || self.pending.iter().any(|(t, _)| *t == tile)
@@ -533,6 +542,10 @@ impl State
 	// A tile waits for its parent unless the parent is present or failed.
 	fn plan(&mut self, now: f64) -> Vec<Tile>
 	{
+		if self.disabled
+		{
+			return Vec::new();
+		}
 		for f in self.failed.values_mut()
 		{
 			if f.retry.is_none()
@@ -575,7 +588,7 @@ impl State
 	fn finish(&mut self, tile: Tile, result: Result<assets::TextureImage, String>)
 	{
 		self.flight.remove(&tile);
-		if !self.wanted.contains(&tile)
+		if self.disabled || !self.wanted.contains(&tile)
 		{
 			return;
 		}
@@ -969,6 +982,27 @@ mod tests
 	fn image() -> assets::TextureImage
 	{
 		assets::TextureImage::new(1, 1)
+	}
+
+	#[cfg(not(target_arch = "wasm32"))]
+	#[test]
+	fn disabled_stream_discards_completions_and_never_restarts()
+	{
+		let mut state = State::default();
+		state.wanted = select(view(deg(10.0), deg(20.0), 256.0));
+		let jobs = state.plan(0.0);
+		assert!(!jobs.is_empty());
+		state.finish(jobs[0], Ok(image()));
+		assert!(!state.pending.is_empty());
+		state.disable("GPU allocation failed".into());
+		for tile in jobs.into_iter().skip(1)
+		{
+			state.finish(tile, Ok(image()));
+		}
+		assert!(state.pending.is_empty() && state.flight.is_empty());
+		state.wanted = select(view(deg(-70.0), deg(90.0), 64.0));
+		assert!(state.plan(1000.0).is_empty());
+		assert_eq!(state.error.as_deref(), Some("GPU allocation failed"));
 	}
 
 	#[cfg(not(target_arch = "wasm32"))]

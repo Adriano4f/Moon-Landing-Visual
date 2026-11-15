@@ -309,8 +309,7 @@ impl Renderer
 					{
 						atlas.failed = true;
 					}
-					state.error = Some(error);
-					state.pending.clear();
+					state.disable(error);
 					return;
 				}
 			}
@@ -369,8 +368,7 @@ impl Renderer
 		if let Err(error) = atlas.publish(gl)
 		{
 			atlas.failed = true;
-			state.error = Some(error);
-			state.resident.clear();
+			state.disable(error);
 		}
 	}
 
