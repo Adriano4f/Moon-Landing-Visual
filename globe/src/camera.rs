@@ -7,7 +7,7 @@ impl Globe
 	{
 		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
 		ui.horizontal_wrapped(|ui| {
-			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(1.0); self.focus = None; }
+			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
 			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
 			help::question(ui, "Enlarge the Moon up to eight times. The overview has limited detail; use the site list to distinguish nearby points.");
@@ -64,8 +64,8 @@ impl Globe
 	pub fn surface_ray_controls(&mut self, ui: &mut egui::Ui)
 	{
 		ui.horizontal_wrapped(|ui| {
-			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
-			help::question(ui, "Show incoming sunlight across the lit half of the Moon. Lines follow the real Sun direction, but lengths and ground shadows are illustrative.");
+			ui.checkbox(&mut self.surface_rays, "Sun rays");
+			help::question(ui, "Show thin Sun rays across the lit half of the Moon. Directions are real; lengths are illustrative and terrain shadows are not calculated.");
 		});
 	}
 }

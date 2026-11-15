@@ -4,7 +4,7 @@
 
 Site ribbons use a 2.5-logical-point support with alpha `1 - smoothstep(0.15, 1, abs(x))` across signed transverse coordinate x. Its integrated width is approximately 1.44 logical points. Endpoint disks have a 2-point support radius and the same smooth radial coverage. Seven floats per vertex carry position, clip offset and independent coverage coordinates. Alpha blending is enabled only for diagrams; sphere opacity is unchanged. This works with WebGL triangles, without implementation-dependent line width.
 
-The Rays section includes a separate, initially disabled **Rays across the whole Moon** option. A 512-point Fibonacci sphere uses equal-area latitude bands and a golden-angle longitude. Only points with positive dot product against the current Moon-fixed Sun direction contribute, approximately 256 rays. Each ray runs from an illustrative upstream endpoint to its surface intersection. These parallel incoming rays use the actual slider-time direction, sphere depth occlusion and a single batched draw. They do not request other sites, calculate terrain shadows or affect statistics. There are no global Earth rays. Missing lighting draws no field; invalid/zero directions produce no samples.
+The Rays section includes a separate, initially disabled **Sun rays** option. A 512-point Fibonacci sphere uses equal-area latitude bands and a golden-angle longitude. Only points with positive dot product against the current Moon-fixed Sun direction contribute, approximately 256 rays. Each ray runs from an illustrative upstream endpoint to its surface intersection. These parallel incoming rays use the actual slider-time direction, sphere depth occlusion and a single batched draw. They do not request other sites, calculate terrain shadows or affect statistics. There are no global Earth rays. Missing lighting draws no field; invalid/zero directions produce no samples.
 
 ## 9. The local frame from zero
 
@@ -50,7 +50,7 @@ The length is 0.6 lunar radii at overview zoom zeta=1, shortening as zoom increa
 
 The shader transforms both endpoints using the same uniforms already used for the Moon:
 
-$$\mathbf p_{clip}=P\left[\begin{array}{c}M\mathbf p-(0,0,3.3)\\1\end{array}\right],\qquad M=R_x(\theta)R_y(\alpha).$$
+$$\mathbf p_{clip}=P\left[\begin{array}{c}M\mathbf p-(0,0,5)\\1\end{array}\right],\qquad M=R_x(\theta)R_y(\alpha).$$
 
 P is the zoomed perspective matrix, M the shared rigid rotation, alpha the longitude rotation and theta the camera tilt, now initialized from the actual Earth direction rather than a fixed -30 degrees. Endpoints use actual three-dimensional geometry rather than a guessed two-dimensional arrow angle. Their camera-facing ribbon offsets are derived in the next guide. The Sun ray near the pole is almost tangent to the lunar surface because solar elevation is small. On screen that tangent may be foreshortened; horizontal in the local sky does not require a perfectly horizontal screen line.
 
@@ -73,15 +73,16 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 
 ## 13. Ray API index
 
-- `abs`: [annotated globe/src/math.rs](#141-globesrcmathrs)
-- `acos`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `abs`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `acos`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `active_texture`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `add`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `add_enabled`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `add_enabled`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `add_sized`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `advance_upgrade`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `all`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `allocate_exact_size`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `allocate_ui`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `allocate_ui`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `allow_double_click_reset`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `allow_drag`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `allow_scroll`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
@@ -101,8 +102,8 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `as_ref`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `asin`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `aspect_ratio`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `assert!`: [annotated globe/src/math.rs](#141-globesrcmathrs)
-- `assert_eq!`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `assert!`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `assert_eq!`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `assets::load`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `assets::preferences`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `assets::select`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -110,8 +111,9 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `atan2`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `attach_shader`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `availability`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `available_size`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `available_width`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `available_height`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `available_size`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
+- `available_width`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `begin_frame`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `begin_upgrade`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `bind_attrib_location`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
@@ -120,6 +122,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `bind_vertex_array`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `blend_func`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `BodyDirection`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `bottom`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `browser_filter`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `buffer_data_u8_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `build_program`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
@@ -128,6 +131,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `button`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `bytemuck::cast_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `camera_controls`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `camera_margin_zoom_out_and_shared_uniform`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `card_grid`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `catalog_and_lazy_filenames`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `center`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -138,10 +142,10 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `checkbox`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `circle_filled`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `circle_stroke`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `clamp`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `clamp`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `clear`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `clear_depth_f32`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
-- `clicked`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `clicked`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `clone`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `collect`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `color`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
@@ -153,7 +157,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `content_rect`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `copied`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `corner_radius`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
-- `cos`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `cos`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `crate::sky::show`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `create_buffer`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `create_program`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
@@ -162,6 +166,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `create_vertex_array`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
 - `ctx`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `cull_face`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `cursor`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `data::load`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `default_x_bounds`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `delete_buffer`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -192,12 +197,16 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `eframe::egui::Layout::top_down`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `eframe::egui::ScrollArea::vertical`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `eframe::egui::vec2`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
-- `egui::Button::new`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `egui::Button::new`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `egui::CentralPanel::default`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Color32::from_black_alpha`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Color32::from_rgb`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::ComboBox::from_id_salt`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `egui::Context::default`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::FontId::proportional`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Grid::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `egui::Label::new`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `egui::RawInput::default`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Rect::from_min_size`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::RichText::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `egui::Sense::click_and_drag`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -228,7 +237,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `flat_map`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `fold`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `format`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `format!`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `format!`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `frame`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `front_face`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `generate_mipmap`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
@@ -245,15 +254,16 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `globe::help::annotated`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `globe::help::question`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `globe::moon_fixed`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `Globe::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `heading`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `height`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
-- `help::annotated`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `help::question`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `help::annotated`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `help::question`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `hline`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `HLine::new`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `horizon_at`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
-- `horizontal`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `horizontal`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `horizontal_wrapped`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `hovered`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `hypot`: [annotated globe/src/math.rs](#141-globesrcmathrs)
@@ -268,14 +278,14 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `into_iter`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `is_ascii_alphanumeric`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `is_empty`: [annotated globe/src/math.rs](#141-globesrcmathrs)
-- `is_finite`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `is_finite`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `is_new_shader_interface`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
-- `is_none`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `is_none`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `is_none_or`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `is_positive`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `is_some`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `is_some_and`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
-- `iter`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `iter`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `join`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `json!`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -298,8 +308,9 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `lock`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `lunar_core::stats`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `lunar_core::Stats::default`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `lunar_phase`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `main_views`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
-- `map`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `map`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `map_err`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `map_or`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `map_or_else`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -310,7 +321,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `math::earthshine_ratio`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `math::local_direction`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `math::sphere`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
-- `max`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
+- `max`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `mesh_orientation_and_seam`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `min`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
 - `model`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
@@ -331,6 +342,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `paint`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `paint_markers`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `paint_opaque`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `paint_site_rays`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `paint_surface_rays`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `painter`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -341,6 +353,9 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `Pending::default`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `pending_label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `perspective`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `phase_label`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `phase_status`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `phases_normalized_and_invalid`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `phone_views`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `pixel_store_i32`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `pixels_per_point`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -363,6 +378,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `request_repaint`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `ribbon`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `rotation`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `run_ui`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `saturating_sub`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `scene_identity_empty_and_invalid`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `scene_lighting`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -379,6 +395,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `Self::light_uniforms`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `Self::native_filter`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `Self::native_pixels`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
+- `Self::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `Self::process_textures`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `serde_json::from_str`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `serde_json::to_vec`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -390,6 +407,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `set_width`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `settings`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `shader_source`: [annotated globe/src/renderer/setup.rs](04-globe-code.md#421-globesrcrenderersetuprs)
+- `short_phone_layout_grows_past_phase_controls`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `show`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `show_panorama`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `show_ui`: [annotated globe/src/camera.rs](04-globe-code.md#424-globesrccamerars)
@@ -407,14 +425,14 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `spacing_mut`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `sphere`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `split`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
-- `sqrt`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `sqrt`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `std::array::from_fn`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `std::env::var`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `strong`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `style_mut`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `style_of`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `suffix`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `sum`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `sum`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `summary_card`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `summary_cards`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `summary_uses_full_duration_and_current_clearance`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -434,9 +452,10 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `then`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `time`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `time_controls`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `to_degrees`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
-- `to_radians`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `to_degrees`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `to_radians`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `to_string`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `top`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `truncate`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `u_ray_color`: [annotated fragment shader](#143-globesrcmoonfrag)
 - `u_ray_mode`: [annotated fragment shader](#143-globesrcmoonfrag)
@@ -446,7 +465,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `uniform_3_f32`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `uniform_matrix_3_f32_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `uniform_matrix_4_f32_slice`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
-- `unwrap`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
+- `unwrap`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `unwrap_or`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `unwrap_or_else`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `update`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
@@ -475,7 +494,7 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 - `x_axis_label`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `x_grid_spacer`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `y_axis_label`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
-- `zip`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `zip`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `zoom_delta`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 
 ## 14. Exact ray implementation quotations
@@ -485,6 +504,9 @@ The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight
 ```rust
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
+// Keep CPU projection and shader view directions at the same illustrative distance; C++ constant.
+pub(crate) const CAMERA_DISTANCE: f32 = 5.0;
 
 // Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
 pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
@@ -556,15 +578,15 @@ impl View
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let p: [f32; 3] =
 			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-		if (surface && 3.3 * p[2] <= 1.0) || p[2] >= 3.2
+		if (surface && CAMERA_DISTANCE * p[2] <= 1.0) || p[2] >= CAMERA_DISTANCE - 0.1
 		{
 			return None;
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let projection = self.projection();
 		Some([
-			projection[0] * p[0] / (3.3 - p[2]),
-			projection[5] * p[1] / (3.3 - p[2]),
+			projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
+			projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 		])
 	}
 	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
@@ -796,18 +818,18 @@ pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2
 	// Multiply column-major matrix by the object direction; C++ array<float,3> computed by a loop.
 	let p: [f32; 3] =
 		std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-	// A unit-sphere point faces eye (0,0,3.3) iff p dot (eye-p)>0; C++ analytic sphere occlusion test.
-	if 3.3 * p[2] <= 1.0
+	// A surface point faces the camera iff p dot (eye-p)>0; C++ sphere occlusion test.
+	if CAMERA_DISTANCE * p[2] <= 1.0
 	{
 		// Hide far-side and tangent markers instead of drawing through the Moon; C++ nullopt.
 		return None;
 	}
 	// Reuse the GPU perspective scales and camera distance; C++ projection matrix lookup.
 	let projection = perspective(aspect);
-	// Divide clip x/y by clip w=3.3-p.z; C++ returns an optional projected point.
+	// Divide clip x/y by the camera-relative depth; C++ returns an optional projected point.
 	Some([
-		projection[0] * p[0] / (3.3 - p[2]),
-		projection[5] * p[1] / (3.3 - p[2]),
+		projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
+		projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 	])
 }
 
@@ -818,6 +840,39 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	#[test]
+	fn camera_margin_zoom_out_and_shared_uniform()
+	{
+		for zoom in [super::super::MIN_ZOOM, 1.0]
+		{
+			let view = View {
+				yaw: 0.0,
+				tilt: 0.0,
+				zoom,
+				aspect: 0.6,
+				pixels: [600.0, 1000.0],
+				scale: 1.0,
+			};
+			for lat in -90..=90
+			{
+				for lon in 0..360
+				{
+					if let Some(p) = view.project(
+						direction((lat as f32).to_radians(), (lon as f32).to_radians()),
+						true,
+					)
+					{
+						assert!(p.iter().all(|v| v.abs() < 0.9));
+					}
+				}
+			}
+		}
+		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
+		{
+			assert!(shader.contains("uniform highp float u_camera_distance;"));
+		}
+	}
 
 	// Check full, new, quarter Earth and malformed vectors independently of shader display exposure; C++ test registration.
 	#[test]
@@ -879,7 +934,10 @@ mod tests
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(view.project([0.0, 0.0, -4.0], true).is_none());
 		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
-		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
+		assert!(
+			view.ribbon(point.map(|v| v * CAMERA_DISTANCE), point)
+				.is_empty()
+		);
 		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
 		assert_eq!(aligned.len(), 462);
 		// The first outer disk vertex is 2 logical points from its center; C++ screen-space radius check.
@@ -1029,6 +1087,7 @@ mod tests
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
 mod camera;
+mod phase;
 mod renderer;
 mod view;
 use renderer::Renderer;
@@ -1040,6 +1099,7 @@ pub mod help;
 
 // Bound enlargement by the available polar texture detail, not GPU capacity; C++ constexpr float.
 const MAX_ZOOM: f32 = 8.0;
+const MIN_ZOOM: f32 = 0.5;
 
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;
@@ -1316,6 +1376,8 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Match the vertex shader's camera position and uniform precision.
+uniform highp float u_camera_distance;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
@@ -1518,8 +1580,8 @@ void main()
 	vec3 light = normalize(u_model * u_sun);
 	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
 	vec3 earth_light = normalize(u_model * u_earth);
-	// Point from the surface fragment to the perspective camera at z=3.3.
-	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
+	// Point from the surface fragment to the shared perspective camera.
+	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - v_position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.

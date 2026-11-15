@@ -17,8 +17,7 @@ impl Globe
 		self.animate_camera(time, dt);
 		self.pending_label(ui);
 		// Reserve the available paint rectangle; C++ would receive a rectangle/response pair.
-		let (rect, response) =
-			ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+		let (rect, response) = Self::paint_rectangle(ui);
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if !rect.is_positive()
 		{
@@ -48,6 +47,13 @@ impl Globe
 
 impl Globe
 {
+	// Let short layouts grow rather than covering the Moon with the legend; C++ bounded child size.
+	fn paint_rectangle(ui: &mut egui::Ui) -> (egui::Rect, egui::Response)
+	{
+		let size = egui::vec2(ui.available_width(), ui.available_height().max(200.0));
+		ui.allocate_exact_size(size, egui::Sense::click_and_drag())
+	}
+
 	fn loading_status(&mut self, ui: &mut egui::Ui)
 	{
 		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
@@ -111,6 +117,11 @@ impl Globe
 			boosted: self.boosted,
 			fill: self.fill,
 		});
+		if self.earth_view
+			&& let Some(light) = lighting
+		{
+			self.phase_status(ui, light);
+		}
 		// Explain unavailable data rather than silently restoring a fixed presentation Sun; C++ conditional label.
 		if lighting.is_none()
 		{
@@ -180,7 +191,7 @@ impl Globe
 			if wheel != 0.0 || pinch != 1.0
 			{
 				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, MAX_ZOOM);
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(MIN_ZOOM, MAX_ZOOM);
 				// Update this persistent member explicitly; C++ member assignment.
 				self.focus = None;
 				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
@@ -326,6 +337,40 @@ impl Globe
 			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);
+	}
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn short_phone_layout_grows_past_phase_controls()
+	{
+		for height in [80.0, 250.0, 800.0]
+		{
+			let ctx = egui::Context::default();
+			let mut output = ctx.run_ui(egui::RawInput::default(), |root| {
+				egui::CentralPanel::default().show(root, |ui| {
+					let mut bottom = 0.0;
+					ui.allocate_ui(egui::vec2(412.0, height), |ui| {
+						for _ in 0..3
+						{
+							ui.add_sized(
+								egui::vec2(200.0, 44.0),
+								egui::Label::new("Phase control"),
+							);
+						}
+						let (rect, _) = Globe::paint_rectangle(ui);
+						assert!(rect.height() >= 200.0);
+						bottom = rect.bottom();
+					});
+					assert!(ui.cursor().top() >= bottom);
+				});
+			});
+			output.textures_delta.clear();
+		}
 	}
 }
 

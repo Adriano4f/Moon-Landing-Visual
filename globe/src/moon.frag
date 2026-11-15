@@ -10,6 +10,8 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Match the vertex shader's camera position and uniform precision.
+uniform highp float u_camera_distance;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
@@ -212,8 +214,8 @@ void main()
 	vec3 light = normalize(u_model * u_sun);
 	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
 	vec3 earth_light = normalize(u_model * u_earth);
-	// Point from the surface fragment to the perspective camera at z=3.3.
-	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
+	// Point from the surface fragment to the shared perspective camera.
+	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - v_position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.

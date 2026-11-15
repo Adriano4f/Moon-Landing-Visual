@@ -11,6 +11,8 @@ out vec2 v_coverage;
 uniform mat4 u_projection;
 // Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Share the CPU camera distance with fragment viewing geometry.
+uniform highp float u_camera_distance;
 // Match integer precision in both stages, required by WebGL's uniform linker; C++ glUniform1i.
 uniform highp int u_ray_mode;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
@@ -34,7 +36,7 @@ void main()
 	// Export the original direction for texture lookup independently of rotation.
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.
-	gl_Position = u_projection * vec4(p - vec3(0.0, 0.0, 3.3), 1.0);
+	gl_Position = u_projection * vec4(p - vec3(0.0, 0.0, u_camera_distance), 1.0);
 	// Multiplication by homogeneous w preserves constant screen width after perspective division.
 	if (u_ray_mode != 0) gl_Position.xy += a_uv * gl_Position.w;
 }

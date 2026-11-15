@@ -3,20 +3,39 @@
 // Draw a hover explanation that can also be opened by touch; C++ immediate-mode helper.
 pub fn question(ui: &mut egui::Ui, text: &str)
 {
+	question_contents(ui, text, None);
+}
+
+// Keep a short publication link inside the same bounded help surface; C++ optional linked caption.
+pub fn question_with_link(ui: &mut egui::Ui, text: &str, caption: &str, url: &str)
+{
+	question_contents(ui, text, Some((caption, url)));
+}
+
+// Share word and width limits between hover, touch and linked help; C++ internal widget helper.
+fn question_contents(ui: &mut egui::Ui, text: &str, link: Option<(&str, &str)>)
+{
 	// Bound touch windows and hover tooltips, including future callers; C++ capped text and width.
-	let brief = brief(text);
+	let link = link.map(|(caption, url)| (brief_words(caption, 12), url));
+	let words = link
+		.as_ref()
+		.map_or(0, |(caption, _)| caption.split_whitespace().count());
+	let brief = brief_words(text, 25 - words);
 	let width = (ui.ctx().content_rect().width() - 48.0).clamp(60.0, 232.0);
+	let content = |ui: &mut egui::Ui| {
+		ui.set_max_width(width);
+		ui.add(egui::Label::new(&brief).wrap());
+		if let Some((caption, url)) = &link
+		{
+			publication_link(ui, caption, url);
+		}
+	};
 	// Namespace persistent state by this widget's location and explanation; C++ stable widget identifier.
 	let id = ui.make_persistent_id(text);
 	// Restore only presentation state, never scientific values; C++ optional bool with default.
 	let mut open = ui.ctx().data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
 	// A question mark supports both pointer hover and a phone tap; C++ button event.
-	if icon(ui)
-		.on_hover_ui(|ui| {
-			ui.set_max_width(width);
-			ui.add(egui::Label::new(&brief).wrap());
-		})
-		.clicked()
+	if icon(ui).on_hover_ui(content).clicked()
 	{
 		// Toggle the modeless explanation without consuming other controls; C++ bool assignment.
 		open = !open;
@@ -30,14 +49,29 @@ pub fn question(ui: &mut egui::Ui, text: &str)
 		.default_width(width)
 		.max_width(width)
 		.resizable(false)
-		.show(ui.ctx(), |ui| {
-			// Wrap to the available screen rather than widening the application; C++ text layout policy.
-			ui.set_max_width(width);
-			// Display static, ordinary-language help without executing its content; C++ text widget.
-			ui.add(egui::Label::new(&brief).wrap());
-		});
+		.show(ui.ctx(), content);
 	// Preserve the close button or tap result for the next frame; C++ widget-state store.
 	ui.ctx().data_mut(|d| d.insert_temp(id, open));
+}
+
+// Use a full touch target while keeping a one-line citation visually small; C++ linked text button.
+fn publication_link(ui: &mut egui::Ui, caption: &str, url: &str)
+{
+	let size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y.max(36.0));
+	if ui
+		.add_sized(
+			size,
+			egui::Link::new(
+				egui::RichText::new(caption)
+					.small()
+					.color(ui.visuals().hyperlink_color),
+			),
+		)
+		.on_hover_text("Open publication")
+		.clicked()
+	{
+		ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+	}
 }
 
 // Keep a small visual icon inside a full touch target; C++ custom button drawing.
@@ -71,10 +105,10 @@ fn icon(ui: &mut egui::Ui) -> egui::Response
 }
 
 // Keep every explanation within 25 words without cutting a Unicode character; C++ bounded word join.
-fn brief(text: &str) -> String
+fn brief_words(text: &str, limit: usize) -> String
 {
 	let mut words = text.split_whitespace();
-	let mut result = words.by_ref().take(25).collect::<Vec<_>>().join(" ");
+	let mut result = words.by_ref().take(limit).collect::<Vec<_>>().join(" ");
 	if words.next().is_some()
 	{
 		result.push_str("...");
@@ -113,17 +147,25 @@ mod tests
 	#[test]
 	fn short_empty_and_overlong_explanations()
 	{
-		assert_eq!(brief(""), "");
-		assert_eq!(brief("Sun above hills."), "Sun above hills.");
-		let long = brief(&"Moon lumière ".repeat(30));
+		assert_eq!(brief_words("", 25), "");
+		assert_eq!(brief_words("Sun above hills.", 25), "Sun above hills.");
+		let long = brief_words(&"Moon lumière ".repeat(30), 25);
 		assert_eq!(long.split_whitespace().count(), 25);
 		assert!(long.ends_with("..."));
+		let caption = brief_words(&"Source ".repeat(20), 12);
+		let text = brief_words(&"Moon ".repeat(30), 25 - caption.split_whitespace().count());
+		assert_eq!(format!("{text} {caption}").split_whitespace().count(), 25);
 	}
 
 	#[test]
 	fn compact_window_on_desktop_and_phone()
 	{
-		for screen_width in [1440.0, 412.0]
+		for (screen_width, linked) in [
+			(1440.0, false),
+			(412.0, false),
+			(1440.0, true),
+			(412.0, true),
+		]
 		{
 			let ctx = egui::Context::default();
 			let mut bounds = None;
@@ -137,10 +179,17 @@ mod tests
 					..Default::default()
 				};
 				let mut output = ctx.run_ui(input, |ui| {
-					let text = "Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched.";
+					let text = if linked { "Choose a published point. Nearby places can have very different hills." } else { "Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched." };
 					let id = ui.make_persistent_id(text);
 					ui.ctx().data_mut(|d| d.insert_temp(id, true));
-					question(ui, text);
+					if linked
+					{
+						question_with_link(ui, text, "Coordinates via Glaser 2017, Table 1", "https://example.com");
+					}
+					else
+					{
+						question(ui, text);
+					}
 					bounds = ui.ctx().memory(|m| m.area_rect(id));
 				});
 				output.textures_delta.clear();

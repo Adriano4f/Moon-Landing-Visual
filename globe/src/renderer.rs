@@ -387,6 +387,12 @@ impl Renderer
 	{
 		// SAFETY: the calling paint callback owns the current context; C++ has the same contract.
 		unsafe {
+			// Share one camera position across vertex projection, shading and CPU picking; C++ glUniform1f.
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_camera_distance")
+					.as_ref(),
+				math::CAMERA_DISTANCE,
+			);
 			// Always restore the textured material before drawing the Moon; C++ glUniform1i.
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
 			// Send a column-major projection without transposing; C++ glUniformMatrix4fv.

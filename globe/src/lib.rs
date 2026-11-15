@@ -4,6 +4,7 @@
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
 mod camera;
+mod phase;
 mod renderer;
 mod view;
 use renderer::Renderer;
@@ -15,6 +16,7 @@ pub mod help;
 
 // Bound enlargement by the available polar texture detail, not GPU capacity; C++ constexpr float.
 const MAX_ZOOM: f32 = 8.0;
+const MIN_ZOOM: f32 = 0.5;
 
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;

@@ -1,6 +1,9 @@
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+// Keep CPU projection and shader view directions at the same illustrative distance; C++ constant.
+pub(crate) const CAMERA_DISTANCE: f32 = 5.0;
+
 // Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
 pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
 {
@@ -71,15 +74,15 @@ impl View
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let p: [f32; 3] =
 			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-		if (surface && 3.3 * p[2] <= 1.0) || p[2] >= 3.2
+		if (surface && CAMERA_DISTANCE * p[2] <= 1.0) || p[2] >= CAMERA_DISTANCE - 0.1
 		{
 			return None;
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let projection = self.projection();
 		Some([
-			projection[0] * p[0] / (3.3 - p[2]),
-			projection[5] * p[1] / (3.3 - p[2]),
+			projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
+			projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 		])
 	}
 	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
@@ -311,18 +314,18 @@ pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2
 	// Multiply column-major matrix by the object direction; C++ array<float,3> computed by a loop.
 	let p: [f32; 3] =
 		std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-	// A unit-sphere point faces eye (0,0,3.3) iff p dot (eye-p)>0; C++ analytic sphere occlusion test.
-	if 3.3 * p[2] <= 1.0
+	// A surface point faces the camera iff p dot (eye-p)>0; C++ sphere occlusion test.
+	if CAMERA_DISTANCE * p[2] <= 1.0
 	{
 		// Hide far-side and tangent markers instead of drawing through the Moon; C++ nullopt.
 		return None;
 	}
 	// Reuse the GPU perspective scales and camera distance; C++ projection matrix lookup.
 	let projection = perspective(aspect);
-	// Divide clip x/y by clip w=3.3-p.z; C++ returns an optional projected point.
+	// Divide clip x/y by the camera-relative depth; C++ returns an optional projected point.
 	Some([
-		projection[0] * p[0] / (3.3 - p[2]),
-		projection[5] * p[1] / (3.3 - p[2]),
+		projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
+		projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 	])
 }
 
@@ -333,6 +336,39 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	#[test]
+	fn camera_margin_zoom_out_and_shared_uniform()
+	{
+		for zoom in [super::super::MIN_ZOOM, 1.0]
+		{
+			let view = View {
+				yaw: 0.0,
+				tilt: 0.0,
+				zoom,
+				aspect: 0.6,
+				pixels: [600.0, 1000.0],
+				scale: 1.0,
+			};
+			for lat in -90..=90
+			{
+				for lon in 0..360
+				{
+					if let Some(p) = view.project(
+						direction((lat as f32).to_radians(), (lon as f32).to_radians()),
+						true,
+					)
+					{
+						assert!(p.iter().all(|v| v.abs() < 0.9));
+					}
+				}
+			}
+		}
+		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
+		{
+			assert!(shader.contains("uniform highp float u_camera_distance;"));
+		}
+	}
 
 	// Check full, new, quarter Earth and malformed vectors independently of shader display exposure; C++ test registration.
 	#[test]
@@ -394,7 +430,10 @@ mod tests
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(view.project([0.0, 0.0, -4.0], true).is_none());
 		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
-		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
+		assert!(
+			view.ribbon(point.map(|v| v * CAMERA_DISTANCE), point)
+				.is_empty()
+		);
 		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
 		assert_eq!(aligned.len(), 462);
 		// The first outer disk vertex is 2 logical points from its center; C++ screen-space radius check.

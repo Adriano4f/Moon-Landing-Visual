@@ -113,7 +113,7 @@ math::rotation returns this column-major nine-float matrix. Its sin_cos call ret
 
 Historical presentation example, not the current default: why 30 degrees? At camera $C=(0,0,3.3)$, a unit sphere point is front-facing only if $\mathbf p_w\cdot(C-\mathbf p_w)>0$, or $3.3p_{w,z}>1$. An equatorial view hides the 89.45-degree-south example behind the perspective limb even though it lies close to the drawn silhouette. The tilt moves the south pole to $(0,-\sqrt3/2,1/2)$, giving $3.3/2-1=0.65>0$: it is visible throughout rotation. At zero animation angle and a square viewport, that pole projects to approximately $(0,-0.7467)$ NDC, inside the lower part of the Moon. This is a deliberate geographic presentation view, not an orbital camera derived from Horizons. North still maps to the geographic +y object axis; the tilt does not alter latitude or longitude.
 
-For world point $\mathbf p_w=M\mathbf p$, the shader's clip divisor is $w=3.3-p_{w,z}$. Reusing math::perspective gives $x_{ndc}=P_{00}p_{w,x}/w$ and $y_{ndc}=P_{11}p_{w,y}/w$. NDC is mapped into the UI rectangle centered at $(c_x,c_y)$ with dimensions $(W,H)$:
+For world point $\mathbf p_w=M\mathbf p$, the current shader's clip divisor is $w=5-p_{w,z}$. Reusing math::perspective gives $x_{ndc}=P_{00}p_{w,x}/w$ and $y_{ndc}=P_{11}p_{w,y}/w$. NDC is mapped into the UI rectangle centered at $(c_x,c_y)$ with dimensions $(W,H)$:
 
 $$
 x_{ui}=c_x+\tfrac12Wx_{ndc},\qquad y_{ui}=c_y-\tfrac12Hy_{ndc}.
@@ -121,7 +121,7 @@ $$
 
 The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
 
-Implementation: [globe/src/math.rs:286](../globe/src/math.rs#L286), [globe/src/math.rs:298](../globe/src/math.rs#L298), [globe/src/lib.rs:245](../globe/src/lib.rs#L245).
+Implementation: [globe/src/math.rs:289](../globe/src/math.rs#L289), [globe/src/math.rs:301](../globe/src/math.rs#L301), [globe/src/lib.rs:247](../globe/src/lib.rs#L247).
 
 ## 8. Panorama API index and C++ equivalents
 

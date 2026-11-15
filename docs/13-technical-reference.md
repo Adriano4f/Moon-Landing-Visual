@@ -291,7 +291,7 @@ The optional whole-Moon Sun field samples 512 equal-area Fibonacci sphere candid
 
 All published markers have contrasting outlines. Unselected radius is 6 logical pixels; selected radius is 9, with a name label. Back-hemisphere points are hidden. Picking chooses the nearest projected point within 14 logical pixels; the site list disambiguates close overlaps without displacing coordinates.
 
-The shared camera transform is $M=R_x(\theta)R_y(\alpha)$, with a perspective camera at $(0,0,3.3)$ lunar radii. Magnification scales the projection, clamped from 1 to 8. Dragging enters free orbit and pauses optional artificial rotation; wheel, pinch and zoom buttons change magnification. Earth-following mode uses
+The shared camera transform is $M=R_x(\theta)R_y(\alpha)$, with a perspective camera at $(0,0,5)$ lunar radii. Magnification scales the projection, clamped from 0.5 to 8. A single CPU constant supplies the matching high-precision vertex/fragment uniform and CPU projection. Dragging enters free orbit and pauses optional artificial rotation; wheel, pinch and zoom buttons change magnification. Earth-following mode uses
 
 $$\alpha=-\operatorname{atan2}(e_x,e_z),\qquad \theta=\arcsin(e_y).$$
 
@@ -299,7 +299,25 @@ Go to site targets $\alpha=-\lambda$, $\theta=\phi$, mapping the site's radial v
 
 ## 9. Application state and interface
 
-The compact menu exposes Site and Time, with specialist groups under collapsed More options and a separate shortened Explanations section. Citations are collapsed under Source. Shared help rendering limits every question-mark explanation to 25 words and 232 logical pixels of content, approximately 260 pixels including window chrome, for hover and tap alike. Longer help cannot widen a phone screen. The panorama labels both angular axes in degrees, names Sun/Earth/ground in a persistent legend, emphasizes zero height, and keeps the actual vertical stretch visible. Short green/red statuses indicate availability without promising electrical output or radio service; no scientific results change with this presentation.
+Earth view names the approximate phase and geometric illuminated fraction using the renderer's real apparent directions:
+
+$$\gamma=\arccos(\hat{\mathbf s}\cdot\hat{\mathbf e}),\qquad f_{lit}=\frac{1+\cos\gamma}{2}.$$
+
+The angular supplement is the Earth phase used for earthshine. The lunar phase estimate retains the existing small topocentric-direction approximation, and is not a brightness prediction or eclipse model. The visible cap of the illustrative finite-distance camera differs from the distant Earth-facing hemisphere. At camera distance $d$, no direct solar patch is visible when $\gamma\geq\pi/2+\arccos(1/d)$. Thus the previous $d=3.3$ camera could entirely hide a crescent with up to 2.351 percent geocentric illuminated area; at $d=5$ the threshold is 1.010 percent. This is explicitly near-new-Moon geometry, not an Earth object eclipsing the Sun. Below 10 percent illuminated area, a one-click shortcut enables the existing boosted earthshine aid.
+
+The paint viewport has a 200-logical-pixel minimum height, preventing phase controls from pushing the instruction overlay across the globe on a phone; the surrounding layout scrolls instead.
+
+Representative bundled C1 epochs independently give the following approximate phase geometry; dates are UTC in 2027:
+
+| Epoch | Phase angle, degrees | Illuminated area, percent |
+| :--- | :--- | :--- |
+| January 5, 03:00 | 150.0226 | 6.6889 |
+| January 7, 21:00 | 176.8867 | 0.0738 |
+| January 9, 05:00 | 165.1818 | 1.6629 |
+| January 22, 12:00 | 1.4023 | 99.9850 |
+| January 29, 11:00 | 89.8861 | 50.0994 |
+
+The compact menu exposes Site and Time, with specialist groups under collapsed More options and a separate shortened Explanations section. The site selector's help includes one short publication link instead of a Source section or raw citation string. Secondary coordinates cite the verified secondary table. The optional whole-Moon field is labeled Sun rays. Shared help rendering limits every question-mark explanation to 25 words, including linked captions, and 232 logical pixels of content, approximately 260 pixels including window chrome, for hover and tap alike. Longer help cannot widen a phone screen. The panorama labels both angular axes in degrees, names Sun/Earth/ground in a persistent legend, emphasizes zero height, and keeps the actual vertical stretch visible. Short green/red statuses indicate availability without promising electrical output or radio service; no scientific results change with this presentation.
 
 The shared dark style uses a blue interaction accent, 10 pixel item spacing, 8 to 10 pixel corner radii and a 24/15/14/12 pixel heading/body/button/caption hierarchy. Ordinary controls reserve 36 pixel desktop and 44 pixel phone heights. Small circular help glyphs use the same full interaction target. Zero-height help explicitly identifies the observer's local horizontal plane: positive angles are above eye level and negative angles below it, independent of terrain altitude. Theme changes never alter scientific state.
 

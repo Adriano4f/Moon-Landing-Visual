@@ -477,6 +477,9 @@ fn read_browser(
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+// Keep CPU projection and shader view directions at the same illustrative distance; C++ constant.
+pub(crate) const CAMERA_DISTANCE: f32 = 5.0;
+
 // Estimate reflected visible irradiance relative to the Sun using NASA geometric albedo and mean separation; C++ scalar helper.
 pub(crate) fn earthshine_ratio(sun: [f32; 3], earth: [f32; 3]) -> f32
 {
@@ -547,15 +550,15 @@ impl View
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let p: [f32; 3] =
 			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-		if (surface && 3.3 * p[2] <= 1.0) || p[2] >= 3.2
+		if (surface && CAMERA_DISTANCE * p[2] <= 1.0) || p[2] >= CAMERA_DISTANCE - 0.1
 		{
 			return None;
 		}
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let projection = self.projection();
 		Some([
-			projection[0] * p[0] / (3.3 - p[2]),
-			projection[5] * p[1] / (3.3 - p[2]),
+			projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
+			projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 		])
 	}
 	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
@@ -787,18 +790,18 @@ pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2
 	// Multiply column-major matrix by the object direction; C++ array<float,3> computed by a loop.
 	let p: [f32; 3] =
 		std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
-	// A unit-sphere point faces eye (0,0,3.3) iff p dot (eye-p)>0; C++ analytic sphere occlusion test.
-	if 3.3 * p[2] <= 1.0
+	// A surface point faces the camera iff p dot (eye-p)>0; C++ sphere occlusion test.
+	if CAMERA_DISTANCE * p[2] <= 1.0
 	{
 		// Hide far-side and tangent markers instead of drawing through the Moon; C++ nullopt.
 		return None;
 	}
 	// Reuse the GPU perspective scales and camera distance; C++ projection matrix lookup.
 	let projection = perspective(aspect);
-	// Divide clip x/y by clip w=3.3-p.z; C++ returns an optional projected point.
+	// Divide clip x/y by the camera-relative depth; C++ returns an optional projected point.
 	Some([
-		projection[0] * p[0] / (3.3 - p[2]),
-		projection[5] * p[1] / (3.3 - p[2]),
+		projection[0] * p[0] / (CAMERA_DISTANCE - p[2]),
+		projection[5] * p[1] / (CAMERA_DISTANCE - p[2]),
 	])
 }
 
@@ -809,6 +812,39 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	#[test]
+	fn camera_margin_zoom_out_and_shared_uniform()
+	{
+		for zoom in [super::super::MIN_ZOOM, 1.0]
+		{
+			let view = View {
+				yaw: 0.0,
+				tilt: 0.0,
+				zoom,
+				aspect: 0.6,
+				pixels: [600.0, 1000.0],
+				scale: 1.0,
+			};
+			for lat in -90..=90
+			{
+				for lon in 0..360
+				{
+					if let Some(p) = view.project(
+						direction((lat as f32).to_radians(), (lon as f32).to_radians()),
+						true,
+					)
+					{
+						assert!(p.iter().all(|v| v.abs() < 0.9));
+					}
+				}
+			}
+		}
+		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
+		{
+			assert!(shader.contains("uniform highp float u_camera_distance;"));
+		}
+	}
 
 	// Check full, new, quarter Earth and malformed vectors independently of shader display exposure; C++ test registration.
 	#[test]
@@ -870,7 +906,10 @@ mod tests
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(view.project([0.0, 0.0, -4.0], true).is_none());
 		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
-		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
+		assert!(
+			view.ribbon(point.map(|v| v * CAMERA_DISTANCE), point)
+				.is_empty()
+		);
 		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
 		assert_eq!(aligned.len(), 462);
 		// The first outer disk vertex is 2 logical points from its center; C++ screen-space radius check.
@@ -1020,6 +1059,7 @@ mod tests
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
 mod camera;
+mod phase;
 mod renderer;
 mod view;
 use renderer::Renderer;
@@ -1031,6 +1071,7 @@ pub mod help;
 
 // Bound enlargement by the available polar texture detail, not GPU capacity; C++ constexpr float.
 const MAX_ZOOM: f32 = 8.0;
+const MIN_ZOOM: f32 = 0.5;
 
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use egui::mutex::Mutex;
@@ -1308,6 +1349,8 @@ out vec2 v_coverage;
 uniform mat4 u_projection;
 // Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Share the CPU camera distance with fragment viewing geometry.
+uniform highp float u_camera_distance;
 // Match integer precision in both stages, required by WebGL's uniform linker; C++ glUniform1i.
 uniform highp int u_ray_mode;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
@@ -1331,7 +1374,7 @@ void main()
 	// Export the original direction for texture lookup independently of rotation.
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.
-	gl_Position = u_projection * vec4(p - vec3(0.0, 0.0, 3.3), 1.0);
+	gl_Position = u_projection * vec4(p - vec3(0.0, 0.0, u_camera_distance), 1.0);
 	// Multiplication by homogeneous w preserves constant screen width after perspective division.
 	if (u_ray_mode != 0) gl_Position.xy += a_uv * gl_Position.w;
 }
@@ -1352,6 +1395,8 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Match the vertex shader's camera position and uniform precision.
+uniform highp float u_camera_distance;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
@@ -1554,8 +1599,8 @@ void main()
 	vec3 light = normalize(u_model * u_sun);
 	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
 	vec3 earth_light = normalize(u_model * u_earth);
-	// Point from the surface fragment to the perspective camera at z=3.3.
-	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
+	// Point from the surface fragment to the shared perspective camera.
+	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - v_position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
@@ -2341,6 +2386,12 @@ impl Renderer
 	{
 		// SAFETY: the calling paint callback owns the current context; C++ has the same contract.
 		unsafe {
+			// Share one camera position across vertex projection, shading and CPU picking; C++ glUniform1f.
+			gl.uniform_1_f32(
+				gl.get_uniform_location(program, "u_camera_distance")
+					.as_ref(),
+				math::CAMERA_DISTANCE,
+			);
 			// Always restore the textured material before drawing the Moon; C++ glUniform1i.
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
 			// Send a column-major projection without transposing; C++ glUniformMatrix4fv.
@@ -2862,8 +2913,7 @@ impl Globe
 		self.animate_camera(time, dt);
 		self.pending_label(ui);
 		// Reserve the available paint rectangle; C++ would receive a rectangle/response pair.
-		let (rect, response) =
-			ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+		let (rect, response) = Self::paint_rectangle(ui);
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if !rect.is_positive()
 		{
@@ -2893,6 +2943,13 @@ impl Globe
 
 impl Globe
 {
+	// Let short layouts grow rather than covering the Moon with the legend; C++ bounded child size.
+	fn paint_rectangle(ui: &mut egui::Ui) -> (egui::Rect, egui::Response)
+	{
+		let size = egui::vec2(ui.available_width(), ui.available_height().max(200.0));
+		ui.allocate_exact_size(size, egui::Sense::click_and_drag())
+	}
+
 	fn loading_status(&mut self, ui: &mut egui::Ui)
 	{
 		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
@@ -2956,6 +3013,11 @@ impl Globe
 			boosted: self.boosted,
 			fill: self.fill,
 		});
+		if self.earth_view
+			&& let Some(light) = lighting
+		{
+			self.phase_status(ui, light);
+		}
 		// Explain unavailable data rather than silently restoring a fixed presentation Sun; C++ conditional label.
 		if lighting.is_none()
 		{
@@ -3025,7 +3087,7 @@ impl Globe
 			if wheel != 0.0 || pinch != 1.0
 			{
 				// Update this persistent member explicitly; C++ member assignment.
-				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, MAX_ZOOM);
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(MIN_ZOOM, MAX_ZOOM);
 				// Update this persistent member explicitly; C++ member assignment.
 				self.focus = None;
 				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
@@ -3171,6 +3233,40 @@ impl Globe
 			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);
+	}
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn short_phone_layout_grows_past_phase_controls()
+	{
+		for height in [80.0, 250.0, 800.0]
+		{
+			let ctx = egui::Context::default();
+			let mut output = ctx.run_ui(egui::RawInput::default(), |root| {
+				egui::CentralPanel::default().show(root, |ui| {
+					let mut bottom = 0.0;
+					ui.allocate_ui(egui::vec2(412.0, height), |ui| {
+						for _ in 0..3
+						{
+							ui.add_sized(
+								egui::vec2(200.0, 44.0),
+								egui::Label::new("Phase control"),
+							);
+						}
+						let (rect, _) = Globe::paint_rectangle(ui);
+						assert!(rect.height() >= 200.0);
+						bottom = rect.bottom();
+					});
+					assert!(ui.cursor().top() >= bottom);
+				});
+			});
+			output.textures_delta.clear();
+		}
 	}
 }
 
@@ -3320,7 +3416,7 @@ impl Globe
 	{
 		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
 		ui.horizontal_wrapped(|ui| {
-			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(1.0); self.focus = None; }
+			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
 			help::question(ui, "Zoom out to see more of the Moon. This changes the camera, not the landing site.");
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
 			help::question(ui, "Enlarge the Moon up to eight times. The overview has limited detail; use the site list to distinguish nearby points.");
@@ -3377,8 +3473,8 @@ impl Globe
 	pub fn surface_ray_controls(&mut self, ui: &mut egui::Ui)
 	{
 		ui.horizontal_wrapped(|ui| {
-			ui.checkbox(&mut self.surface_rays, "Rays across the whole Moon");
-			help::question(ui, "Show incoming sunlight across the lit half of the Moon. Lines follow the real Sun direction, but lengths and ground shadows are illustrative.");
+			ui.checkbox(&mut self.surface_rays, "Sun rays");
+			help::question(ui, "Show thin Sun rays across the lit half of the Moon. Directions are real; lengths are illustrative and terrain shadows are not calculated.");
 		});
 	}
 }
@@ -3913,6 +4009,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `active_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `add`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `add_enabled`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `add_sized`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `add_triangle`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `advance_upgrade`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `all`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -3971,6 +4068,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `button`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `bytemuck::cast_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `camera_controls`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `camera_margin_zoom_out_and_shared_uniform`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `card_grid`: [annotated app/src/panorama/view.rs](04-globe-code.md#426-appsrcpanoramaviewrs)
 - `center`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `centered_site_and_billboard_width`: [annotated globe/src/math.rs](#43-globesrcmathrs)
@@ -4005,6 +4103,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `create_vertex_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `ctx`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `cull_face`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `cursor`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `data::load`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `Default`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `Default::default`: [annotated app/src/main.rs](#48-appsrcmainrs)
@@ -4046,14 +4145,18 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `eframe::run_native`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eframe::WebRunner::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `egui::Button::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `egui::CentralPanel::default`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Color32::from_black_alpha`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `egui::Context::default`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Frame::group`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::Grid::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `egui::Label::new`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Mesh::default`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `egui::pos2`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
+- `egui::RawInput::default`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `egui::Rect::from_min_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::RichText::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::Sense::click_and_drag`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4114,6 +4217,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `globe::Globe::new`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `globe::help::annotated`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `globe::help::question`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `Globe::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `guides`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `heading`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -4177,6 +4281,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `lunar_core::stats`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `lunar_core::Stats::default`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `lunar_core::sun_fraction`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `lunar_phase`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `main_views`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `map`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `map_err`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -4213,6 +4318,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `paint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `paint_markers`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `paint_opaque`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
+- `paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `paint_site_rays`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `paint_surface_rays`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4225,6 +4331,9 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `Pending::default`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `pending_label`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `perspective`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `phase_label`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `phase_status`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
+- `phases_normalized_and_invalid`: [annotated globe/src/phase.rs](11-menu-and-help.md#44-globesrcphasers)
 - `phone_views`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `pixel_store_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `pixels_per_point`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -4253,6 +4362,8 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `ribbon`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `right`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `rotation`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `run`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
+- `run_ui`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `saturating_sub`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `scene_identity_empty_and_invalid`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `scene_lighting`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
@@ -4270,6 +4381,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `Self::light_uniforms`: [annotated globe/src/renderer.rs](04-globe-code.md#420-globesrcrendererrs)
 - `Self::native_filter`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
 - `Self::native_pixels`: [annotated globe/src/renderer/textures.rs](04-globe-code.md#422-globesrcrenderertexturesrs)
+- `Self::paint_rectangle`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `Self::process_textures`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `serde_json::from_slice`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `serde_json::to_vec`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
@@ -4281,6 +4393,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `set_time`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `set_width`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `shader_source`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `short_phone_layout_grows_past_phase_controls`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `show`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `show_panorama`: [annotated app/src/layout.rs](04-globe-code.md#425-appsrclayoutrs)
 - `show_ui`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -4337,6 +4450,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `to_radians`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `to_rgb8`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `to_string`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `top`: [annotated globe/src/view.rs](04-globe-code.md#423-globesrcviewrs)
 - `transpose`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `trim`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `truncate`: [annotated globe/src/lib.rs](#44-globesrclibrs)

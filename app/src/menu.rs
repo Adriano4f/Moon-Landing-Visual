@@ -7,6 +7,80 @@ use globe::help::question;
 // Access the owning application without duplicating scientific state; C++ parent class declaration.
 use crate::MoonApp;
 
+// Summarize the verified linked reference, retaining secondary-source attribution; C++ metadata formatter.
+fn source_link(source: &str) -> Option<(String, &str)>
+{
+	let url = source
+		.split_whitespace()
+		.find(|word| word.starts_with("https://"))?;
+	let reference = source.split(';').next()?;
+	let verified = reference.rsplit("peer-reviewed ").next()?;
+	let details = || {
+		let author = verified.split_whitespace().next()?;
+		let year = verified
+			.split_whitespace()
+			.map(|word| word.trim_matches(|c: char| !c.is_ascii_digit()))
+			.find(|word| word.len() == 4)?;
+		let table = verified
+			.split_once("Table ")?
+			.1
+			.split_whitespace()
+			.next()?
+			.trim_end_matches([',', ';']);
+		let relation = if reference.contains("peer-reviewed ")
+		{
+			" via"
+		}
+		else
+		{
+			":"
+		};
+		Some(format!(
+			"Coordinates{relation} {author} {year}, Table {table}"
+		))
+	};
+	Some((
+		details().unwrap_or_else(|| "Coordinates: source publication".into()),
+		url,
+	))
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn short_verified_citations_and_missing_metadata()
+	{
+		let entries: Vec<crate::Entry> =
+			serde_json::from_str(include_str!("../../sites.json")).unwrap();
+		for (index, entry) in entries.iter().enumerate()
+		{
+			let (caption, url) = source_link(&entry.source).unwrap();
+			assert_eq!(
+				caption,
+				if index < 4
+				{
+					"Coordinates: Glaser 2017, Table 2"
+				}
+				else
+				{
+					"Coordinates via Glaser 2017, Table 1"
+				}
+			);
+			assert!(url.starts_with("https://ntrs.nasa.gov/"));
+			assert!(!caption.contains("https://"));
+		}
+		assert!(source_link("").is_none());
+		assert!(source_link("Missing link").is_none());
+		assert_eq!(
+			source_link("Unknown https://example.com").unwrap().0,
+			"Coordinates: source publication"
+		);
+	}
+}
+
 // Explain and collapse a settings group with a stable identity; C++ templated callback helper.
 fn section(
 	ui: &mut egui::Ui,
@@ -276,24 +350,30 @@ impl MoonApp
 			|ui| {
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
 				ui.horizontal_wrapped(|ui| {
-				let width = (ui.available_width() - 54.0).max(100.0);
-				egui::ComboBox::from_id_salt("published-site").width(width).wrap_mode(egui::TextWrapMode::Truncate).selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
-					// Visit each explanatory item in order; C++ range-for loop.
-					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name); }
+					let width = (ui.available_width() - 54.0).max(100.0);
+					egui::ComboBox::from_id_salt("published-site")
+						.width(width)
+						.wrap_mode(egui::TextWrapMode::Truncate)
+						.selected_text(&self.catalog[self.selected].name)
+						.show_ui(ui, |ui| {
+							// Visit each explanatory item in order; C++ range-for loop.
+							for (id, entry) in self.catalog.iter().enumerate()
+							{
+								ui.selectable_value(&mut self.selected, id, &entry.name);
+							}
+						});
+					// Submit this immediate-mode widget or explanation; C++ UI helper call.
+					let text =
+						"Choose a published point. Nearby places can have very different hills.";
+					if let Some((caption, url)) = source_link(&self.catalog[self.selected].source)
+					{
+						globe::help::question_with_link(ui, text, &caption, url);
+					}
+					else
+					{
+						question(ui, text);
+					}
 				});
-				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				question(ui, "Choose a published point to update the sky and results. Nearby places can have very different hills.");
-			});
-				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				section(
-					ui,
-					"Source",
-					false,
-					"Published coordinates and their citation. These points are not moved to improve the results.",
-					|ui| {
-						ui.small(&self.catalog[self.selected].source);
-					},
-				);
 			},
 		);
 		section(

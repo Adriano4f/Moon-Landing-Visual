@@ -6,6 +6,10 @@ The project compares south-polar landing sites and dates for solar power and dir
 
 This is a Moon-centered direction visualization, not a scale drawing of three bodies or a new orbit integrator. The existing Horizons samples encode the orbital evolution. Sun and Earth endpoint disks remain illustrative direction symbols near a landing marker, not the positions of those bodies in space. The scientific terrain availability and summary cards are unchanged.
 
+Earth view also identifies the approximate phase and geometric illuminated area. Near new Moon, the Earth-facing surface is naturally dark, not covered by an eclipse object. The shader does not simulate eclipses. A visible area percentage is not a brightness estimate. Below 10 percent lit, Boost earthshine enables the existing 1,000 times display aid with one click; it never changes the numerical availability results. Phase classification is isolated in `globe/src/phase.rs`.
+
+The perspective camera now sits five lunar radii from the center, instead of 3.3, so the default globe and ray field have more margin. Magnification ranges from 0.5 to 8 times; View from Earth restores one times. The shared CPU constant also supplies a matching high-precision uniform to both shader stages, preserving picking, ray alignment and photometric viewing geometry. This camera remains much closer than the real Earth. Its finite visible cap can hide a very small crescent, at most about 1.010 percent geometrically illuminated area, compared with 2.351 percent at the previous distance.
+
 ## 2. One coordinate frame for bodies, lights and markers
 
 The renderer's Moon-fixed axes are +y at the north pole, +z at latitude zero and longitude zero, and +x at latitude zero and 90 degrees east. The previous guide derives the local east, north and up vectors. For sky azimuth A measured north toward east and elevation e, the direction is d=cos(e)sin(A)E+cos(e)cos(A)N+sin(e)U. The public Rust function `moon_fixed` wraps that tested conversion with degree-valued inputs. Its return type `Option<[f32; 3]>` is like a C++ optional containing an array of three floats; invalid angles return no direction rather than a fabricated light.
@@ -86,6 +90,8 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 // Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Match the vertex shader's camera position and uniform precision.
+uniform highp float u_camera_distance;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
@@ -288,8 +294,8 @@ void main()
 	vec3 light = normalize(u_model * u_sun);
 	// Keep the Earth source in the same world frame; C++ matrix-vector product and normalization.
 	vec3 earth_light = normalize(u_model * u_earth);
-	// Point from the surface fragment to the perspective camera at z=3.3.
-	vec3 view = normalize(vec3(0.0, 0.0, 3.3) - v_position);
+	// Point from the surface fragment to the shared perspective camera.
+	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - v_position);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
 	vec3 geometric = normalize(v_position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
