@@ -97,7 +97,6 @@ impl Globe
 				));
 			}
 		}
-		// Legend: red (no Sun) to green (always Sun), bottom left.
 		let origin = rect.left_bottom() + egui::vec2(8.0, -30.0);
 		painter.rect_filled(
 			egui::Rect::from_min_size(origin - egui::vec2(3.0, 3.0), egui::vec2(170.0, 24.0)),
@@ -138,7 +137,6 @@ impl Globe
 		});
 	}
 
-	// Faint tile grid around the view center once zoomed in enough for tiles to be legible.
 	pub(crate) fn paint_grid(&self, ui: &egui::Ui, rect: egui::Rect, view: math::View)
 	{
 		let Some(grid) = self.grid
@@ -190,7 +188,7 @@ fn to_screen(rect: egui::Rect, view: math::View, lat: f64, lon: f64) -> Option<e
 		})
 }
 
-// Closed boundary walk (south, east, north, west edges), n steps per edge; None where hidden.
+/// Closed boundary walk (south, east, north, west edges), n steps per edge; None where hidden.
 fn outline(rect: egui::Rect, view: math::View, tile: [f64; 4], n: usize)
 -> Vec<Option<egui::Pos2>>
 {
@@ -210,7 +208,7 @@ fn outline(rect: egui::Rect, view: math::View, tile: [f64; 4], n: usize)
 		.collect()
 }
 
-// Red at 0 %, yellow at 50 %, green at 100 %.
+/// Red at 0 %, yellow at 50 %, green at 100 %.
 fn sun_color(pct: f32) -> egui::Color32
 {
 	let p = (pct / 100.0).clamp(0.0, 1.0);

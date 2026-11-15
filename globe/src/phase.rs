@@ -1,6 +1,6 @@
 use super::*;
 
-// Compute geometric lunar phase from real Moon-fixed directions; C++ checked vector geometry.
+/// Compute geometric lunar phase from real Moon-fixed directions.
 fn lunar_phase(sun: [f32; 3], earth: [f32; 3]) -> Option<(f32, f32, bool)>
 {
 	let norm =
@@ -16,7 +16,7 @@ fn lunar_phase(sun: [f32; 3], earth: [f32; 3]) -> Option<(f32, f32, bool)>
 
 impl Globe
 {
-	// Keep a naturally dark phase distinct from missing data or eclipses; C++ presentation helper.
+	/// Keep a naturally dark phase distinct from missing data or eclipses.
 	pub(super) fn phase_status(&mut self, ui: &mut egui::Ui, light: Lighting)
 	{
 		let Some((angle, fraction, waxing)) = lunar_phase(light.sun, light.earth)
@@ -44,7 +44,7 @@ impl Globe
 	}
 }
 
-// Name approximate phases without equating their illuminated area with brightness; C++ classification.
+/// Name approximate phases without equating their illuminated area with brightness.
 fn phase_label(angle: f32, fraction: f32, waxing: bool) -> &'static str
 {
 	if angle > 168.0

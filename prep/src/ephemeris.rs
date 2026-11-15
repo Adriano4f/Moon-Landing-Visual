@@ -1,6 +1,5 @@
 //! Derive apparent MEAN_ME vectors from a surveyed lunar reference observer.
 
-// Reuse time parsing, scientific geometry and checked binary representation; C++ library includes.
 use chrono::{NaiveDate, NaiveDateTime};
 use lunar_core::{
 	MOON_RADIUS_M, Site, Track,
@@ -14,50 +13,41 @@ use std::{
 	time::{Duration, Instant},
 };
 
-// Preserve precision until the final compact conversion; C++ exact AU definition in meters.
 const AU_M: f64 = 149597870700.0;
 
-// Report errors in Sun/Earth order, independently of the request order; C++ JSON aggregate.
+/// Report errors in Sun/Earth order, independently of the request order.
 #[derive(Serialize)]
 struct Validation
 {
-	// Retain the published site name; C++ string.
 	name: String,
-	// Number of epochs compared for each body; C++ size_t.
 	samples: usize,
-	// Maximum wrapped azimuth errors, degrees; C++ array<double,2>.
+	/// Maximum wrapped azimuth errors, degrees.
 	max_az_deg: [f64; 2],
-	// Maximum elevation errors, degrees; C++ array<double,2>.
+	/// Maximum elevation errors, degrees.
 	max_el_deg: [f64; 2],
 }
 
-// Read only the existing independent reference quantities; C++ deserialized record.
 #[derive(Deserialize)]
 struct Reference
 {
-	// Published location of the independent observation; C++ Site value.
 	site: Site,
-	// Existing apparent directions with their original UTC grid; C++ Track members.
 	sun: Track,
 	earth: Track,
-	// Reference altitude from the original full-resolution run; C++ value member.
 	terrain: Altitude,
 }
 
-// Keep instrument and terrain height distinct; C++ provenance aggregate.
+/// Keep instrument and terrain height distinct.
 #[derive(Deserialize)]
 struct Altitude
 {
-	// Radial DEM height above the reference sphere; C++ double.
+	/// Radial DEM height above the reference sphere.
 	surface_height_m: f64,
-	// Height above that sampled surface; C++ double.
+	/// Height above that sampled surface.
 	observer_height_m: f64,
 }
 
-// Execute the explicit fixed-interval preparation command; C++ fallible command handler.
 pub fn run() -> Result<(), Box<dyn Error>>
 {
-	// Require an external raw cache and an independent reference-data directory; C++ argument vector.
 	let args: Vec<_> = std::env::args().skip(2).collect();
 	if args.len() != 3
 	{
@@ -66,7 +56,7 @@ pub fn run() -> Result<(), Box<dyn Error>>
 	let clock = Instant::now();
 	let cache = Path::new(&args[1]);
 	fs::create_dir_all(cache)?;
-	// Bound network waits; no unbounded retry or concurrent Horizons calls; C++ HTTP client.
+	// Bound network waits; no unbounded retry or concurrent Horizons calls.
 	let client = reqwest::blocking::Client::builder()
 		.timeout(Duration::from_secs(180))
 		.build()?;
@@ -76,21 +66,19 @@ pub fn run() -> Result<(), Box<dyn Error>>
 	{
 		return Err("Unexpected eight-year ephemeris count".into());
 	}
-	// Every annual chunk has already proven its exact epoch/cadence; C++ pairwise zip.
 	let data = Ephemeris {
 		start_utc: year_start(2027),
 		step_s: 3600,
 		samples: sun.into_iter().zip(earth).map(|(s, e)| [s, e]).collect(),
 	};
 	let bytes = data.encode()?;
-	// Validate the quantized serialized representation, not a more precise precursor; C++ checked decode.
+	// Validate the quantized serialized representation, not a more precise precursor.
 	let decoded = Ephemeris::decode(&bytes)?;
 	let validation = validate_all(&decoded, Path::new(&args[2]))?;
-	// Publish only after all seven sites meet the requested angular thresholds; C++ staged output.
+	// Publish only after all seven sites meet the requested angular thresholds.
 	let output = Path::new(&args[0]);
 	fs::write(output.with_extension("bin.part"), &bytes)?;
 	fs::rename(output.with_extension("bin.part"), output)?;
-	// Reuse exactly the validated first sample for the application's initial picture; C++ tiny derived artifact.
 	fs::write(
 		output.with_extension("initial.bin"),
 		initial_sample(&decoded)?,
@@ -118,7 +106,7 @@ pub fn run() -> Result<(), Box<dyn Error>>
 	Ok(())
 }
 
-// Encode a normal versioned file rather than maintaining a second ad-hoc parser; C++ checked subset serialization.
+/// Encode a normal versioned file rather than maintaining a second ad-hoc parser.
 fn initial_sample(data: &Ephemeris) -> Result<Vec<u8>, String>
 {
 	Ephemeris {
@@ -134,7 +122,7 @@ fn initial_sample(data: &Ephemeris) -> Result<Vec<u8>, String>
 	.encode()
 }
 
-// Date construction is internal and restricted to 2027 through 2035; C++ calendar helper.
+/// Date construction is internal and restricted to 2027 through 2035.
 fn year_start(year: i32) -> i64
 {
 	NaiveDate::from_ymd_opt(year, 1, 1)
@@ -145,7 +133,7 @@ fn year_start(year: i32) -> i64
 		.timestamp()
 }
 
-// Fetch chronological annual chunks below the service row limit; C++ vector assembly.
+/// Fetch chronological annual chunks below the service row limit.
 fn fetch_body(
 	client: &reqwest::blocking::Client,
 	body: &str,
@@ -157,7 +145,7 @@ fn fetch_body(
 	{
 		let text = request(client, body, year, cache)?;
 		let mut rows = parse_chunk(&text, body, year_start(year), year_start(year + 1))?;
-		// Each new chunk repeats the preceding inclusive endpoint; C++ erase first element.
+		// Each new chunk repeats the preceding inclusive endpoint.
 		if year != 2027
 		{
 			rows.remove(0);
@@ -168,7 +156,7 @@ fn fetch_body(
 	Ok(result)
 }
 
-// Persist original API responses outside deployed assets for reproducibility; C++ cached HTTP helper.
+/// Persist original API responses outside deployed assets for reproducibility.
 fn request(
 	client: &reqwest::blocking::Client,
 	body: &str,
@@ -203,10 +191,10 @@ fn request(
 		.send()?
 		.error_for_status()?
 		.text()?;
-	// An error response must not become a valid-looking cached chunk; C++ validation before publish.
+	// An error response must not become a valid-looking cached chunk.
 	if let Err(error) = parse_chunk(&text, body, year_start(year), year_start(year + 1))
 	{
-		// Retain an unexpected service response for diagnosis, without accepting it as a cache hit; C++ error artifact.
+		// Retain an unexpected service response for diagnosis, without accepting it as a cache hit.
 		let diagnostic = cache.join(format!("{body}-{year}.failed.txt"));
 		fs::write(&diagnostic, &text)?;
 		return Err(format!("{error}; raw response: {}", diagnostic.display()).into());
@@ -215,7 +203,6 @@ fn request(
 	Ok(text)
 }
 
-// Check actual frame/site diagnostics, not just the requested parameters; C++ header validation.
 fn check_header(text: &str, body: &str) -> Result<(), String>
 {
 	let line = |prefix| text.lines().find(|s| s.starts_with(prefix)).unwrap_or("");
@@ -225,7 +212,7 @@ fn check_header(text: &str, body: &str) -> Result<(), String>
 	{
 		return Err("Unexpected Horizons body or lunar frame".into());
 	}
-	// Verify the reference observer used for vector reconstruction; C++ scalar metadata checks.
+	// Verify the reference observer used for vector reconstruction.
 	let coordinates: Vec<_> = line("Center geodetic")
 		.split(':')
 		.nth(1)
@@ -238,7 +225,7 @@ fn check_header(text: &str, body: &str) -> Result<(), String>
 	{
 		return Err("Unexpected Horizons reference observer".into());
 	}
-	// The reconstruction assumes the same spherical lunar radius as the terrain; C++ metadata invariant.
+	// The reconstruction assumes the same spherical lunar radius as the terrain.
 	let radii: Vec<_> = line("Center radii")
 		.split(':')
 		.nth(1)
@@ -257,7 +244,6 @@ fn check_header(text: &str, body: &str) -> Result<(), String>
 	Ok(())
 }
 
-// Validate every timestamp and reconstruct apparent vectors in double precision; C++ fallible parser.
 fn parse_chunk(text: &str, body: &str, start: i64, stop: i64) -> Result<Vec<BodyPosition>, String>
 {
 	check_header(text, body)?;
@@ -290,7 +276,7 @@ fn parse_chunk(text: &str, body: &str, start: i64, stop: i64) -> Result<Vec<Body
 	Ok(result)
 }
 
-// At zero latitude/longitude, ENU maps exactly to X/Y/Z; C++ analytic inverse basis.
+/// At zero latitude/longitude, ENU maps exactly to X/Y/Z.
 fn reference_position(az: &str, el: &str, range: &str) -> Result<BodyPosition, String>
 {
 	let number = |s: &str| s.parse::<f64>().map_err(|e| e.to_string());
@@ -313,7 +299,7 @@ fn reference_position(az: &str, el: &str, range: &str) -> Result<BodyPosition, S
 	])
 }
 
-// Compare all catalog points, never the rounded baseline in place of C1; C++ validation pipeline.
+/// Compare all catalog points, never the rounded baseline in place of C1.
 fn validate_all(data: &Ephemeris, directory: &Path) -> Result<Vec<Validation>, Box<dyn Error>>
 {
 	let mut results = Vec::new();
@@ -342,7 +328,6 @@ fn validate_all(data: &Ephemeris, directory: &Path) -> Result<Vec<Validation>, B
 	Ok(results)
 }
 
-// Compare the compact decoded representation against independent topocentric tracks; C++ max-error reduction.
 fn validate_site(data: &Ephemeris, reference: Reference) -> Result<Validation, String>
 {
 	let height = reference.terrain.surface_height_m + reference.terrain.observer_height_m;
@@ -400,7 +385,6 @@ fn validate_site(data: &Ephemeris, reference: Reference) -> Result<Validation, S
 	Ok(result)
 }
 
-// Isolate synthetic API fixtures from network and deployed resources; C++ test module.
 #[cfg(test)]
 mod tests
 {
@@ -428,7 +412,6 @@ mod tests
 		data.samples.clear();
 		assert!(initial_sample(&data).is_err());
 	}
-	// Build an analytic zenith reference, independent of finite-distance reductions; C++ test aggregate.
 	fn reference() -> Reference
 	{
 		let track = || Track {
@@ -453,7 +436,7 @@ mod tests
 	#[test]
 	fn reference_validation_normal_empty_and_error()
 	{
-		// A finite distant zenith body projects analytically to elevation 90 degrees; C++ fixture.
+		// A finite distant zenith body projects analytically to elevation 90 degrees.
 		let body = BodyPosition {
 			direction: [0.0, 0.0, 1.0],
 			distance_m: 3e8,
@@ -467,7 +450,6 @@ mod tests
 			validate_site(&data, reference()).unwrap().max_el_deg,
 			[0.0; 2]
 		);
-		// Reject empty data, off-grid epochs and errors beyond the design limit; C++ negative fixtures.
 		let mut empty = reference();
 		empty.sun.t.clear();
 		assert!(validate_site(&data, empty).is_err());
@@ -478,7 +460,6 @@ mod tests
 		wrong.earth.el_deg[0] = 80.0;
 		assert!(validate_site(&data, wrong).is_err());
 	}
-	// Supply actual CSV column/diagnostic conventions without a live request; C++ fixture builder.
 	fn fixture(rows: &str) -> String
 	{
 		format!(

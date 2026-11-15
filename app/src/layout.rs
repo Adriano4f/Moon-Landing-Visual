@@ -5,12 +5,12 @@ impl MoonApp
 {
 	pub(super) fn update_sites(&mut self, ui: &mut egui::Ui)
 	{
-		// Let the real preview reach the screen before competing for download bandwidth; C++ readiness gate.
+		// Let the preview reach the screen before competing for download bandwidth.
 		if !self.globe.has_visible_moon() && !self.globe.has_load_error()
 		{
 			return;
 		}
-		// Load only the selected site, or the remaining sites when all-rays is explicitly requested; C++ lazy cache initialization.
+		// Load only the selected site, or the remaining sites when all-rays is explicitly requested.
 		for i in 0..self.catalog.len()
 		{
 			if (i == self.selected || self.all_rays)
@@ -30,7 +30,6 @@ impl MoonApp
 					std::sync::Arc::clone(&self.timeline),
 				));
 			}
-			// Check this state or input before acting; C++ conditional branch.
 			if let Some(p) = &mut self.panoramas[i]
 			{
 				p.update(ui.ctx());
@@ -40,28 +39,24 @@ impl MoonApp
 
 	pub(super) fn synchronize_scene(&mut self)
 	{
-		// Keep one UTC epoch across switches and all-site rays; C++ optional epoch restoration.
+		// Keep one UTC epoch across switches and all-site rays.
 		if let (Some(t), Some(p)) = (self.time, &mut self.panoramas[self.selected])
 		{
 			p.set_time(t);
 		}
-		// Bind this intermediate value for the current operation; C++ local initialization.
 		let margin = self.panoramas[self.selected]
 			.as_ref()
 			.map_or(0.5, |p| p.margin());
-		// Bind this intermediate value for the current operation; C++ local initialization.
 		let epoch = self.time.or_else(|| {
 			self.panoramas[self.selected]
 				.as_ref()
 				.and_then(|p| p.time())
 		});
-		// Bind this intermediate value for the current operation; C++ local initialization.
 		let scene = self
 			.catalog
 			.iter()
 			.enumerate()
 			.map(|(i, s)| {
-				// Bind this intermediate value for the current operation; C++ local initialization.
 				let directions = if i == self.selected || self.all_rays
 				{
 					self.panoramas[i]
@@ -87,7 +82,6 @@ impl MoonApp
 
 	pub(super) fn central_view(&mut self, ui: &mut egui::Ui)
 	{
-		// Preserve black behind the Moon in both layouts; C++ immediate-mode central container.
 		eframe::egui::CentralPanel::default()
 			.frame(eframe::egui::Frame::NONE.fill(eframe::egui::Color32::BLACK).inner_margin(8.0))
 			.show(ui, |ui| {
@@ -111,18 +105,13 @@ impl MoonApp
 {
 	fn phone_views(&mut self, ui: &mut egui::Ui, available: egui::Vec2)
 	{
-		// Reserve room for phone camera and lighting controls; C++ clamp(height*0.32,220,290).
 		let size = eframe::egui::vec2(ui.available_width(), (available.y * 0.4).clamp(300.0, 360.0));
-		// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
 		ui.allocate_ui(size, |ui| {
-			// Check this state or input before acting; C++ conditional branch.
 			if let Some(id) = self.globe.show(ui)
 			{
-				// Update this persistent member explicitly; C++ member assignment.
 				self.selected = id;
 			}
 		});
-		// Draw the scientific view below it; C++ member draw call.
 		self.show_panorama(ui);
 	}
 

@@ -24,10 +24,8 @@ impl Globe
 		help::question(ui,"Follow Earth, drag to turn freely, or show the orbit from space.");
 	}
 
-	// Draw camera controls independently of the illustration; C++ member function.
 	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
 	{
-		// Approach the surface while imagery refines asynchronously.
 		ui.horizontal(|ui| {
 			if ui.button("- Zoom").clicked()
 			{
@@ -45,7 +43,6 @@ impl Globe
 			);
 		});
 		self.site_camera(ui);
-		// Keep synthetic camera spin optional; C++ bool edit.
 		let mut spin = !self.paused;
 		ui.horizontal(|ui| {
 			if ui.checkbox(&mut spin, "Auto-rotate").changed()
@@ -59,7 +56,6 @@ impl Globe
 				"Slowly spin the camera around the Moon without changing the date.",
 			);
 		});
-		// Identify the mode and magnification without hidden controls; C++ label.
 		ui.label(format!(
 			"{:.1}x | {}",
 			self.zoom,
@@ -82,10 +78,9 @@ impl Globe
 		}
 	}
 
-	// Draw physical-light display aids separately from camera actions; C++ member function.
 	pub fn lighting_controls(&mut self, ui: &mut egui::Ui)
 	{
-		// Explain that increased exposure is not increased power; C++ checkbox row.
+		// Explain that increased exposure is not increased power.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
 			help::question(
@@ -93,7 +88,6 @@ impl Globe
 				"Make sunlight reflected by Earth 1,000 times brighter in the picture only.",
 			);
 		});
-		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.fill, "Far side fill light");
 			help::question(
@@ -103,7 +97,7 @@ impl Globe
 		});
 	}
 
-	// Expose the independent surface field without requesting more site tracks; C++ checkbox.
+	/// Expose the independent surface field without requesting more site tracks.
 	pub fn surface_ray_controls(&mut self, ui: &mut egui::Ui)
 	{
 		ui.horizontal_wrapped(|ui| {
@@ -120,7 +114,6 @@ impl Globe
 {
 	fn site_camera(&mut self, ui: &mut egui::Ui)
 	{
-		// Request an eased transition at the real UI clock time; C++ event flag.
 		let go = ui
 			.horizontal(|ui| {
 				let clicked = ui.button("Go to site").clicked();
@@ -128,38 +121,32 @@ impl Globe
 				clicked
 			})
 			.inner;
-		// Animation time is independent of the scientific date; C++ double local.
 		let time = ui.input(|i| i.time);
 		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
 		{
 			self.pan = [0.0; 2];
-			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
+			// Site-centered viewing is a free camera, not an Earth lock.
 			self.earth_view = false;
-			// Bind this intermediate value for the current operation; C++ local initialization.
 			let point = math::direction(
 				(site.lat_deg as f32).to_radians(),
 				(site.lon_deg as f32).to_radians(),
 			);
 			let [target, latitude] =
 				math::camera_angles(math::transform(self.body_rotation, point));
-			// Bind this intermediate value for the current operation; C++ local initialization.
 			let delta = (target - self.yaw + std::f32::consts::PI)
 				.rem_euclid(std::f32::consts::TAU)
 				- std::f32::consts::PI;
-			// Update this persistent member explicitly; C++ member assignment.
 			self.focus = Some((
 				time,
 				[self.yaw, self.tilt, self.zoom],
 				[self.yaw + delta, latitude, 8.0],
 			));
-			// Update this persistent member explicitly; C++ member assignment.
 			self.paused = true;
 		}
 	}
 
 	fn texture_controls(&mut self, ui: &mut egui::Ui)
 	{
-		// Let desktop and phone users explicitly trade download cost for map detail; C++ combo-box row.
 		ui.horizontal(|ui| {
 			ui.label("Texture detail");
 			egui::ComboBox::from_id_salt("moon-quality")
@@ -176,7 +163,6 @@ impl Globe
 				"Higher detail makes the Moon sharper but downloads more and uses more memory.",
 			);
 		});
-		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
 		ui.horizontal(|ui| {
 			ui.small(format!(

@@ -1,6 +1,6 @@
 use lunar_core::ephemeris::Ephemeris;
 
-// Decode one validated initial epoch without fetching the complete eight-year series; C++ checked tiny record.
+/// Decode one validated initial epoch without fetching the complete eight-year series.
 pub(super) fn directions(bytes: &[u8]) -> Result<[[f32; 3]; 2], String>
 {
 	let initial = Ephemeris::decode(bytes)?;

@@ -1,16 +1,15 @@
-// Exercise only the portable core API; C++ scientific test includes.
 use super::*;
 
 #[test]
 fn axes_parallax_and_numeric_direction()
 {
-	// A body on the prime-meridian axis is exactly overhead at zero latitude/longitude; C++ fixture.
+	// A body on the prime-meridian axis is exactly overhead at zero latitude/longitude.
 	let zenith = BodyPosition {
 		direction: [0.0, 0.0, 1.0],
 		distance_m: 384400000.0,
 	};
 	assert_eq!(topocentric(zenith, 0.0, 0.0, 2.0).unwrap(), (0.0, 90.0));
-	// A body on the east axis has the analytic finite-distance horizon depression; C++ parallax control.
+	// A body on the east axis has the analytic finite-distance horizon depression.
 	let east = BodyPosition {
 		direction: [1.0, 0.0, 0.0],
 		..zenith
@@ -18,19 +17,19 @@ fn axes_parallax_and_numeric_direction()
 	let (az, el) = topocentric(east, 0.0, 0.0, 2.0).unwrap();
 	assert!((az - 90.0).abs() < 1e-10);
 	assert!((el + ((MOON_RADIUS_M + 2.0) / 384400000.0).atan().to_degrees()).abs() < 1e-10);
-	// Independent ENU components for latitude 30 and longitude 45; C++ analytic numeric fixture.
+	// Independent ENU components for latitude 30 and longitude 45.
 	let (az, el) = topocentric(east, 30.0, 45.0, 10.0).unwrap();
 	let expected_el = (384400000.0 * 0.375_f64.sqrt() - MOON_RADIUS_M - 10.0)
 		.atan2(384400000.0 * 0.625_f64.sqrt())
 		.to_degrees();
 	assert!((az - 116.565051177078).abs() < 1e-10 && (el - expected_el).abs() < 1e-10);
-	// Geographic north and longitude wrapping use the same basis; C++ axis assertions.
+	// Geographic north and longitude wrapping use the same basis.
 	let north = BodyPosition {
 		direction: [0.0, 1.0, 0.0],
 		..zenith
 	};
 	assert_eq!(topocentric(north, 0.0, 360.0, 0.0).unwrap().0, 0.0);
-	// Include the observer position to construct an exactly northward tangent; C++ analytic zero-elevation control.
+	// Include the observer position to construct an exactly northward tangent.
 	let tangent = BodyPosition::from_cartesian([0.0, 3e8, MOON_RADIUS_M]).unwrap();
 	let (az, el) = topocentric(tangent, 0.0, 0.0, 0.0).unwrap();
 	assert_eq!(az, 0.0);
@@ -41,7 +40,6 @@ fn axes_parallax_and_numeric_direction()
 #[test]
 fn invalid_positions_and_observers()
 {
-	// Empty/nonfinite Cartesian data cannot create usable directions; C++ invalid-input table.
 	for p in [
 		[0.0; 3],
 		[f64::NAN, 1.0, 0.0],
@@ -52,7 +50,7 @@ fn invalid_positions_and_observers()
 		assert!(BodyPosition::from_cartesian(p).is_err());
 	}
 	let body = BodyPosition::from_cartesian([3e8, 4e8, 0.0]).unwrap();
-	// Preserve direction while quantizing only its compact representation; C++ round-trip tolerance.
+	// Preserve direction while quantizing only its compact representation.
 	assert!((body.cartesian().unwrap()[0] - 3e8).abs() < 20.0);
 	for (lat, lon, h) in [
 		(91.0, 0.0, 0.0),
@@ -80,7 +78,7 @@ fn invalid_positions_and_observers()
 	{
 		assert!(invalid.cartesian().is_err());
 	}
-	// A body at the observer cannot be projected; C++ coincidence error fixture.
+	// A body at the observer cannot be projected.
 	let same = BodyPosition {
 		direction: [0.0, 0.0, 1.0],
 		distance_m: 2000000.0,
@@ -91,7 +89,6 @@ fn invalid_positions_and_observers()
 #[test]
 fn binary_round_trip_empty_and_corrupt()
 {
-	// Two bodies and epochs independently exercise record ordering; C++ serialization fixture.
 	let body = BodyPosition::from_cartesian([3e8, 4e8, 0.0]).unwrap();
 	let data = Ephemeris {
 		start_utc: 1798761600,
@@ -103,7 +100,6 @@ fn binary_round_trip_empty_and_corrupt()
 	assert_eq!(Ephemeris::decode(&bytes).unwrap(), data);
 	assert_eq!(data.epoch(1), Some(1798765200));
 	assert_eq!(data.epoch(2), None);
-	// Reject truncated headers/payloads and unsupported versions; C++ error fixtures.
 	for n in [0, 7, 23, 24, bytes.len() - 1]
 	{
 		assert!(Ephemeris::decode(&bytes[..n]).is_err());
@@ -121,7 +117,7 @@ fn binary_round_trip_empty_and_corrupt()
 		}
 		assert!(Ephemeris::decode(&bad).is_err());
 	}
-	// Nonfinite payloads and integer-time overflow must fail before use; C++ corruption cases.
+	// Nonfinite payloads and integer-time overflow must fail before use.
 	let mut bad = bytes.clone();
 	bad[24..28].copy_from_slice(&f32::NAN.to_le_bytes());
 	assert!(Ephemeris::decode(&bad).is_err());

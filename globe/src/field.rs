@@ -1,12 +1,11 @@
-// Sample equal-area Fibonacci directions on the sunlit hemisphere; C++ vector<array<float,3>>.
 pub(crate) fn illuminated_points(sun: [f32; 3]) -> Vec<[f32; 3]>
 {
-	// Reject absent/invalid directions instead of inventing a light; C++ finite-vector guard.
+	// Reject absent/invalid directions instead of inventing a light.
 	if sun.iter().any(|v| !v.is_finite()) || sun.iter().map(|v| v * v).sum::<f32>() < 1e-12
 	{
 		return Vec::new();
 	}
-	// Half-offset latitudes avoid singular pole samples; C++ indexed loop with a golden-angle longitude.
+	// Half-offset latitudes avoid singular pole samples.
 	(0..512)
 		.filter_map(|i| {
 			let y = 1.0 - 2.0 * (i as f32 + 0.5) / 512.0;

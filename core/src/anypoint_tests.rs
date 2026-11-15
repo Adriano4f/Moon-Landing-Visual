@@ -446,7 +446,7 @@ fn polar_jobs_match_geographic_ray_sampler()
 	}
 }
 
-/// Run with: cargo test -p lunar_core --release network_check -- --ignored --nocapture
+/// Run with: cargo test -p lunar_core --release network_check -- --ignored --nocapture.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "Downloads Moon Trek TIFFs using curl"]
