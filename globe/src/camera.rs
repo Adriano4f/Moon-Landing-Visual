@@ -68,7 +68,7 @@ impl Globe
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.surface_rays, "Sun rays");
-			help::question(ui, "Draw rays showing the direction sunlight hits the lit half of the Moon.");
+			help::question(ui, "Draw rays showing where sunlight hits the lit half of the Moon.");
 		});
 	}
 }
@@ -119,13 +119,13 @@ impl Globe
 			egui::ComboBox::from_id_salt("moon-quality").width(62.0).selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
 				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
 			});
-			help::question(ui, "Sharper Moon images that take longer to download and use more memory.");
+			help::question(ui, "Higher detail makes the Moon sharper but downloads more and uses more memory.");
 		});
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
 		ui.horizontal(|ui| {
 			ui.small(format!("Showing {} | selected {}k",displayed.map_or("loading".into(), assets::label),self.target_tier));
-			help::question(ui,"Showing is the detail on screen now; selected replaces it once downloaded.");
+			help::question(ui,"Showing is the detail on screen now; the selected detail replaces it once downloaded.");
 		});
 	}
 }

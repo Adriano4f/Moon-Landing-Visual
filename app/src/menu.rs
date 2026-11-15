@@ -301,32 +301,32 @@ fn explanations(ui: &mut egui::Ui)
 	// Each topic can be read independently on a small screen; C++ range-for over explanatory records.
 	for (title, text) in [
 		(
-			"Horizon and panorama",
-			"The strip shows the full circle around the site, with gray hills hiding the sky behind them.",
+			"View around the site",
+			"The strip shows the full circle around the site; gray hills hide what is behind them.",
 		),
 		(
-			"Sun and power",
-			"The yellow Sun percentage is how much of the Sun shows above the hills.",
+			"Sun",
+			"The Sun percentage is how much of the Sun shows above the hills.",
 		),
 		(
-			"Earth, direct communication and margin",
-			"Blue Earth counts as linked when it has a direct line of sight with a small safety margin above the hills.",
+			"Earth link",
+			"Earth is linked when it is in direct view, a little above the hills.",
 		),
 		(
-			"Time and summaries",
-			"All times are UTC and the summary cards cover the whole chosen period.",
+			"Time",
+			"Times are UTC, and the summary cards cover the whole chosen period.",
 		),
 		(
-			"Rays and camera",
-			"Rays point toward the Sun and Earth, and dragging or zooming moves the camera.",
+			"Rays",
+			"Yellow rays point to the Sun and blue rays point to Earth.",
 		),
 		(
-			"Lighting, earthshine and fill",
-			"Earthshine boost and fill light only brighten the picture, never the results.",
+			"Lighting",
+			"Extra light only brightens the picture; it never changes the results.",
 		),
 		(
-			"Data sources and limits",
-			"Sun and Earth directions come from NASA Horizons and hills from NASA LOLA elevation maps.",
+			"Data",
+			"Sun and Earth positions and the hills come from NASA data.",
 		),
 	]
 	{
@@ -368,7 +368,7 @@ impl MoonApp
 					});
 					// Submit this immediate-mode widget or explanation; C++ UI helper call.
 					let text =
-						"Published landing site where an observer stands 2 m above the ground.";
+						"Results assume an observer standing 2 m above the ground at this published site.";
 					if let Some((caption, url)) = source_link(&self.catalog[self.selected].source)
 					{
 						globe::help::question_with_link(ui, text, &caption, url);
