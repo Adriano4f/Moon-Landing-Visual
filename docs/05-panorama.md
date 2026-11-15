@@ -21,7 +21,7 @@ cargo run -p prep --release -- sites.json 2027-01-01 2030-01-01 1h app/assets/da
 
 The prep CLI accepts site file, start date, stop date, step, optional output directory, optional external DEM directory, and optional observer height in meters (default 2). Horizons requests use observer center `coord@301`, geodetic longitude/latitude with DEM surface height plus observer height converted to kilometers, quantities 4 for azimuth/elevation, Sun body 10, and Earth body 399. The Horizons API is <https://ssd.jpl.nasa.gov/api/horizons.api>. Request construction is in [prep/src/main.rs](../prep/src/main.rs). Times are UTC. Both endpoints are included: $1{,}096\cdot24+1=26{,}305$ samples per body, including leap year 2028, below 90,000 rows per request.
 
-The resulting `app/assets/data/example-89-45s-222-69e.json` contains the example site at 89.45 degrees south, 222.69 degrees east, two aligned 26,305-sample tracks, 1,440 terrain bins, and terrain provenance. UTC Unix seconds count seconds since 1970-01-01 00:00 UTC; the first and last epochs are 1,798,761,600 and 1,893,456,000. The file is loaded at runtime, not embedded in the release executable or WASM. The terrain guide records its generated size and numerical checks.
+The resulting `app/assets/data/connecting-ridge-c1.json` contains the published Connecting Ridge C1 site at 89.4398 degrees south, 222.83 degrees east, two aligned 26,305-sample tracks, 1,440 terrain bins, and terrain provenance. UTC Unix seconds count seconds since 1970-01-01 00:00 UTC; the first and last epochs are 1,798,761,600 and 1,893,456,000. The file is loaded at runtime, not embedded in the release executable or WASM. The terrain guide records its generated size and numerical checks.
 
 The initial selected sample is 2027-01-01 00:00 UTC. Earth's azimuth is near the geometric mean direction of approximately 137 degrees, but lunar libration makes it vary; it must not be forced to 137. Solar elevation near this site is not restricted to a hard limit of plus/minus 1.6 degrees. Plotting never clips scientific values to an expected range. The three-year tracks now use the actual DEM-based observer altitude rather than the earlier zero-altitude demonstration.
 
@@ -51,7 +51,7 @@ The UI must not synchronously wait for disk or HTTP. The loader creates an `Arc<
 
 On native targets, std::thread::spawn moves a completion callback into a worker. It checks MOON_DATA_DIR first. Without an override, it tries assets/data beside the executable if that directory exists, then falls back to the compile-time app crate's assets/data directory. The filename is fixed to the committed example. An explicitly selected directory is authoritative: a missing file produces an error containing its path, not a silent fallback to different data. For a packaged Gentoo executable, copy the JSON into assets/data beside it or set MOON_DATA_DIR. The globe's MOON_ASSET_DIR remains independent.
 
-On web targets, ehttp::Request::get requests assets/data/example-89-45s-222-69e.json. app/index.html already tells Trunk to copy the assets directory. ehttp::fetch completes asynchronously; the callback checks Response::ok because HTTP errors can be successful transports. Response::bytes is then decoded with the same parser. Browser same-origin and CORS rules still apply. The data request does not change the globe's per-tier texture fetch policy.
+On web targets, ehttp::Request::get requests assets/data/connecting-ridge-c1.json. app/index.html already tells Trunk to copy the assets directory. ehttp::fetch completes asynchronously; the callback checks Response::ok because HTTP errors can be successful transports. Response::bytes is then decoded with the same parser. Browser same-origin and CORS rules still apply. The data request does not change the globe's per-tier texture fetch policy.
 
 The completion stores Some(Ok(data)) or Some(Err(message)) under a short mutex guard and calls Context::request_repaint. The UI calls Option::take under the same mutex: this moves the completion out and leaves None. It does not clone 26,305 samples each frame. Success moves into Panorama's data field; failure remains a visible diagnostic. While pending, the pane says Loading Horizons data. A failed load never substitutes synthetic tracks. Native and web branches are selected by cfg, comparable to C++ conditional compilation, rather than by a runtime branch that includes both implementations.
 
@@ -193,7 +193,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 // Keep one filename for native disk and web HTTP paths; C++ constexpr string_view.
-const FILE: &str = "example-89-45s-222-69e.json";
+const FILE: &str = "connecting-ridge-c1.json";
 
 // Generate JSON deserialization for the prep schema; C++ supplies field adapters manually.
 #[derive(Deserialize)]
@@ -385,8 +385,7 @@ mod tests
 	fn bundled_three_years_are_aligned_hourly_and_have_terrain()
 	{
 		// Embed only in the test executable, never in the app/WASM; C++ test-only binary fixture.
-		let d =
-			SiteData::parse(include_bytes!("../assets/data/example-89-45s-222-69e.json")).unwrap();
+		let d = SiteData::parse(include_bytes!("../assets/data/connecting-ridge-c1.json")).unwrap();
 		// Count inclusive interval endpoints; C++ assert equality.
 		assert_eq!(d.sun.t.len(), 26305);
 		// Keep the request below the published row limit; C++ assert comparison.
@@ -399,6 +398,8 @@ mod tests
 		assert_eq!(*d.sun.t.last().unwrap(), 1_893_456_000);
 		// Real terrain uses 1,440 geographic azimuths; C++ optional extraction and vector size assertion.
 		assert_eq!(d.horizon.as_ref().unwrap().h_deg.len(), 1440);
+		// Keep the selected position tied to the published 2 m C1 site, not a rounded label; C++ coordinate regression.
+		assert_eq!((d.site.lat_deg, d.site.lon_deg), (-89.4398, 222.83));
 	}
 
 	// Register a test; C++ testing framework macro.

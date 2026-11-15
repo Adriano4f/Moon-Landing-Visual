@@ -245,6 +245,31 @@ A separate diagnostic tried to disprove the idea that the difference comes only 
 
 For a direct numerical cross-check, 50 m due east of the observer the 5 m surface rises by 2.760868 m. After subtracting the 2 m instrument height and exact curvature, its elevation is +0.870019 degrees. The independently selected 10 m surface rises by 2.249820 m relative to its own observer surface, giving +0.285124 degrees. Meter-scale changes matter when the Sun grazes the horizon. These controls demonstrate sensitivity; they do not establish that resolution explains the entire published difference. The earlier full horizon curve and four-cycle experiment remain unreproduced. No coordinates, exposure, observer height or DEM values were tuned to force agreement.
 
+### 11.1. Coordinate and observer-height investigation
+
+The original coordinate was rounded to 0.01 degree. One hundredth of a degree of latitude spans about 303 m on this sphere; the longitudinal distance is much smaller near the pole. PGDA 78 identifies Site01 as the connecting ridge and uses the Mazarico site numbering, but Site01 is a 16 km DEM region, not one uniquely defined observation point. Its product page reports regional illumination for 2024-01-01 through 2026-01-01 at 1 m and 5 m heights. Those are not the origin of the older 89.01 percent.
+
+A directly readable peer-reviewed source is Glaser et al. (2017), Illumination conditions at the lunar poles: Implications for future exploration, DOI [10.1016/j.pss.2017.07.006](https://doi.org/10.1016/j.pss.2017.07.006), [accepted manuscript](https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf). Table 1 classifies the Mazarico result at -89.45, 222.69 as surface-level, with 89.0 percent mean illumination and 92.7 percent solar visibility. It lists its own surface-level C1 at -89.4505, 222.84, not the same point. Table 2 gives a different, more precisely stated C1 coordinate for a 2 m observer: **-89.4398 latitude, 222.83 east longitude**, with **88.0 percent mean illumination, 92.1 percent visibility and 112 h maximum darkness**, over **2017-01-01 through 2037-01-01**, hourly. We read the actual tables, not just the abstract.
+
+sites.json now uses this Table 2 coordinate and documents its source. This is a published 2 m site, not a claim to recover extra digits of the original Mazarico coordinate. The app loads connecting-ridge-c1.json. The earlier example JSON is retained as the rounded-coordinate baseline. We do not equate the two papers' selected maxima. The exact dates behind the older DLR-quoted 89.01 percent were not verified: DLR describes four precession cycles, the NTRS Mazarico abstract describes multiple cycles at six-hour sampling, and the later Table 1 describes a twenty-year comparison. None of these is silently replaced by our three-year interval.
+
+Independently, we scanned every 5 m sample center within a predetermined 300 m circle around the original coordinate and maximized elevation alone, without evaluating illumination. Because the maximum lay on that search boundary, the bounded search was extended once to 500 m. Of 31,416 included centers, the highest was at projected X=-11,572.5 m, Y=-12,472.5 m: latitude -89.438909214546, longitude 222.856430005550, surface height 1,959.496216 m, offset 339.859 m from the rounded coordinate. It is internal to the search circle, not its edge. The lattice is the verified Site01 center transform, X=-18,997.5+5c, Y=-4,002.5-5r, with integer columns c and rows r. This specifies a reproducible topographic selection, not a search for a desired illumination percentage.
+
+All controls below use 1,440 bearings, the full available terrain extent, fresh Horizons requests at their actual observer locations, and the same 2027-01-01 through 2030-01-01 hourly interval. The 10 m instrument heights are sensitivity controls, not the height associated with the published 88.0 percent.
+
+| Position | Height above ground | Mean solar area | Any Sun | Earth at 0.5 degrees | Both | Longest night |
+|:--|:--|:--|:--|:--|:--|:--|
+| Original rounded | 2 m | 52.002668% | 56.668187% | 37.948601% | 21.437804% | 551 h |
+| Original rounded | 10 m | 92.468563% | 95.628041% | 52.588960% | 51.923662% | 74 h |
+| Highest center within 500 m | 2 m | 89.202992% | 93.039082% | 52.611770% | 50.912409% | 103 h |
+| Highest center within 500 m | 10 m | 92.592257% | 95.358120% | 52.623175% | 51.855231% | 76 h |
+| Published C1, Table 2 | 2 m | 86.706485% | 91.446168% | 52.607968% | 49.756691% | 111 h |
+| Published C1, Table 2 | 10 m | 92.565262% | 95.308698% | 52.619373% | 51.843826% | 77 h |
+
+At the published 2 m location, our mean area differs from its published 88.0 percent by -1.293515 percentage points, versus the earlier 37-point mismatch. Our 111 h longest night is close to its reported 112 h, but the periods and DEMs differ. The new app JSON is 2,718,617 bytes and contains 26,305 aligned samples per body. A Table 1 coordinate control (-89.4505, 222.84) at 2 m gave 86.225306 percent mean area; it is not substituted for the published Table 2 point. These distinct positions should not be collapsed under one rounded site label.
+
+The internal crest result raises mean solar area from 52.002668 to 89.202992 percent at the same 2 m instrument height, a 37.200324 percentage-point change from a coordinate chosen solely by elevation. Raising the original rounded location to 10 m independently gives 92.468563 percent. These reachable, measured controls support the slope-versus-crest hypothesis and show that the old discrepancy was not evidence that the horizon algorithm necessarily failed. They do not validate the earlier paper's complete experiment: dates, grid and observer placement differ. In particular, proximity of 89.202992 to 89.01 is not a parameter fit or an exact reproduction.
+
 ## 12. Reading the Rust and Python implementations
 
 The existing Rust guide introduces ownership, references, Option, Result, traits, closures and ?. Here are the terrain-specific uses, with C++ equivalents:

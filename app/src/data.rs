@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 // Keep one filename for native disk and web HTTP paths; C++ constexpr string_view.
-const FILE: &str = "example-89-45s-222-69e.json";
+const FILE: &str = "connecting-ridge-c1.json";
 
 // Generate JSON deserialization for the prep schema; C++ supplies field adapters manually.
 #[derive(Deserialize)]
@@ -204,8 +204,7 @@ mod tests
 	fn bundled_three_years_are_aligned_hourly_and_have_terrain()
 	{
 		// Embed only in the test executable, never in the app/WASM; C++ test-only binary fixture.
-		let d =
-			SiteData::parse(include_bytes!("../assets/data/example-89-45s-222-69e.json")).unwrap();
+		let d = SiteData::parse(include_bytes!("../assets/data/connecting-ridge-c1.json")).unwrap();
 		// Count inclusive interval endpoints; C++ assert equality.
 		assert_eq!(d.sun.t.len(), 26305);
 		// Keep the request below the published row limit; C++ assert comparison.
@@ -218,6 +217,8 @@ mod tests
 		assert_eq!(*d.sun.t.last().unwrap(), 1_893_456_000);
 		// Real terrain uses 1,440 geographic azimuths; C++ optional extraction and vector size assertion.
 		assert_eq!(d.horizon.as_ref().unwrap().h_deg.len(), 1440);
+		// Keep the selected position tied to the published 2 m C1 site, not a rounded label; C++ coordinate regression.
+		assert_eq!((d.site.lat_deg, d.site.lon_deg), (-89.4398, 222.83));
 	}
 
 	// Register a test; C++ testing framework macro.

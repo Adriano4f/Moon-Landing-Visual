@@ -1,3 +1,8 @@
 [
-  { "name": "Example 89.45S 222.69E", "lat_deg": -89.45, "lon_deg": 222.69 }
+  {
+    "name": "Connecting Ridge C1",
+    "lat_deg": -89.4398,
+    "lon_deg": 222.83,
+    "source": "Glaser et al. (2017), Table 2, 2 m observer; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  }
 ]
