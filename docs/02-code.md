@@ -1392,7 +1392,7 @@ impl eframe::App for MoonApp
 	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
 	{
 		eframe::egui::CentralPanel::default().show(ui, |ui| {
-			ui.heading("Karaya Explore");
+			ui.heading("Moon Landing Visual");
 			ui.label("The panorama is coming.");
 		});
 	}
@@ -1436,7 +1436,7 @@ fn main() -> eframe::Result
 {
 	env_logger::init();
 	eframe::run_native(
-		"Karaya Explore",
+		"Moon Landing Visual",
 		eframe::NativeOptions::default(),
 		Box::new(|_| Ok(Box::new(app::MoonApp))),
 	)
@@ -1444,7 +1444,7 @@ fn main() -> eframe::Result
 ```
 
 1. Initialize logging before launching the UI.
-2. Pass Karaya Explore as the native title.
+2. Pass Moon Landing Visual as the native title.
 3. Use default window options.
 4. Pass a heap-owned closure, ignoring its creation-context argument with an underscore pattern.
 5. Construct the fieldless MoonApp, box it, and wrap it in Ok.

@@ -387,7 +387,7 @@ app/src/lib.rs defines a fieldless MoonApp with a default constructor generated 
 
 ### 8.2 Native entry
 
-app/src/main.rs has two functions named main, but configuration ensures only one is compiled for a given target. The native function initializes logging, constructs default NativeOptions, and calls run_native with the window title Karaya Explore. Its constructor closure receives an unused creation context and returns an allocated MoonApp wrapped in Ok. A type alias is an alternative name for a type, comparable to a C++ using-alias. eframe::Result is the framework's convenient Result alias. The function returns run_native's final expression so startup errors reach the caller.
+app/src/main.rs has two functions named main, but configuration ensures only one is compiled for a given target. The native function initializes logging, constructs default NativeOptions, and calls run_native with the window title Moon Landing Visual. Its constructor closure receives an unused creation context and returns an allocated MoonApp wrapped in Ok. A type alias is an alternative name for a type, comparable to a C++ using-alias. eframe::Result is the framework's convenient Result alias. The function returns run_native's final expression so startup errors reach the caller.
 
 ### 8.3 Browser entry
 
