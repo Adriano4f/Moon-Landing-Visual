@@ -43,7 +43,7 @@ impl Timeline
 				}
 				if down { ui.ctx().request_repaint(); }
 			}
-			globe::help::question(ui,"UTC dates: 2027-01-01 to 2035-01-01. Hold arrows to repeat. Coarse steps may miss visibility windows.");
+			globe::help::question(ui,"Pick a UTC date between 2027-01-01 and 2035-01-01 and how far each arrow moves.");
 		});
 	}
 

@@ -133,7 +133,7 @@ impl Globe
 		ui.scope_builder(egui::UiBuilder::new().max_rect(help), |ui| {
 			help::question(
 				ui,
-				"Points you computed, colored by how often the Sun is visible in the chosen period.",
+				"Your points, colored by how often the Sun is visible in the chosen period.",
 			);
 		});
 	}

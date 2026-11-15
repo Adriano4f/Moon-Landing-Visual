@@ -28,7 +28,7 @@ impl Globe
 		help::annotated(
 			ui,
 			format!("{phase} · {:.1}% lit", fraction * 100.0),
-			"Near new Moon, the face toward Earth is dark. This is a phase, not an eclipse; brightness differs from the lit percentage.",
+			"Share of the Moon's Earth-facing side lit by the Sun on the selected date.",
 		);
 		if fraction < 0.1
 		{
@@ -38,7 +38,7 @@ impl Globe
 				{
 					self.boosted = true;
 				}
-				help::question(ui, "Brighten faint sunlight reflected by Earth to reveal the dark face. This changes the picture, not the Sun or scientific results.");
+				help::question(ui, "Brighten sunlight reflected by Earth so the dark face becomes visible.");
 			});
 		}
 	}

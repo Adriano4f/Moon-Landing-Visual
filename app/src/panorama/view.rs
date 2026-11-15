@@ -10,7 +10,7 @@ impl Panorama
 		globe::help::annotated(
 			ui,
 			egui::RichText::new("Standing on the Moon").heading(),
-			"Look around your chosen point. Gray hills hide the sky below their edge; yellow is Sun, blue is Earth, and heights are stretched.",
+			"The full view around your site, with gray hills hiding the yellow Sun or blue Earth.",
 		);
 		// Never draw invented tracks while waiting or after an error; C++ optional extraction.
 		let Some(data) = &self.data
@@ -22,7 +22,7 @@ impl Panorama
 				self.error
 					.as_deref()
 					.unwrap_or("Loading site and sky data..."),
-				"Results are unavailable until the selected track has loaded and passed validation. No substitute directions or statistics are shown for missing or invalid data.",
+				"Results appear once the selected site's data has loaded.",
 			);
 			// Stop before indexing arrays; C++ early return.
 			return;
@@ -31,7 +31,7 @@ impl Panorama
 		globe::help::annotated(
 			ui,
 			&data.site.name,
-			"The selected published observation point. Use Site in the menu to change it; nearby coordinates can have very different horizons.",
+			"The site you are looking from; change it under Site in the menu.",
 		);
 		let Some(directions)=self.directions() else { ui.label(self.sky_status()); return; };
 		solar_status(ui, data, directions[0]);
@@ -40,7 +40,7 @@ impl Panorama
 		globe::help::annotated(
 			ui,
 			utc_label(self.cursor),
-			"The current shared UTC date and time. Open Time in the menu to change it. Hourly sampling can miss short events.",
+			"The selected UTC date and time; change it under Time in the menu.",
 		);
 		// Show the same scientific data in either presentation; C++ view-mode branch.
 		if self.technical
@@ -143,7 +143,7 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, direction:globe::BodyDirecti
 			.size(18.0)
 			.strong()
 			.color(sun_color),
-		"This is the part of the Sun visible above hills now, not electricity produced. Equipment, dust and eclipses are not included.",
+		"How much of the Sun's disk shows above the hills right now.",
 	);
 }
 
@@ -175,10 +175,8 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 				Color32::LIGHT_RED
 			},
 		),
-		"Earth clears the hills only when it also meets your extra clearance setting. A clear path does not guarantee radio service.",
+		"Whether Earth has a direct line of sight with a small safety margin above the hills, without relay satellites.",
 	);
-	// Qualify a blocked radio link that may still have a partly visible disk; C++ explanatory label.
-	ui.small("Radio status includes the safety margin, not just the visible blue disk.");
 }
 
 fn summary_cards(ui: &mut egui::Ui, options:crate::timeline::Options, summary: &lunar_core::Stats)
@@ -243,7 +241,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the stated period with any Sun visible. A small visible part counts; this is not electricity produced.", 1 => "Share of the stated period with Earth clear of hills and your extra clearance. Radio service is not guaranteed.", 2 => "Fraction of the entire period when sunlight and direct Earth clearance are both available.", _ => "Longest stretch without any Sun at your chosen sampling step. Coarse steps may miss short nights or join separate dark periods." }); });
+								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the chosen period when any part of the Sun shows above the hills.", 1 => "Share of the chosen period when Earth has a direct link with the safety margin.", 2 => "Share of the chosen period when sunlight and a direct Earth link happen together.", _ => "Longest stretch of the chosen period with no Sun visible at all." }); });
 							});
 						});
 }

@@ -138,7 +138,7 @@ impl MoonApp
 			// Apply the UI event only when requested; C++ conditional branch.
 			if phone && ui.button(if self.menu_open { "Close menu" } else { "Menu" }).clicked() { self.menu_open = !self.menu_open; }
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Compare places and dates for sunlight and a clear view of Earth. This is not a landing-safety assessment.");
+			question(ui, "Compare lunar south pole sites by how often they see the Sun and Earth.");
 		}); });
 		// A floating phone drawer leaves the stacked main view at its natural width; C++ modal-free settings window.
 		if phone
@@ -180,14 +180,14 @@ impl MoonApp
 			ui,
 			"More options",
 			false,
-			"Camera, lighting, rays and extra radio clearance. These settings are optional.",
+			"Optional camera, lighting, ray and Earth margin settings.",
 			|ui| self.advanced_sections(ui),
 		);
 		section(
 			ui,
 			"Explanations",
 			false,
-			"A short guide to the picture, results and their limits.",
+			"A short guide to what each part of the screen shows.",
 			explanations,
 		);
 	}
@@ -199,28 +199,28 @@ impl MoonApp
 			ui,
 			"View / camera",
 			false,
-			"Change only how you inspect the Moon, not the observation point or the scientific date.",
+			"Change how you look at the Moon without changing the site or date.",
 			|ui| self.globe.camera_controls(ui),
 		);
 		section(
 			ui,
 			"Lighting",
 			false,
-			"Sun and Earth directions follow the selected date. Exposure and fill are optional illustration aids, not changes to power availability.",
+			"Make the Moon picture easier to see without changing any result.",
 			|ui| self.globe.lighting_controls(ui),
 		);
 		section(
 			ui,
 			"Rays",
 			false,
-			"Yellow and blue direction diagrams start at published sites. They are not the actual distances to Sun or Earth.",
+			"Yellow and blue lines point from a site toward the Sun and Earth.",
 			|ui| self.ray_controls(ui),
 		);
 		section(
 			ui,
 			"Radio margin",
 			false,
-			"Ask for extra angular clearance above the hills before declaring a direct Earth radio opportunity.",
+			"Extra angle above the hills that Earth must clear to count as a direct link.",
 			|ui| {
 				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]
@@ -233,7 +233,7 @@ impl MoonApp
 			ui,
 			"Technical",
 			false,
-			"Optional numerical graph of the same sky data, for users who want coordinates and detailed tracks.",
+			"Show the same sky as a graph with exact angles.",
 			|ui| {
 				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]
@@ -253,14 +253,14 @@ impl MoonApp
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, false, "Selected site only");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Show this site's Sun and Earth directions. Bright means clear; dim means blocked, and lengths are not real distances.");
+			question(ui, "Point lines from this site toward the Sun and Earth, dim when blocked.");
 		});
 		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, true, "All sites");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Show each site's directions at the same time. This downloads more data; the Moon still hides points on its back.");
+			question(ui, "Point lines from every site toward the Sun and Earth at once.");
 		});
 		// Apply the UI event only when requested; C++ conditional branch.
 		if self.all_rays
@@ -275,7 +275,7 @@ impl MoonApp
 			globe::help::annotated(
 				ui,
 				format!("Site tracks ready: {ready}/{}", self.catalog.len()),
-				"Only successfully loaded tracks can draw rays. Missing or invalid files are reported, not replaced by invented directions.",
+				"Number of sites whose data has loaded and can draw rays.",
 			);
 			// Visit each explanatory item in order; C++ range-for loop.
 			for (id, p) in self.panoramas.iter().enumerate()
@@ -287,7 +287,7 @@ impl MoonApp
 						ui,
 						egui::RichText::new(format!("{}: {error}", self.catalog[id].name))
 							.color(egui::Color32::LIGHT_RED),
-						"This site's data could not be loaded or validated. Its rays and results are unavailable; other loaded sites remain usable.",
+						"This site's data failed to load, so it has no rays or results.",
 					);
 				}
 			}
@@ -302,31 +302,31 @@ fn explanations(ui: &mut egui::Ui)
 	for (title, text) in [
 		(
 			"Horizon and panorama",
-			"Read the strip from north through east, south and west to north again. Gray ground hides anything below its edge. Heights are stretched.",
+			"The strip shows the full circle around the site, with gray hills hiding the sky behind them.",
 		),
 		(
 			"Sun and power",
-			"Yellow is the Sun. Its percentage is the visible area above hills, not electricity produced. Equipment, dust and eclipses are not included.",
+			"The yellow Sun percentage is how much of the Sun shows above the hills.",
 		),
 		(
 			"Earth, direct communication and margin",
-			"Blue is Earth. A direct signal needs a clear path plus extra room above hills. Antennas and ground-station availability are not predicted.",
+			"Blue Earth counts as linked when it has a direct line of sight with a small safety margin above the hills.",
 		),
 		(
 			"Time and summaries",
-			"UTC is the world clock. Hourly samples can miss short events. Summaries cover the stated period, not just the paths; one day is 24 hours.",
+			"All times are UTC and the summary cards cover the whole chosen period.",
 		),
 		(
 			"Rays and camera",
-			"Rays show directions, not distances; dim means blocked. Drag to orbit, pinch or scroll to zoom, and use Go to site to center a point.",
+			"Rays point toward the Sun and Earth, and dragging or zooming moves the camera.",
 		),
 		(
 			"Lighting, earthshine and fill",
-			"Earthshine is faint sunlight reflected by Earth. Boost makes it 1,000 times brighter. Far-side fill is invented light for inspection; neither changes results.",
+			"Earthshine boost and fill light only brighten the picture, never the results.",
 		),
 		(
 			"Data sources and limits",
-			"Published coordinates are cited under Site. NASA Horizons supplies sky directions; LOLA supplies terrain with a 2 m observer. The globe is not a landing-safety model.",
+			"Sun and Earth directions come from NASA Horizons and hills from NASA LOLA elevation maps.",
 		),
 	]
 	{
@@ -347,7 +347,7 @@ impl MoonApp
 			ui,
 			"Site",
 			true,
-			"Choose an exact published observation point. Nearby points may overlap on the globe; the list always distinguishes them.",
+			"Choose the published landing site you want to look from.",
 			|ui| {
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
 				ui.horizontal(|ui| {
@@ -368,7 +368,7 @@ impl MoonApp
 					});
 					// Submit this immediate-mode widget or explanation; C++ UI helper call.
 					let text =
-						"Choose a published point. Nearby places can have very different hills.";
+						"Published landing site where an observer stands 2 m above the ground.";
 					if let Some((caption, url)) = source_link(&self.catalog[self.selected].source)
 					{
 						globe::help::question_with_link(ui, text, &caption, url);

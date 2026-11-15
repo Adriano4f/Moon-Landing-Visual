@@ -67,7 +67,7 @@ impl Globe
 		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
 		ui.horizontal(|ui| {
 			ui.small("Moon overview");
-			help::question(ui, "Drag to turn the Moon; pinch or scroll to zoom. Click a marker to select it; the globe is an illustration.");
+			help::question(ui, "Drag to turn the Moon, scroll or pinch to zoom, and click a marker to select it.");
 		});
 		// Display the initial pair before starting an optional upgrade; keep the current Moon while waiting.
 		if self
@@ -87,7 +87,7 @@ impl Globe
 			help::annotated(
 				ui,
 				format!("Texture detail unavailable: {error}"),
-				"A failed detail upgrade keeps the current Moon visible. Try another detail setting; sky results do not depend on these pictures.",
+				"Sharper images failed to load, so the current Moon image stays on screen.",
 			);
 		}
 	}

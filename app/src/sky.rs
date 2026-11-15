@@ -92,7 +92,7 @@ fn legend(ui: &mut egui::Ui)
 		ui.small("Sky height (°)");
 		globe::help::question(
 			ui,
-			"0° is eye level over perfectly flat ground. Positive is above it; negative is below.",
+			"0° is level with perfectly flat ground; positive is above, negative below.",
 		);
 		ui.colored_label(Color32::YELLOW, "● Sun");
 		ui.colored_label(Color32::LIGHT_BLUE, "● Earth");

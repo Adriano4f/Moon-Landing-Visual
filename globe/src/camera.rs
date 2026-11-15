@@ -9,7 +9,7 @@ impl Globe
 		ui.horizontal(|ui| {
 			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
 			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Enlarge the Moon up to eight times. South-polar detail downloads when visible; photographic shadows are recorded, not live.");
+			help::question(ui, "Enlarge the Moon up to eight times to see south-polar detail.");
 		});
 		self.site_camera(ui);
 		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
@@ -20,13 +20,13 @@ impl Globe
 		ui.horizontal(|ui| {
 			if ui.add_enabled(ready, egui::Button::new("View from Earth")).clicked()
 			{ self.earth_view = true; self.paused = true; self.zoom = 1.0; self.focus = None; }
-			help::question(ui, "Look toward the Moon from Earth's current direction. Its slight rocking changes with the date; distances are not to scale.");
+			help::question(ui, "See the Moon as it faces Earth on the selected date.");
 		});
 		// Keep synthetic camera spin optional; C++ bool edit.
 		let mut spin = !self.paused;
 		ui.horizontal(|ui| {
 			if ui.checkbox(&mut spin, "Auto-rotate").changed() { self.paused = !spin; self.earth_view = false; self.focus = None; }
-			help::question(ui, "Turn the camera slowly for inspection. This artificial one-minute spin is not a real orbital period and does not change the scientific date.");
+			help::question(ui, "Slowly spin the camera around the Moon without changing the date.");
 		});
 		// Identify the mode and magnification without hidden controls; C++ label.
 		ui.label(format!(
@@ -50,12 +50,12 @@ impl Globe
 		// Explain that increased exposure is not increased power; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
-			help::question(ui, "Make faint sunlight reflected by Earth 1,000 times brighter. This changes only the picture, not sunlight or radio results.");
+			help::question(ui, "Make sunlight reflected by Earth 1,000 times brighter in the picture only.");
 		});
 		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.fill, "Far side fill light");
-			help::question(ui, "Add invented gray-blue light to inspect the far side. This is a visual aid, not real illumination.");
+			help::question(ui, "Add soft artificial light so the dark side stays visible.");
 		});
 	}
 
@@ -64,7 +64,7 @@ impl Globe
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.surface_rays, "Sun rays");
-			help::question(ui, "Show thin Sun rays across the lit half of the Moon. Directions are real; lengths are illustrative and terrain shadows are not calculated.");
+			help::question(ui, "Draw rays showing the direction sunlight hits the lit half of the Moon.");
 		});
 	}
 }
@@ -76,7 +76,7 @@ impl Globe
 		// Request an eased transition at the real UI clock time; C++ event flag.
 		let go = ui.horizontal(|ui| {
 			let clicked = ui.button("Go to site").clicked();
-			help::question(ui, "Center the selected point and zoom in. Close published points can overlap on this overview; select them individually in Site.");
+			help::question(ui, "Center the camera on the selected site and zoom in.");
 			clicked
 		}).inner;
 		// Animation time is independent of the scientific date; C++ double local.
@@ -114,13 +114,13 @@ impl Globe
 			egui::ComboBox::from_id_salt("moon-quality").width(62.0).selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
 				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
 			});
-			help::question(ui, "Choose map detail. Higher settings download more and need more memory; they change only the globe picture, not the sky results.");
+			help::question(ui, "Sharper Moon images that take longer to download and use more memory.");
 		});
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
 		ui.horizontal(|ui| {
 			ui.small(format!("Showing {} | selected {}k",displayed.map_or("loading".into(), assets::label),self.target_tier));
-			help::question(ui,"Showing is the detail visible now. Selected detail replaces it only when ready.");
+			help::question(ui,"Showing is the detail on screen now; selected replaces it once downloaded.");
 		});
 	}
 }

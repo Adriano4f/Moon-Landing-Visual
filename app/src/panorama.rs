@@ -233,7 +233,7 @@ impl Panorama
 			return;
 		};
 		// Define the clearance control before presenting its numeric value; C++ wrapped text.
-		ui.label("Safety margin above terrain for the radio signal");
+		ui.label("Earth safety margin");
 		// Reserve room for the editable value and units as well as the slider; C++ bounded control width.
 		ui.spacing_mut().slider_width = (ui.available_width() - 125.0).max(60.0);
 		// Recompute full-period percentages only when the clearance changes; C++ change event.
@@ -253,7 +253,7 @@ impl Panorama
 
 		globe::help::question(
 			ui,
-			"Ask for extra room above hills before counting a clear Earth path. Seeing part of Earth does not guarantee radio service.",
+			"Extra angle above the hills that Earth must clear to count as a direct link.",
 		);
 	}
 	// Preserve detailed plots as an opt-in setting; C++ member function.
@@ -261,7 +261,7 @@ impl Panorama
 	{
 		ui.horizontal(|ui| {
 			ui.checkbox(&mut self.technical, "Technical view");
-			globe::help::question(ui, "Show the same sky as a numbered graph. Direction runs clockwise from north; height is measured above horizontal.");
+			globe::help::question(ui, "Show the same sky as a graph of direction from north against height.");
 		});
 	}
 }

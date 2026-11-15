@@ -198,7 +198,7 @@ impl MoonApp
 			globe::help::annotated(
 				ui,
 				&status,
-				"Terrain comes from NASA Moon Trek LOLA elevation maps; the horizon is integrated in this browser in small steps.",
+				"Hills around your point are being computed from NASA LOLA elevation maps.",
 			);
 		}
 		if self.time.is_none()
@@ -206,7 +206,7 @@ impl MoonApp
 			globe::help::annotated(
 				ui,
 				"Sky preview: 2027-01-01 00:00 UTC",
-				"Real initial Sun and Earth directions. Terrain and availability results appear after the selected site's data loads.",
+				"Real Sun and Earth directions shown while the site's hills load.",
 			);
 		}
 		if let Some(p) = &mut self.panoramas[self.selected]
@@ -226,7 +226,7 @@ impl MoonApp
 			globe::help::annotated(
 				ui,
 				"Loading selected site...",
-				"Wait for the selected site's validated hourly data. No results are invented while it loads.",
+				"The selected site's hourly Sun and Earth data is downloading.",
 			);
 		}
 	}
