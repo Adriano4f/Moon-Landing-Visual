@@ -8,8 +8,8 @@ in vec3 v_object;
 uniform sampler2D u_albedo;
 // Bind the selected tier's linear RGB8 object-space normal texture.
 uniform sampler2D u_normal;
-// Receive model rotation in radians from egui time.
-uniform float u_angle;
+// Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
+uniform mat3 u_model;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // Define pi once so all angular expressions use radians consistently.
@@ -165,12 +165,8 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
-	// Compute cosine of the current model rotation.
-	float c = cos(u_angle);
-	// Compute sine of the current model rotation.
-	float s = sin(u_angle);
-	// Rotate the object-space normal with the same rigid model rotation as the geometry.
-	n = normalize(vec3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z));
+	// Apply the geometry's rigid rotation and south tilt to the normal, preserving lighting-space consistency.
+	n = normalize(u_model * n);
 	// Fix a normalized directional Sun vector in world space so a terminator is visible.
 	vec3 light = normalize(vec3(1.0, 0.2, 0.6));
 	// Point from the surface fragment to the perspective camera at z=3.3.

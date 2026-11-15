@@ -98,6 +98,49 @@ pub(crate) fn perspective(aspect: f32) -> [f32; 16]
 	]
 }
 
+// Compose a 30-degree south presentation tilt after geographic-north rotation; C++ returns a column-major array<float,9>.
+pub(crate) fn rotation(angle: f32) -> [f32; 9]
+{
+	// Compute the animated longitude rotation; C++ separate std::sin/std::cos calls.
+	let (s, c) = angle.sin_cos();
+	// Negative x rotation brings the south pole toward the camera; C++ radians and trigonometric calls.
+	let (st, ct) = (-PI / 6.0).sin_cos();
+	// Return Rx(-30 deg)*Ry(angle), with each consecutive triple a column; C++ aggregate initialization.
+	[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c]
+}
+
+// Project a unit object-space site only when visible on the sphere; C++ optional<array<float,2>>.
+pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2]>
+{
+	// Do not let invalid external coordinates or an empty viewport create NaN UI positions; C++ finite-value guard.
+	if !aspect.is_finite()
+		|| aspect <= 0.0
+		|| !angle.is_finite()
+		|| point.iter().any(|p| !p.is_finite())
+	{
+		// Absence means no marker rather than an invented position; C++ nullopt.
+		return None;
+	}
+	// Use exactly the shader's rigid transform; C++ array<float,9>.
+	let m = rotation(angle);
+	// Multiply column-major matrix by the object direction; C++ array<float,3> computed by a loop.
+	let p: [f32; 3] =
+		std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
+	// A unit-sphere point faces eye (0,0,3.3) iff p dot (eye-p)>0; C++ analytic sphere occlusion test.
+	if 3.3 * p[2] <= 1.0
+	{
+		// Hide far-side and tangent markers instead of drawing through the Moon; C++ nullopt.
+		return None;
+	}
+	// Reuse the GPU perspective scales and camera distance; C++ projection matrix lookup.
+	let projection = perspective(aspect);
+	// Divide clip x/y by clip w=3.3-p.z; C++ returns an optional projected point.
+	Some([
+		projection[0] * p[0] / (3.3 - p[2]),
+		projection[5] * p[1] / (3.3 - p[2]),
+	])
+}
+
 // Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 #[cfg(test)]
 // Group tests in a nested module; C++ puts test helpers in a namespace.
@@ -105,6 +148,35 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	// Register a marker projection regression; C++ testing macro.
+	#[test]
+	// Verify orientation, occlusion, all rotation phases and invalid input; C++ unit test.
+	fn site_projection_and_south_tilt()
+	{
+		// A near-side equatorial point must be visible; C++ assert optional engagement.
+		assert!(marker(direction(0.0, 0.0), 0.0, 1.0).is_some());
+		// Its antipode must be hidden; C++ assert disengagement.
+		assert!(marker(direction(0.0, PI), 0.0, 1.0).is_none());
+		// No marker should be emitted for invalid projection inputs; C++ finite-value error cases.
+		assert!(marker([f32::NAN, 0.0, 1.0], 0.0, 1.0).is_none());
+		// Zero width cannot be projected; C++ assert error/absence.
+		assert!(marker(direction(0.0, 0.0), 0.0, 0.0).is_none());
+		// Check the actual example site throughout a complete turn; C++ counted loop.
+		for deg in 0..360
+		{
+			// Convert geographic degrees to the same unit direction used by set_site; C++ trig helper call.
+			let point = direction((-89.45_f32).to_radians(), 222.69_f32.to_radians());
+			// South tilt must expose this near-pole site at every phase; C++ checked optional extraction.
+			let projected = marker(point, (deg as f32).to_radians(), 0.6).unwrap();
+			// The marker stays in the lower hemisphere and inside the viewport; C++ tolerance bounds.
+			assert!(projected[0].abs() < 1.0 && (-1.0..0.0).contains(&projected[1]));
+		}
+		// Guard the shared shader contract, so geometry and normals cannot silently diverge; C++ source contract test.
+		assert!(include_str!("moon.vert").contains("uniform mat3 u_model;"));
+		// Both stages must use the same matrix; C++ source contract assertion.
+		assert!(include_str!("moon.frag").contains("uniform mat3 u_model;"));
+	}
 
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
 	#[test]

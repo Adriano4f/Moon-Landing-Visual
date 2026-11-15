@@ -127,10 +127,15 @@ dependencies = [
 name = "app"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "eframe",
  "egui_plot",
+ "ehttp",
  "env_logger",
  "globe",
+ "lunar_core",
+ "serde",
+ "serde_json",
  "wasm-bindgen-futures",
  "web-sys",
 ]

@@ -104,7 +104,7 @@ globe/Cargo.toml makes this an independent library depending only on egui, egui_
 
 assets.rs defines Loading with two optional results and a terminal diagnostic. select parses a requested label, chooses a default from mobile status, then searches descending supported widths under both limits. preferences obtains runtime platform hints. load starts two disk workers or two HTTP completions, decodes each image, and writes its fixed slot under the mutex. Loading::take first returns any existing error; only when both slots exist does it move both out. Otherwise it returns Ok(None). tiers_and_loading covers default/forced/clamped quality, invalid quality/GPU size, incomplete data, a failed slot, successful transfer, and the emptied state.
 
-math.rs defines direction, the trigonometric convention. sphere asserts dimensions, emits interleaved vertices row by row, makes exact poles/seam copies, and appends six indices per cell. perspective constructs the projective matrix derived in the rendering guide. mesh_orientation_and_seam checks the actual 256 by 128 dimensions, index bounds, exact seam copies, longitude directions, and outward winding. projection_depth_and_aspect checks both viewport orientations and near/far mapping.
+math.rs defines direction, the trigonometric convention. sphere asserts dimensions, emits interleaved vertices row by row, makes exact poles/seam copies, and appends six indices per cell. perspective constructs the projective matrix derived in the rendering guide. rotation composes geographic-north animation with a 30-degree south presentation tilt; marker projects and sphere-occludes a unit site direction. The [panorama guide](05-panorama.md) derives the shared CPU/GPU transformation. Tests check mesh dimensions, index bounds, exact seams, orientation, winding, depth endpoints, portrait scaling, and the example marker through a full turn.
 
 lib.rs exposes Globe. new queries the GPU limit while eframe's context is current, selects/logs one tier, and starts loading; it does not decode all tiers. show submits a loading/error label if needed, reserves the viewport, computes rotation, captures shared state, and queues CallbackFn. That callback consumes completed images, constructs Renderer on the current GL context, stores errors, and paints when ready. Zero-area viewports are skipped. destroy takes the optional renderer and frees it once.
 
@@ -112,7 +112,7 @@ Renderer::new validates the shader dialect, records resource handles, compiles a
 
 moon.vert computes rotation, passes both world and object coordinates, subtracts the camera, and projects. moon.frag's h_function implements the logarithmic multiple-scattering approximation. hapke returns zero for locally hidden facets, evaluates the signed HG lobes, SHOE, both roughness branches and H-functions, then multiplies their radiance-factor expression. linear_to_srgb encodes display light. main reconstructs seam-safe UV/gradients, samples and rotates normals, forms light/view geometry, masks the geometric night side, samples relative linear color, exposes/tone-maps it, and writes opaque output.
 
-app/src/lib.rs owns Globe in MoonApp. new requires glow; ui displays a black central panel; on_exit destroys resources before eframe tears down GL. app/src/main.rs has conditional native/browser main functions. Native initializes logging, requests 24-bit depth and 4x MSAA, and creates the app. Browser locates/casts the canvas, asynchronously starts WebRunner with depth, removes its loading element on success, and displays/reports initialization failure otherwise.
+app/src/lib.rs owns Globe and Panorama in MoonApp. new requires glow and starts one asynchronous scientific data load. ui consumes any completion, supplies geographic marker coordinates, and displays responsive black-backed panes. A 700-point breakpoint switches columns to a vertical stack; a bounded child layout inside a scroll area handles short screens. on_exit destroys resources before eframe tears down GL. app/src/main.rs has conditional native/browser entry points, with statement-level C++ comparisons below. The [panorama guide](05-panorama.md) teaches the new data loader, plot APIs, UTC controls, and visibility readouts and quotes both new modules in full.
 
 ## 4. Exact, statement-annotated source
 
@@ -529,6 +529,49 @@ pub(crate) fn perspective(aspect: f32) -> [f32; 16]
 	]
 }
 
+// Compose a 30-degree south presentation tilt after geographic-north rotation; C++ returns a column-major array<float,9>.
+pub(crate) fn rotation(angle: f32) -> [f32; 9]
+{
+	// Compute the animated longitude rotation; C++ separate std::sin/std::cos calls.
+	let (s, c) = angle.sin_cos();
+	// Negative x rotation brings the south pole toward the camera; C++ radians and trigonometric calls.
+	let (st, ct) = (-PI / 6.0).sin_cos();
+	// Return Rx(-30 deg)*Ry(angle), with each consecutive triple a column; C++ aggregate initialization.
+	[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c]
+}
+
+// Project a unit object-space site only when visible on the sphere; C++ optional<array<float,2>>.
+pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2]>
+{
+	// Do not let invalid external coordinates or an empty viewport create NaN UI positions; C++ finite-value guard.
+	if !aspect.is_finite()
+		|| aspect <= 0.0
+		|| !angle.is_finite()
+		|| point.iter().any(|p| !p.is_finite())
+	{
+		// Absence means no marker rather than an invented position; C++ nullopt.
+		return None;
+	}
+	// Use exactly the shader's rigid transform; C++ array<float,9>.
+	let m = rotation(angle);
+	// Multiply column-major matrix by the object direction; C++ array<float,3> computed by a loop.
+	let p: [f32; 3] =
+		std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
+	// A unit-sphere point faces eye (0,0,3.3) iff p dot (eye-p)>0; C++ analytic sphere occlusion test.
+	if 3.3 * p[2] <= 1.0
+	{
+		// Hide far-side and tangent markers instead of drawing through the Moon; C++ nullopt.
+		return None;
+	}
+	// Reuse the GPU perspective scales and camera distance; C++ projection matrix lookup.
+	let projection = perspective(aspect);
+	// Divide clip x/y by clip w=3.3-p.z; C++ returns an optional projected point.
+	Some([
+		projection[0] * p[0] / (3.3 - p[2]),
+		projection[5] * p[1] / (3.3 - p[2]),
+	])
+}
+
 // Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 #[cfg(test)]
 // Group tests in a nested module; C++ puts test helpers in a namespace.
@@ -536,6 +579,35 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	// Register a marker projection regression; C++ testing macro.
+	#[test]
+	// Verify orientation, occlusion, all rotation phases and invalid input; C++ unit test.
+	fn site_projection_and_south_tilt()
+	{
+		// A near-side equatorial point must be visible; C++ assert optional engagement.
+		assert!(marker(direction(0.0, 0.0), 0.0, 1.0).is_some());
+		// Its antipode must be hidden; C++ assert disengagement.
+		assert!(marker(direction(0.0, PI), 0.0, 1.0).is_none());
+		// No marker should be emitted for invalid projection inputs; C++ finite-value error cases.
+		assert!(marker([f32::NAN, 0.0, 1.0], 0.0, 1.0).is_none());
+		// Zero width cannot be projected; C++ assert error/absence.
+		assert!(marker(direction(0.0, 0.0), 0.0, 0.0).is_none());
+		// Check the actual example site throughout a complete turn; C++ counted loop.
+		for deg in 0..360
+		{
+			// Convert geographic degrees to the same unit direction used by set_site; C++ trig helper call.
+			let point = direction((-89.45_f32).to_radians(), 222.69_f32.to_radians());
+			// South tilt must expose this near-pole site at every phase; C++ checked optional extraction.
+			let projected = marker(point, (deg as f32).to_radians(), 0.6).unwrap();
+			// The marker stays in the lower hemisphere and inside the viewport; C++ tolerance bounds.
+			assert!(projected[0].abs() < 1.0 && (-1.0..0.0).contains(&projected[1]));
+		}
+		// Guard the shared shader contract, so geometry and normals cannot silently diverge; C++ source contract test.
+		assert!(include_str!("moon.vert").contains("uniform mat3 u_model;"));
+		// Both stages must use the same matrix; C++ source contract assertion.
+		assert!(include_str!("moon.frag").contains("uniform mat3 u_model;"));
+	}
 
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
 	#[test]
@@ -630,6 +702,8 @@ pub struct Globe
 	tier: u32,
 	// Optional animation epoch in seconds; C++ optional<double>.
 	started: Option<f64>,
+	// Optional unit object-space site direction; C++ optional<array<float,3>> without a core dependency.
+	site: Option<[f32; 3]>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -668,7 +742,25 @@ impl Globe
 			tier,
 			// Optional animation epoch in seconds; C++ optional<double>.
 			started: None,
+			// No marker until valid geographic coordinates arrive; C++ nullopt.
+			site: None,
 		})
+	}
+
+	// Accept only finite geographic coordinates; absent/invalid input clears the marker; C++ optional setter.
+	pub fn set_site(&mut self, site: Option<(f64, f64)>)
+	{
+		// Convert degrees to the renderer's object-space convention, independent of scientific data types; C++ optional transform.
+		self.site = site
+			.filter(|&(lat, lon)| {
+				lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
+			})
+			.map(|(lat, lon)| {
+				math::direction(
+					lat.to_radians() as f32,
+					lon.rem_euclid(360.0).to_radians() as f32,
+				)
+			});
 	}
 
 	/// Fill the available UI rectangle and rotate once per 60 seconds of egui time.
@@ -758,6 +850,30 @@ impl Globe
 			rect,
 			callback: Arc::new(callback),
 		});
+		// Draw the marker only after the Moon is available and the site faces the camera; C++ checked optional projection.
+		if self.renderer.lock().is_some()
+			&& let Some(ndc) = self
+				.site
+				.and_then(|p| math::marker(p, angle, rect.aspect_ratio()))
+		{
+			// Convert NDC to top-left-origin logical UI coordinates, reversing vertical sign; C++ viewport transform.
+			let position = rect.center()
+				+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
+			// Keep marker radius constant on screen, independent of texture tier; C++ draw a filled overlay circle.
+			ui.painter()
+				.circle_filled(position, 4.5, egui::Color32::LIGHT_RED);
+			// Add an outline for contrast against either highlands or a dark terminator; C++ stroked-circle overlay.
+			ui.painter()
+				.circle_stroke(position, 4.5, egui::Stroke::new(1.0, egui::Color32::WHITE));
+		}
+		// Distinguish the presentation camera/light from scientific ephemerides in the adjacent plot; C++ overlay text.
+		ui.painter().text(
+			rect.left_top() + egui::vec2(8.0, 8.0),
+			egui::Align2::LEFT_TOP,
+			"Site marker: red | illustrative south view",
+			egui::FontId::proportional(12.0),
+			egui::Color32::LIGHT_RED,
+		);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 	}
@@ -1090,8 +1206,12 @@ impl Renderer
 				false,
 				&math::perspective(aspect),
 			);
-			// Send the rotation angle in radians; C++ glUniform1f.
-			gl.uniform_1_f32(gl.get_uniform_location(program, "u_angle").as_ref(), angle);
+			// Share one column-major rigid model matrix with geometry, normals, and CPU marker projection; C++ glUniformMatrix3fv.
+			gl.uniform_matrix_3_f32_slice(
+				gl.get_uniform_location(program, "u_model").as_ref(),
+				false,
+				&math::rotation(angle),
+			);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 			for (unit, name) in ["u_albedo", "u_normal"].iter().enumerate()
 			{
@@ -1180,8 +1300,8 @@ in vec3 a_position;
 in vec2 a_uv;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
-// Receive model rotation in radians from egui time.
-uniform float u_angle;
+// Receive Rx(-30 degrees)*Ry(animation), shared with normals and the CPU site marker; C++ glUniformMatrix3fv.
+uniform mat3 u_model;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
 // Keep default smooth interpolation: derivatives of coverage-dependent centroid values worsened the filtering artifact.
 out vec3 v_position;
@@ -1193,13 +1313,8 @@ out vec3 v_object;
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
 void main()
 {
-	// Compute cosine of the current model rotation.
-	float c = cos(u_angle);
-	// Compute sine of the current model rotation.
-	float s = sin(u_angle);
-	// Rotate a unit object position into world space about geographic north.
-	vec3 p = vec3(c * a_position.x + s * a_position.z, a_position.y,
-		-s * a_position.x + c * a_position.z);
+	// Rotate about geographic north, then tilt the south pole toward the camera; C++ matrix-vector multiplication.
+	vec3 p = u_model * a_position;
 	// Export the rotated world position for perspective view direction and geometric day/night masking.
 	v_position = p;
 	// Export the mesh UV, while the fragment stage uses analytic direction-based sampling.
@@ -1224,8 +1339,8 @@ in vec3 v_object;
 uniform sampler2D u_albedo;
 // Bind the selected tier's linear RGB8 object-space normal texture.
 uniform sampler2D u_normal;
-// Receive model rotation in radians from egui time.
-uniform float u_angle;
+// Receive the same rigid model matrix as the vertex shader and CPU marker; C++ glUniformMatrix3fv.
+uniform mat3 u_model;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // Define pi once so all angular expressions use radians consistently.
@@ -1381,12 +1496,8 @@ void main()
 	// Decode the RGB8 object-space normal and normalize after filtering.
 	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
-	// Compute cosine of the current model rotation.
-	float c = cos(u_angle);
-	// Compute sine of the current model rotation.
-	float s = sin(u_angle);
-	// Rotate the object-space normal with the same rigid model rotation as the geometry.
-	n = normalize(vec3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z));
+	// Apply the geometry's rigid rotation and south tilt to the normal, preserving lighting-space consistency.
+	n = normalize(u_model * n);
 	// Fix a normalized directional Sun vector in world space so a terminator is visible.
 	vec3 light = normalize(vec3(1.0, 0.2, 0.6));
 	// Point from the surface fragment to the perspective camera at z=3.3.
@@ -1427,38 +1538,108 @@ void main()
 ### 4.7. app/src/lib.rs
 
 ```rust
+// Compile the validated data loader; C++ includes a project module's declarations.
+mod data;
+// Compile the immediate-mode panorama view; C++ includes a project module's declarations.
+mod panorama;
+
+// Own persistent renderer and scientific-view state; C++ application class members.
 pub struct MoonApp
 {
+	// Keep presentation independent of the scientific core; C++ renderer value member.
 	globe: globe::Globe,
+	// Own data, selected sample and plot window; C++ view-model value member.
+	panorama: panorama::Panorama,
 }
 
+// Define application member functions; C++ out-of-class member definitions.
 impl MoonApp
 {
+	// Construct both views with the active GL context and event-loop handle; C++ expected-returning factory.
 	pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, String>
 	{
+		// Borrow the glow context or propagate a readable error; C++ checked optional reference.
 		let gl = cc
 			.gl
 			.as_ref()
 			.ok_or("The Moon requires the glow renderer")?;
+		// Use readable light text on dark panels consistently across platforms; C++ UI theme setter.
+		cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark);
+		// Move independently owned models into the app; C++ aggregate initialization.
 		Ok(Self {
+			// Propagate renderer initialization errors; C++ expected error forwarding.
 			globe: globe::Globe::new(gl)?,
+			// Start one asynchronous data request, not one per frame; C++ copy the shared UI context handle.
+			panorama: panorama::Panorama::new(cc.egui_ctx.clone()),
 		})
 	}
 }
 
+// Implement the framework's application trait; C++ override a virtual application interface.
 impl eframe::App for MoonApp
 {
+	// Rebuild responsive UI each frame; C++ virtual draw callback.
 	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
 	{
+		// Take completed data before deriving the globe marker; C++ poll an optional completion.
+		self.panorama.update();
+		// Share only geographic coordinates with the renderer; C++ optional<pair<double,double>> setter.
+		self.globe.set_site(self.panorama.site());
+		// Preserve black behind the Moon in both layouts; C++ immediate-mode central container.
 		eframe::egui::CentralPanel::default()
 			.frame(eframe::egui::Frame::NONE.fill(eframe::egui::Color32::BLACK))
-			.show(ui, |ui| self.globe.show(ui));
+			.show(ui, |ui| {
+				// Capture finite viewport dimensions before entering the unbounded scroll axis; C++ copy a size vector.
+				let available = ui.available_size();
+				// Scroll only if a short screen cannot fit both views; C++ immediate-mode scroll container.
+				eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+					// Stack on phones rather than crushing a 360-degree plot; C++ viewport-width branch.
+					if available.x < 700.0
+					{
+						// Reserve a compact globe so phone controls and both axes remain visible; C++ clamp(height*0.24,140,220).
+						let size = eframe::egui::vec2(
+							available.x,
+							(available.y * 0.24).clamp(140.0, 220.0),
+						);
+						// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
+						ui.allocate_ui(size, |ui| self.globe.show(ui));
+						// Draw the scientific view below it; C++ member draw call.
+						ui.allocate_ui(
+							eframe::egui::vec2(
+								available.x,
+								(available.y - size.y - 8.0).max(460.0),
+							),
+							|ui| self.panorama.show(ui),
+						);
+					}
+					// Use equal-width columns on larger windows; C++ else with two child containers.
+					else
+					{
+						// Rebuild columns without retaining widget handles; C++ immediate-mode callback.
+						ui.allocate_ui(available, |ui| {
+							// Divide only the bounded native/desktop viewport, not the unbounded scroll axis; C++ column container.
+							ui.columns(2, |columns| {
+								// Keep the rotating Moon on black at left; C++ first child draw.
+								self.globe.show(&mut columns[0]);
+								// Disable columns' cross-axis justification so the plot can reserve tick-label space; C++ child layout override.
+								columns[1].with_layout(
+									eframe::egui::Layout::top_down(eframe::egui::Align::Min),
+									|ui| self.panorama.show(ui),
+								);
+							})
+						});
+					}
+				});
+			});
 	}
 
+	// Destroy GPU resources while the framework still has a current context; C++ virtual shutdown callback.
 	fn on_exit(&mut self, gl: Option<&eframe::glow::Context>)
 	{
+		// Only issue GL commands when a context was supplied; C++ if(optional).
 		if let Some(gl) = gl
 		{
+			// Explicit renderer teardown avoids invalid-context destruction; C++ member cleanup call.
 			self.globe.destroy(gl);
 		}
 	}
@@ -1468,57 +1649,84 @@ impl eframe::App for MoonApp
 ### 4.8. app/src/main.rs
 
 ```rust
+// Hide the console window only in optimized Windows builds; C++ a platform-specific linker subsystem setting.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Compile this entry point only for native targets; C++ #if around main.
 #[cfg(not(target_arch = "wasm32"))]
+// Return framework startup errors to the runtime; C++ an expected-returning launcher.
 fn main() -> eframe::Result
 {
+	// Initialize environment-controlled native logging; C++ logging-library initialization.
 	env_logger::init();
+	// Start the native event loop with the unchanged window title; C++ GUI application launcher.
 	eframe::run_native(
 		"Moon Landing Visual",
+		// Configure depth and multisample storage before context creation; C++ window/context descriptor.
 		eframe::NativeOptions {
+			// Allocate 24-bit depth for sphere visibility; C++ depth buffer request.
 			depth_buffer: 24,
+			// Retain four coverage samples per pixel; C++ MSAA sample-count request.
 			multisampling: 4,
+			// Keep all other options at framework defaults; C++ default construction followed by overrides.
 			..Default::default()
 		},
+		// Own a startup closure returning an owned trait object; C++ unique_ptr<App> from a lambda factory.
 		Box::new(|cc| Ok(Box::new(app::MoonApp::new(cc)?))),
 	)
 }
 
+// Compile a different entry point for the browser; C++ #if for a web build.
 #[cfg(target_arch = "wasm32")]
+// Start asynchronous browser initialization without blocking JavaScript; C++ browser bridge entry point.
 fn main()
 {
+	// Bring checked JavaScript casts into method resolution without binding a name; C++ a cast-helper interface.
 	use eframe::wasm_bindgen::JsCast as _;
+	// Schedule a local asynchronous task; C++ a browser coroutine on the main event loop.
 	wasm_bindgen_futures::spawn_local(async {
+		// Require the browser DOM, reporting missing startup prerequisites explicitly; C++ checked optional extraction.
 		let document = web_sys::window()
 			.expect("No window")
 			.document()
 			.expect("No document");
+		// Locate and type-check the canvas created by index.html; C++ checked downcast of a DOM object.
 		let canvas = document
 			.get_element_by_id("the_canvas_id")
 			.expect("Missing canvas")
 			.dyn_into::<web_sys::HtmlCanvasElement>()
 			.expect("Not a canvas");
+		// Start eframe on the existing canvas and suspend until initialization completes; C++ co_await startup.
 		let result = eframe::WebRunner::new()
 			.start(
 				canvas,
+				// Request a depth buffer while retaining other web defaults; C++ context descriptor.
 				eframe::WebOptions {
+					// Keep sphere depth precision consistent with native; C++ context depth request.
 					depth_buffer: 24,
+					// Inherit unspecified framework defaults; C++ default initialization.
 					..Default::default()
 				},
+				// Move the app into a boxed framework trait object; C++ unique_ptr<App> from a factory lambda.
 				Box::new(|cc| Ok(Box::new(app::MoonApp::new(cc)?))),
 			)
 			.await;
+		// Update the initial HTML loading label only if it exists; C++ if(optional).
 		if let Some(loading) = document.get_element_by_id("loading_text")
 		{
+			// Exhaustively handle web startup success/failure; C++ switch over expected's alternatives.
 			match result
 			{
+				// Remove the HTML overlay once egui owns the screen; C++ DOM removal call.
 				Ok(()) => loading.remove(),
+				// Keep an actionable startup error visible; C++ error alternative.
 				Err(err) =>
 				{
+					// Explain failure in the DOM even if the canvas could not start; C++ textContent assignment.
 					loading.set_text_content(Some(
 						"The app could not start. See the developer console.",
 					));
+					// Include detailed startup diagnostics in the browser console; C++ terminate after logging.
 					panic!("Failed to start eframe: {err:?}");
 				}
 			}
@@ -1569,6 +1777,11 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `add`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `all`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `allocate_exact_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `allocate_ui`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `allow_double_click_reset`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `allow_drag`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `allow_scroll`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `allow_zoom`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `and_then`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `any`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `app::MoonApp::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
@@ -1579,24 +1792,37 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `as_f64`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `as_raw`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `as_ref`: [annotated globe/src/lib.rs](#44-globesrclibrs)
-- `assert_eq!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `aspect_ratio`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assert!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `assert_eq!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `assets::load`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assets::preferences`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `assets::select`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `at`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `attach_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `available_height`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `available_size`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `available_width`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `bind_attrib_location`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `bind_vertex_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `Box::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `buffer_data_u8_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `button`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `bytemuck::cast_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `center`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `circle_filled`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `circle_stroke`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `clamp`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `clear`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `clear_depth_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `clicked`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `clone`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `collect`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `color`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `colored_label`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `columns`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `compile_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `contains`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `cos`: [annotated globe/src/math.rs](#43-globesrcmathrs)
@@ -1607,8 +1833,10 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `create_vertex_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `ctx`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `cull_face`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `data::load`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `Default`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `Default::default`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `default_x_bounds`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `delete_buffer`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `delete_program`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `delete_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -1619,32 +1847,43 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `destroy`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `detach_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `disable`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `display`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `document`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `drain`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `draw_elements`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `dyn_into`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eframe::egui::CentralPanel::default`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `eframe::egui::Frame`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `eframe::egui::Layout::top_down`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `eframe::egui::ScrollArea::vertical`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `eframe::egui::vec2`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `eframe::run_native`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eframe::WebRunner::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `egui::FontId::proportional`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `egui::Sense::hover`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `egui::Slider::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `egui::Stroke::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `egui::vec2`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui_glow::CallbackFn::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui_glow::ShaderVersion::get`: [annotated globe/src/lib.rs](#44-globesrclibrs)
-- `egui::Sense::hover`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `ehttp::fetch`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `ehttp::Request::get`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `enable`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `enable_vertex_attrib_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `enumerate`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
-- `env_logger::init`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `env!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `env_logger::init`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eprintln!`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `expect`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `f64::from`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `fill`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `filter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `find`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `flat_map`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `flatten`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `format`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `format!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `frame`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `front_face`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -1662,30 +1901,55 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `gl`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `globe::Globe::new`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `glow::PixelUnpackData::Slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `heading`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `height`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `hline`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `HLine::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `horizon_at`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `horizontal`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `image::load_from_memory`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `include_bytes!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `include_str!`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `include_y`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `inner_width`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `input`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `into`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `into_iter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `is_dir`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `is_empty`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `is_err`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `is_finite`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `is_new_shader_interface`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `is_none`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `is_none_or`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `is_positive`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `is_some`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `iter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `join`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `json!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `label`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `last`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `last_mut`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `left_top`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `legend`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `Legend::default`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `len`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `line`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `Line::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `link_program`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `location`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `lock`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `lunar_core::sun_fraction`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `map`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `map_err`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `map_or`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `map_or_else`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `math::direction`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `math::marker`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::perspective`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `math::rotation`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::sphere`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `max`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `min`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `Mutex::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `navigator`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -1694,46 +1958,75 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `paint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `panic!`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `panorama::Panorama::new`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `parent`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `partition_point`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `pixel_store_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `Plot::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `pointer_mut`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `points`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `Points::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `push`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `radius`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `rem_euclid`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `remove`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `Renderer::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `request_repaint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `RgbImage::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `saturating_sub`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `search`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `selectable_value`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `selected_text`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `serde_json::from_slice`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `serde_json::to_vec`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `set_margin_fraction`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `set_site`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `set_text_content`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `set_theme`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `shader_source`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `show`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `show_ui`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `show_value`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `sin`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `sin_cos`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `site`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `SiteData::parse`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `small`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `spacing_mut`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `start`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `std::array::from_fn`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `std::env::current_exe`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::env::var`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::env::var_os`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::fs::read`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::path::Path::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::thread::spawn`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `strong`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `take`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `tan`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `tex_image_2d`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `tex_parameter_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `text`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `then`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `to_lowercase`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `to_radians`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `to_rgb8`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `to_string`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `transpose`: [annotated globe/src/lib.rs](#44-globesrclibrs)
-- `uniform_1_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `trim`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `uniform_1_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `uniform_matrix_3_f32_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `uniform_matrix_4_f32_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `unwrap`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `unwrap_err`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `unwrap_or`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `unwrap_or_default`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `unwrap_or_else`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `update`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `upload_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `use_program`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `user_agent`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `vec!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `Vec::new`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `version_declaration`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `vertex_attrib_pointer_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -1743,3 +2036,9 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `web_sys::UrlSearchParams::new_with_str`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `web_sys::window`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `width`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `windows`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `with_layout`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `x_axis_formatter`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `x_axis_label`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `x_grid_spacer`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `y_axis_label`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)

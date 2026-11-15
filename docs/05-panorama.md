@@ -1,0 +1,876 @@
+# The panorama from zero
+
+## 1. What this view means
+
+The panorama answers a local question: at one landing site and one UTC time, where are the Sun and Earth relative to the horizon? Azimuth is the horizontal direction, measured clockwise from geographic north: north is 0 degrees, east 90, south 180, and west 270. Elevation is the vertical angle above the local horizontal plane. Positive elevation is up; negative elevation is down. This graph is an angular diagram, not a perspective photograph. Its horizontal endpoints represent the same north direction, but are separate positions on the rectangular graph.
+
+The yellow track is the Sun, the blue track is Earth, and larger dots identify the selected sample. The gray horizontal line is the zero-degree reference. When a terrain profile exists, a red line shows that profile. With the committed data it does not exist: the label says exactly `flat horizon (no DEM yet)`. A flat result is not a claim that a real lunar site has unobstructed terrain. Selecting a DEM source, reader, and maximum ray distance is deferred. No DEM ingestion is implemented here.
+
+The rotating globe gives geographic context. Its fixed presentation light, one-minute rotation, and southward viewing tilt do not follow the selected UTC time. Do not infer power or communication availability from globe brightness. Only the Horizons tracks and core visibility functions drive the scientific readouts. The globe remains a separate crate with no dependency on lunar_core; the app passes only latitude and longitude to its marker setter.
+
+Read [rendering from zero](03-moon.md) for vectors, matrices, projection, normals, and lighting, and [Rust from zero](04-globe-code.md) for ownership, borrowing, traits, closures, and platform compilation. The additions below build on those definitions rather than assuming familiarity with egui.
+
+## 2. Preparing and validating the example
+
+Run this command from the workspace root:
+
+```sh
+cargo run -p prep -- sites.json 2027-01-01 2028-01-01 1h app/assets/data
+```
+
+The existing prep CLI accepts site file, start date, stop date, step, and optional output directory. Its Horizons requests use observer center `coord@301`, geodetic longitude/latitude with zero altitude, quantities 4 for azimuth/elevation, Sun body 10, and Earth body 399. The Horizons API is <https://ssd.jpl.nasa.gov/api/horizons.api>. Request construction and parsing are in [prep/src/main.rs](../prep/src/main.rs); neither was changed for this feature. Times are UTC. Both interval endpoints are included, so a 365-day year has $365\cdot24+1=8{,}761$ hourly samples. Each body request is below 90,000 rows; even the combined count is only 17,522.
+
+The resulting `app/assets/data/example-89-45s-222-69e.json` is 896,617 bytes. It contains the example site at 89.45 degrees south, 222.69 degrees east, two aligned 8,761-sample tracks, and `horizon: null`. UTC Unix seconds count seconds since 1970-01-01 00:00 UTC; here the first and last epochs are 1,798,761,600 and 1,830,297,600. The file is loaded at runtime, not embedded in the release executable or WASM.
+
+The initial selected sample is 2027-01-01 00:00 UTC. Its Sun direction is azimuth 40.433292 degrees, elevation +1.432576 degrees. Its Earth direction is azimuth 144.46072 degrees, elevation -6.695661 degrees. Earth's azimuth is near the geometric mean direction of approximately 137 degrees, but lunar libration makes it vary; it must not be forced to 137. The full-year solar elevation range is -2.075227 to +2.061621 degrees, not a hard limit of plus/minus 1.6 degrees. The initial sample is within the requested approximate plus/minus 1.6-degree visual check. Plotting never clips scientific values to an expected range.
+
+`SiteData::parse` in [app/src/data.rs](../app/src/data.rs) uses serde's derived Deserialize implementation and serde_json::from_slice. Derive generates a decoder from named struct fields; C++ usually requires explicit adapters. The borrowed byte slice `&[u8]` is comparable to `std::span<const uint8_t>`. `#[serde(skip)]` leaves the Earth visibility cache out of the file schema. This cache starts empty and is filled only after validation.
+
+Before indexing, the parser rejects empty arrays, unequal coordinate lengths, nonincreasing timestamps, timestamps outside chrono's supported UTC range, different Sun/Earth grids, nonfinite or out-of-range angles, empty site names, and invalid latitude. Longitude is east-positive and may wrap, so the renderer reduces finite longitude modulo 360. A non-null horizon must have at least one finite elevation bin in [-90,90]. An explicitly supplied empty profile is rejected rather than silently assigning core's special empty-profile value of -90 degrees. None and an empty profile are distinct concepts.
+
+The validation's let-chain `if let Some(h) = &data.horizon && predicate(h)` first extracts the optional reference, then evaluates the predicate only when present. In C++, write `if (horizon && predicate(*horizon))`. No profile is unwrapped on the absent branch. This differs from an unconditional unwrap followed by a check.
+
+Implementation: [app/src/data.rs:40](../app/src/data.rs#L40).
+
+## 3. Immediate-mode egui from zero
+
+A widget is an interactive element such as a slider or button. A retained-mode UI keeps a tree of widget objects between frames. An immediate-mode UI instead runs code describing this frame's widgets each frame. egui still retains internal interaction memory, such as keyboard focus and whether a popup is open. The application retains data and choices, not a tree of Slider objects.
+
+MoonApp owns Globe and Panorama. Panorama owns optional validated data, an optional error, the current sample index, a window length, and a shared pending result. In every eframe App::ui callback, update first takes any completed result. Then ordinary Rust statements submit labels, controls, and plot items. Rust closures such as `|ui| { ... }` receive a temporary mutable UI reference; their C++ counterpart is a lambda taking a UI reference. A `move` completion closure, in contrast, owns its captured handles because it outlives the constructing stack frame.
+
+A stable widget identity lets egui associate this frame's description with its prior interaction memory. Plot::new("panorama") and ComboBox::from_id_salt("time_window") provide stable identifiers. Do not replace them with the changing timestamp: that would create a logically new widget every frame. The slider borrows `&mut self.index`, comparable to passing a mutable size_t reference to a C++ immediate-mode control. A button's Response::clicked is true in the frame of activation; the code then changes the persistent index. Repaint shows the new state without finding and mutating a retained label object.
+
+CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
+
+Implementation: [app/src/lib.rs:42](../app/src/lib.rs#L42), [app/src/panorama.rs:73](../app/src/panorama.rs#L73).
+
+## 4. Asynchronous loading and ownership
+
+The UI must not synchronously wait for disk or HTTP. The loader creates an `Arc<Mutex<Option<Result<SiteData,String>>>>`. Read the type from inside outward: Result contains success or a diagnostic; Option is None while pending; Mutex guards concurrent access; Arc lets producer and consumer share ownership. In C++, the corresponding concepts are expected, optional, mutex/lock_guard, and shared_ptr. A type alias named Pending shortens this nested type without changing its representation.
+
+On native targets, std::thread::spawn moves a completion callback into a worker. It checks MOON_DATA_DIR first. Without an override, it tries assets/data beside the executable if that directory exists, then falls back to the compile-time app crate's assets/data directory. The filename is fixed to the committed example. An explicitly selected directory is authoritative: a missing file produces an error containing its path, not a silent fallback to different data. For a packaged Gentoo executable, copy the JSON into assets/data beside it or set MOON_DATA_DIR. The globe's MOON_ASSET_DIR remains independent.
+
+On web targets, ehttp::Request::get requests assets/data/example-89-45s-222-69e.json. app/index.html already tells Trunk to copy the assets directory. ehttp::fetch completes asynchronously; the callback checks Response::ok because HTTP errors can be successful transports. Response::bytes is then decoded with the same parser. Browser same-origin and CORS rules still apply. The data request does not change the globe's per-tier texture fetch policy.
+
+The completion stores Some(Ok(data)) or Some(Err(message)) under a short mutex guard and calls Context::request_repaint. The UI calls Option::take under the same mutex: this moves the completion out and leaves None. It does not clone 8,761 samples each frame. Success moves into Panorama's data field; failure remains a visible diagnostic. While pending, the pane says Loading Horizons data. A failed load never substitutes synthetic tracks. Native and web branches are selected by cfg, comparable to C++ conditional compilation, rather than by a runtime branch that includes both implementations.
+
+Implementation: [app/src/data.rs:114](../app/src/data.rs#L114), [app/src/panorama.rs:48](../app/src/panorama.rs#L48).
+
+## 5. UTC selection and window mathematics
+
+The slider represents an integer sample index $i$, with $0\leq i<n$. The corresponding time is exactly $t_i$, not an interpolated ephemeris. Here adjacent samples are one hour apart. A normalized slider fraction $u$ conceptually selects $i=\operatorname{round}(u(n-1))$, clamped to valid endpoints by the integer Slider. The displayed date uses chrono DateTime::from_timestamp and format with UTC explicitly printed. No local-time conversion or browser clock is involved. The single-sample buttons use saturating_sub and min to stay within the array.
+
+The window choices are 1 day, 7 days, 30 days, or All data. A finite window of $H$ hours is centered on the selected time and clipped to the stored interval:
+
+$$
+t_{\min}=t_i-1{,}800H,\qquad t_{\max}=t_i+1{,}800H.
+$$
+
+The first displayed index is the first timestamp at least $t_{\min}$; the exclusive ending index is the first timestamp greater than $t_{\max}$. Slice::partition_point implements these lower/upper searches on the validated sorted times. In C++, use lower_bound and upper_bound. This is duration arithmetic, not a fixed number of array neighbors, so it remains correct for an irregular future time grid. Boundaries are inclusive in time but the Rust range is half-open in indices. The current sample is always included. At the first sample the default 30-day centered window contains only the following 15 days plus the current endpoint, 361 hourly samples. All data is a separate zero sentinel meaning 0..n, not a zero-duration window.
+
+For example, on hourly timestamps [0,3600,7200], a 1-hour centered window around 3600 covers [1800,5400] seconds and contains only index 1. A 2-hour centered window covers [0,7200] and includes all three. Tests also use a deliberately irregular time grid to distinguish true duration selection from a sample-count approximation.
+
+Implementation: [app/src/panorama.rs:302](../app/src/panorama.rs#L302), [app/src/panorama.rs:279](../app/src/panorama.rs#L279).
+
+## 6. Plot construction and north-wrap handling
+
+Plot::new creates a plot builder rather than drawing immediately. Builder methods consume and return the configuration; C++ fluent builders often return a reference instead. show runs a closure with a mutable PlotUi, into which we submit lines and points. height uses the remaining pane height with a 220-point minimum; width reserves 20 points at the right so the centered 360 N tick text is not clipped by the panel edge. Ui::columns normally justifies children across the full column, so the right pane uses with_layout and Layout::top_down(Align::Min) to honor this narrower plot width. C++ immediate-mode libraries similarly use child-container layout policies. Plot coordinates use f64; f64::from converts f32 angles without losing their original precision. This conversion cannot restore precision absent from the Horizons file.
+
+default_x_bounds fixes 0 through 360. Zoom, drag, scrolling, and double-click reset are disabled so casual touch movement cannot replace the azimuth domain. include_y(-8) and include_y(8) provide a readable minimum vertical span while automatic y bounds can expand for actual supplied terrain or track extrema. set_margin_fraction keeps x padding zero and adds five percent vertically. x_axis_label and y_axis_label name the physical units. x_grid_spacer produces five GridMark values separated by 90 degrees. x_axis_formatter names N/E/S/W, including north again at 360. This explicitly prevents an automatic 100-degree grid from omitting the cardinal directions. Legend groups named items and matches yellow Sun and blue Earth labels to their series.
+
+Line::new takes a name and points in chronological order, not sorted azimuth order. Sorting by azimuth would destroy the trajectory. A direct segment from 359 to 1 degrees would span almost the entire graph even though the physical motion is only two degrees. The segments helper normalizes exact 360 to 0 and starts a new polyline whenever $|A_j-A_{j-1}|>180$ degrees. Thus [358,359,0,1] becomes [358,359] and [0,1]. Reverse wraps are split too. No extra physical ephemeris is invented at the boundary; there is a small gap between the samples. This rule chooses the short angular transition and is appropriate for the hourly data. Very sparse data moving over 180 degrees between observations would require additional samples to remove ambiguity.
+
+An empty selection yields no lines. A one-point piece remains safe; the separate current Points marker always renders. Each body's pieces share its name so they form one legend entry. Line::color and Points::color apply the series color. Points::radius is in screen points, not degrees. A constant HLine::new draws the zero-degree reference across the whole azimuth domain.
+
+For a supplied Horizon with $m$ uniform bins, the renderer samples at $\max(m,360)$ intervals including both endpoints. Each point calls Horizon::at; all original bin boundaries are included, and the 360-degree endpoint interpolates back to north. It does not read a DEM or recompute terrain rays. The terrain line remains distinct from the zero reference.
+
+Implementation: [app/src/panorama.rs:193](../app/src/panorama.rs#L193), [app/src/panorama.rs:317](../app/src/panorama.rs#L317).
+
+## 7. Visibility and the rotating site marker
+
+For Sun azimuth $A_S$, use the local horizon $h_S=\operatorname{Horizon.at}(A_S)$, or exactly zero if absent. lunar_core::sun_fraction returns its existing clipped linear approximation to visible disk fraction. It is not a new circular-segment integration and not a time-availability percentage. Zero means below, one means fully above, and intermediate values are labeled partly above. At center elevation equal to horizon, the core returns one half. A nonzero fraction means some sunlight is visible under this approximation; no atmosphere or refraction is modeled.
+
+For Earth use lunar_core::visible with margin zero. This is a strict center-elevation test, $E_E>h_E$, not a finite Earth disk calculation. Equality is below. The loader caches that bool vector once after validation. The UI merely indexes the selected result. The Sun and Earth can legitimately have different visibility at the same moment. The initial Sun is fully above flat zero while the Earth center is below.
+
+The renderer's geographic convention maps latitude $\phi$ and east longitude $\lambda$ into a unit vector:
+
+$$
+\mathbf p=(\cos\phi\sin\lambda,\ \sin\phi,\ \cos\phi\cos\lambda).
+$$
+
+Globe::set_site accepts Option<(f64,f64)> and converts degrees to radians. None clears the marker; invalid coordinates also clear it. The globe does not know SiteData or Horizon. Rotation around north is followed by a southward presentation tilt:
+
+$$
+\begin{gathered}
+M=R_x(-\pi/6)R_y(\theta),\\
+R_x(\tau)=\begin{pmatrix}1&0&0\\0&\cos\tau&-\sin\tau\\0&\sin\tau&\cos\tau\end{pmatrix},\\
+R_y(\theta)=\begin{pmatrix}\cos\theta&0&\sin\theta\\0&1&0\\-\sin\theta&0&\cos\theta\end{pmatrix}.
+\end{gathered}
+$$
+
+math::rotation returns this column-major nine-float matrix. Its sin_cos call returns sine then cosine; C++ calls std::sin and std::cos separately. The GL uniform_matrix_3_f32_slice upload corresponds to glUniformMatrix3fv with transpose=false. Both shaders use u_model for geometry and mapped normals. The CPU marker uses the same matrix, rather than a separate animation or sign convention. std::array::from_fn computes each row's dot product with the input direction; C++ can fill an std::array in a counted loop.
+
+Why 30 degrees? At camera $C=(0,0,3.3)$, a unit sphere point is front-facing only if $\mathbf p_w\cdot(C-\mathbf p_w)>0$, or $3.3p_{w,z}>1$. An equatorial view hides the 89.45-degree-south example behind the perspective limb even though it lies close to the drawn silhouette. The tilt moves the south pole to $(0,-\sqrt3/2,1/2)$, giving $3.3/2-1=0.65>0$: it is visible throughout rotation. At zero animation angle and a square viewport, that pole projects to approximately $(0,-0.7467)$ NDC, inside the lower part of the Moon. This is a deliberate geographic presentation view, not an orbital camera derived from Horizons. North still maps to the geographic +y object axis; the tilt does not alter latitude or longitude.
+
+For world point $\mathbf p_w=M\mathbf p$, the shader's clip divisor is $w=3.3-p_{w,z}$. Reusing math::perspective gives $x_{ndc}=P_{00}p_{w,x}/w$ and $y_{ndc}=P_{11}p_{w,y}/w$. NDC is mapped into the UI rectangle centered at $(c_x,c_y)$ with dimensions $(W,H)$:
+
+$$
+x_{ui}=c_x+\tfrac12Wx_{ndc},\qquad y_{ui}=c_y-\tfrac12Hy_{ndc}.
+$$
+
+The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
+
+Implementation: [globe/src/math.rs:102](../globe/src/math.rs#L102), [globe/src/math.rs:113](../globe/src/math.rs#L113), [globe/src/lib.rs:74](../globe/src/lib.rs#L74).
+
+## 8. Panorama API index and C++ equivalents
+
+The complete annotated [data source](#91-appsrcdatars) and [view source](#92-appsrcpanoramars) follow. App integration and renderer changes are quoted in [the complete globe code](04-globe-code.md). Each identifier below links to its implementing source; the surrounding sections explain the contracts, not just their names.
+
+| API or construct | Purpose here | C++ equivalent |
+|:--|:--|:--|
+| [Deserialize, serde(skip), from_slice](../app/src/data.rs) | Generate/execute JSON decoding, omit derived cache | Explicit JSON adapters |
+| [is_empty, len, windows, iter, any, contains](../app/src/data.rs) | Validate aligned finite ordered arrays | empty, size, adjacent ranges, any_of, interval checks |
+| [is_finite, trim](../app/src/data.rs) | Reject unusable numeric/site metadata | isfinite, trimmed string |
+| [DateTime::from_timestamp, Utc, format, to_string](../app/src/panorama.rs) | Explicit UTC text | sys_seconds and chrono formatting |
+| [visible, sun_fraction, Horizon::at](../app/src/data.rs) | Core scientific functions | Project function/member calls |
+| [Arc::new, Arc::clone, Mutex::new, lock](../app/src/data.rs) | Share a synchronized completion | shared_ptr, mutex, lock_guard |
+| [type Pending, pub(crate)](../app/src/data.rs) | Alias and module visibility | using alias, internal interface |
+| [map, map_err, and_then, map_or, map_or_else](../app/src/data.rs) | Preserve optional/results | Checked optional/expected transforms |
+| [take, as_ref, as_deref, unwrap_or, unwrap_or_else](../app/src/data.rs) | Borrow/consume wrappers, defaults | optional references, exchange, value_or |
+| [var_os, PathBuf::from, Path::new, join](../app/src/data.rs) | Runtime deployment paths | getenv and filesystem::path |
+| [current_exe, parent, filter, is_dir, display](../app/src/data.rs) | Installed data directory, diagnostics | Executable lookup and directory checks |
+| [fs::read, thread::spawn, env!](../app/src/data.rs) | Worker disk read, workspace fallback | File read, thread, build macro |
+| [Request::get, fetch, Response::ok/status/bytes](../app/src/data.rs) | HTTP with status handling | Async HTTP client |
+| [Context::request_repaint](../app/src/data.rs) | Wake completed UI | Post redraw event |
+| [CentralPanel::show, Frame::fill, Context::set_theme, ThemePreference::Dark](../app/src/lib.rs) | Dark shell | Container/theme calls |
+| [ScrollArea::vertical, allocate_ui, columns, with_layout, Layout::top_down, Align::Min](../app/src/lib.rs) | Responsive bounded panes | Child containers and columns |
+| [available_size, available_width, available_height](../app/src/lib.rs) | Logical layout size | Layout size queries |
+| [heading, label, strong, small, colored_label](../app/src/panorama.rs) | Current-frame text | Immediate-mode text functions |
+| [spacing_mut, slider_width](../app/src/panorama.rs) | Slider row width | Local style dimension |
+| [Slider::new, show_value, text, add](../app/src/panorama.rs) | Current index binding | Integer slider with mutable reference |
+| [horizontal, button, clicked](../app/src/panorama.rs) | Sample-step controls | Row lambda, button response |
+| [saturating_sub, min, max, clamp](../app/src/panorama.rs) | Valid indices and sizes | Bounded arithmetic |
+| [ComboBox::from_id_salt, selected_text, show_ui, selectable_value](../app/src/panorama.rs) | Stable window menu | Combo with stable ID |
+| [Range, partition_point, clone](../app/src/panorama.rs) | Half-open UTC interval | lower_bound, upper_bound |
+| [Plot::new, height, width, default_x_bounds](../app/src/panorama.rs) | Plot identity, size, azimuth | Plot configuration |
+| [include_y, set_margin_fraction](../app/src/panorama.rs) | Elevation and padding | Auto-range constraints |
+| [allow_zoom, allow_drag, allow_scroll, allow_double_click_reset](../app/src/panorama.rs) | Preserve angular domain | Input policy flags |
+| [x_axis_label, y_axis_label, x_grid_spacer, GridMark](../app/src/panorama.rs) | Units, cardinal grid | Axis/tick configuration |
+| [x_axis_formatter, Legend::default, legend, show](../app/src/panorama.rs) | Compass and legend | Formatter lambda, callback |
+| [HLine::new, PlotUi::hline](../app/src/panorama.rs) | Flat reference | Horizontal-line series |
+| [Line::new, color, PlotUi::line](../app/src/panorama.rs) | Separate track/horizon pieces | Named polylines |
+| [Points::new, radius, PlotUi::points](../app/src/panorama.rs) | Current markers | Screen-sized scatter points |
+| [rem_euclid, f64::from, collect](../app/src/panorama.rs) | Normalize, convert, materialize | Positive modulo, casts, vectors |
+| [last, last_mut, is_none_or, push](../app/src/panorama.rs) | Build seam pieces | Checked back access, push_back |
+| [serde_json::json!, to_vec, pointer_mut](../app/src/data.rs) | Editable test schemas | JSON builder and pointer lookup |
+| [include_bytes!, assert!, assert_eq!, unwrap](../app/src/data.rs) | Test-only fixture/assertions | Test fixture and framework |
+| [Globe::set_site, direction, rotation, marker](../globe/src/lib.rs) | Independent site projection | Optional setter, math helpers |
+| [sin_cos, to_radians, array::from_fn](../globe/src/math.rs) | Shared rigid transform | sin/cos, degree conversion, array fill |
+| [uniform_matrix_3_f32_slice, u_model](../globe/src/lib.rs) | Geometry/normal matrix | glUniformMatrix3fv |
+| [aspect_ratio, center, width, height, left_top](../globe/src/lib.rs) | NDC to UI | Rectangle geometry |
+| [circle_filled, circle_stroke, Painter::text](../globe/src/lib.rs) | Marker and caption | Screen-space primitives |
+| [Stroke::new, FontId::proportional, Align2::LEFT_TOP](../globe/src/lib.rs) | Overlay style | Pen, font, alignment |
+
+## 9. Exact panorama source
+
+These complete quotations include tests. Comments explain each statement, its purpose, and its C++ counterpart. Continued argument/expression lines belong to their enclosing statement; closing braces and delimiters close that scope. The scientific core and prep source are unchanged. JSON values are not repeated as 52,000 lines of typeset data.
+
+### 9.1. app/src/data.rs
+
+```rust
+//! Validated Horizons data and asynchronous disk/HTTP loading, with no DEM policy.
+
+// Import UTC conversion; C++ chrono provides calendar/time-point types.
+use chrono::{DateTime, Utc};
+// Import shared completion storage; C++ shared_ptr and a mutex-protected value.
+use eframe::egui::{self, mutex::Mutex};
+// Import the scientific contracts rather than duplicating visibility math; C++ includes their header.
+use lunar_core::{Horizon, Site, Track, visible};
+// Import the derive trait used by the JSON decoder; C++ needs explicit serialization adapters.
+use serde::Deserialize;
+// Import reference-counted ownership; C++ std::shared_ptr.
+use std::sync::Arc;
+
+// Keep one filename for native disk and web HTTP paths; C++ constexpr string_view.
+const FILE: &str = "example-89-45s-222-69e.json";
+
+// Generate JSON deserialization for the prep schema; C++ supplies field adapters manually.
+#[derive(Deserialize)]
+// Own a validated, aligned pair of tracks; C++ aggregate with vectors and optional horizon.
+pub(crate) struct SiteData
+{
+	// Retain geographic latitude and east longitude; C++ a Site value member.
+	pub site: Site,
+	// Own the Sun's sample arrays; C++ a Track value member.
+	pub sun: Track,
+	// Own the Earth's sample arrays on the same UTC grid; C++ a Track value member.
+	pub earth: Track,
+	// Preserve null as absent terrain, not as an invented DEM; C++ optional<Horizon>.
+	pub horizon: Option<Horizon>,
+	// This cache is computed after validation, not read from JSON; C++ excludes a derived member from serialization.
+	#[serde(skip)]
+	// Cache the core's Earth center visibility once per load; C++ vector<bool>.
+	pub earth_above: Vec<bool>,
+}
+
+// Attach helpers to this owned model; C++ member definitions outside the class.
+impl SiteData
+{
+	// Decode bytes and enforce preconditions before any indexing; C++ expected<SiteData,string>.
+	pub fn parse(bytes: &[u8]) -> Result<Self, String>
+	{
+		// Borrow bytes without copying and propagate JSON errors; C++ span plus expected error propagation.
+		let mut data: Self = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+		// Reject unusable site metadata; C++ checks finite doubles and numeric intervals.
+		if data.site.name.trim().is_empty()
+			|| !data.site.lat_deg.is_finite()
+			|| !data.site.lon_deg.is_finite()
+			|| !(-90.0..=90.0).contains(&data.site.lat_deg)
+		{
+			// Return a diagnostic instead of creating a misleading marker; C++ unexpected<string>.
+			return Err("Invalid site name or coordinates".into());
+		}
+		// Validate both borrowed tracks identically; C++ range-for over two const pointers.
+		for track in [&data.sun, &data.earth]
+		{
+			// Refuse empty/misaligned arrays, unordered times and invalid directions; C++ short-circuit predicates.
+			if track.t.is_empty()
+				|| track.t.len() != track.az_deg.len()
+				|| track.t.len() != track.el_deg.len()
+				|| track.t.windows(2).any(|t| t[0] >= t[1])
+				|| track
+					.t
+					.iter()
+					.any(|&t| DateTime::<Utc>::from_timestamp(t, 0).is_none())
+				|| track
+					.az_deg
+					.iter()
+					.any(|a| !a.is_finite() || !(0.0..=360.0).contains(a))
+				|| track
+					.el_deg
+					.iter()
+					.any(|e| !e.is_finite() || !(-90.0..=90.0).contains(e))
+			{
+				// Avoid indexing invalid data or bridging missing arrays; C++ unexpected<string>.
+				return Err("Invalid or empty track arrays, timestamps, or angles".into());
+			}
+		}
+		// Require exact timestamp correspondence, not merely equal lengths; C++ vector equality.
+		if data.sun.t != data.earth.t
+		{
+			// Report incompatible tracks; C++ returns an error alternative.
+			return Err("Sun and Earth timestamps differ".into());
+		}
+		// Check supplied terrain only; no DEM is read or selected here; C++ if-init with optional.
+		if let Some(h) = &data.horizon
+			&& (h.h_deg.is_empty()
+				|| h.h_deg
+					.iter()
+					.any(|e| !e.is_finite() || !(-90.0..=90.0).contains(e)))
+		{
+			// A supplied profile must actually contain valid bins; C++ unexpected<string>.
+			return Err("A supplied horizon needs nonempty finite elevation bins".into());
+		}
+		// Represent the explicitly labeled flat fallback by a constant profile; C++ Horizon with vector{0}.
+		let flat = Horizon { h_deg: vec![0.0] };
+		// Run the scientific center-visibility function once, with zero margin; C++ const optional reference fallback.
+		data.earth_above = visible(&data.earth, data.horizon.as_ref().unwrap_or(&flat), 0.0);
+		// Move the validated model to the caller; C++ expected containing a moved value.
+		Ok(data)
+	}
+
+	// Interpolate a supplied profile or explicitly choose flat zero; C++ const member returning float.
+	pub fn horizon_at(&self, az: f32) -> f32
+	{
+		// Do not use core's empty-profile -90 convention for missing DEM; C++ optional transform with fallback.
+		self.horizon.as_ref().map_or(0.0, |h| h.at(az))
+	}
+}
+
+// Name pending/success/failure shared storage; C++ shared_ptr<mutex-protected optional<expected<SiteData,string>>>.
+pub(crate) type Pending = Arc<Mutex<Option<Result<SiteData, String>>>>;
+
+// Start one asynchronous load and wake egui when it finishes; C++ factory returning shared completion state.
+pub(crate) fn load(ctx: egui::Context) -> Pending
+{
+	// None means pending, distinct from success and failure; C++ optional starts disengaged.
+	let pending = Arc::new(Mutex::new(None));
+	// Give the completion its own shared owner; C++ copies a shared_ptr.
+	let completed = Arc::clone(&pending);
+	// Move captured owners into a one-shot callback; C++ a mutable value-capturing lambda.
+	let done = move |bytes: Result<Vec<u8>, String>| {
+		// Decode only on successful I/O, then atomically publish the result; C++ expected::and_then under lock_guard.
+		*completed.lock() = Some(bytes.and_then(|b| SiteData::parse(&b)));
+		// Wake the event loop from either a worker or browser completion; C++ posts a redraw event.
+		ctx.request_repaint();
+	};
+	// Compile the disk loader only for native targets; C++ #if around a function body.
+	#[cfg(not(target_arch = "wasm32"))]
+	// Keep disk I/O off the UI thread; C++ std::thread with a value-captured callback.
+	std::thread::spawn(move || {
+		// Accept a deployment override; C++ getenv converted to optional<filesystem::path>.
+		let directory = std::env::var_os("MOON_DATA_DIR")
+			.map(std::path::PathBuf::from)
+			.unwrap_or_else(|| {
+				// Prefer assets/data beside the executable; C++ filesystem::path with optional error handling.
+				std::env::current_exe()
+					.ok()
+					.and_then(|p| p.parent().map(|p| p.join("assets/data")))
+					.filter(|p| p.is_dir())
+					// Fall back to the workspace app assets; C++ build-defined source path.
+					.unwrap_or_else(|| {
+						std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/data")
+					})
+			});
+		// Include the failing path in the error instead of silently switching files; C++ filesystem read with expected.
+		let path = directory.join(FILE);
+		// Publish exactly one disk result; C++ invokes the captured completion.
+		done(std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display())));
+	});
+	// Compile HTTP loading only for the browser; C++ #if for platform code.
+	#[cfg(target_arch = "wasm32")]
+	// Fetch the same relative resource copied by Trunk, without embedding it in WASM; C++ asynchronous HTTP request.
+	ehttp::fetch(
+		ehttp::Request::get(format!("assets/data/{FILE}")),
+		move |response| {
+			// Reject HTTP errors even if their bodies happen to resemble JSON; C++ expected::and_then.
+			done(response.and_then(|r| {
+				if r.ok
+				{
+					Ok(r.bytes)
+				}
+				else
+				{
+					Err(format!("HTTP {} loading {FILE}", r.status))
+				}
+			}));
+		},
+	);
+	// Return another owner while completion stays alive independently; C++ returns shared_ptr.
+	pending
+}
+
+// Compile test-only fixtures out of release binaries; C++ conditional test compilation.
+#[cfg(test)]
+// Isolate test names; C++ anonymous/test namespace.
+mod tests
+{
+	// Access private implementation helpers; C++ includes the implementation's test interface.
+	use super::*;
+
+	// Build a tiny editable valid schema; C++ returns a JSON value object.
+	fn fixture() -> serde_json::Value
+	{
+		// Two aligned samples cross north, with Earth above flat zero; C++ constructs an object/array tree.
+		serde_json::json!({"site":{"name":"Test","lat_deg":-89.45,"lon_deg":222.69},
+			"sun":{"t":[0,3600],"az_deg":[359,1],"el_deg":[0,1]},
+			"earth":{"t":[0,3600],"az_deg":[137,138],"el_deg":[1,-1]},"horizon":null})
+	}
+
+	// Register a test; C++ testing framework macro.
+	#[test]
+	// Verify the committed Horizons payload, not a substitute dataset; C++ a data regression test.
+	fn bundled_year_is_aligned_hourly_and_has_no_dem()
+	{
+		// Embed only in the test executable, never in the app/WASM; C++ test-only binary fixture.
+		let d =
+			SiteData::parse(include_bytes!("../assets/data/example-89-45s-222-69e.json")).unwrap();
+		// Count inclusive interval endpoints; C++ assert equality.
+		assert_eq!(d.sun.t.len(), 8761);
+		// Keep the request below the published row limit; C++ assert comparison.
+		assert!(d.sun.t.len() < 90_000);
+		// Check UTC cadence, independently of sample count; C++ ranges::all_of adjacent pairs.
+		assert!(d.sun.t.windows(2).all(|t| t[1] - t[0] == 3600));
+		// Verify exact endpoint dates; C++ chrono time-point equality.
+		assert_eq!(d.sun.t[0], 1_798_761_600);
+		// Verify one non-leap year later; C++ assert equality.
+		assert_eq!(*d.sun.t.last().unwrap(), 1_830_297_600);
+		// No terrain decisions were introduced; C++ assert optional is empty.
+		assert!(d.horizon.is_none());
+	}
+
+	// Register a test; C++ testing framework macro.
+	#[test]
+	// Check normal flat and supplied-profile visibility; C++ unit test.
+	fn flat_and_interpolated_terrain_visibility()
+	{
+		// Own an editable fixture; C++ JSON value.
+		let mut v = fixture();
+		// Parse the null fallback; C++ serialize then deserialize for schema coverage.
+		let flat = SiteData::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
+		// Earth centers use strict elevation > horizon; C++ vector comparison.
+		assert_eq!(flat.earth_above, [true, false]);
+		// At the horizon half the solar disk is visible; C++ call the scientific function.
+		assert!((lunar_core::sun_fraction(0.0, flat.horizon_at(359.0)) - 0.5).abs() < 1e-6);
+		// Supply a synthetic cyclic profile, not a chosen DEM; C++ replace a JSON member.
+		v["horizon"] = serde_json::json!({"h_deg":[1,3]});
+		// Parse and evaluate terrain through the same code path; C++ checked conversion.
+		let terrain = SiteData::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
+		// Uniform bins interpolate at 90 degrees; C++ floating-point tolerance assertion.
+		assert!((terrain.horizon_at(90.0) - 2.0).abs() < 1e-6);
+		// Both Earth samples are now below the supplied profile; C++ ranges::none_of.
+		assert!(terrain.earth_above.iter().all(|v| !v));
+	}
+
+	// Register a test; C++ testing framework macro.
+	#[test]
+	// Cover malformed, empty, mismatched and invalid numeric inputs; C++ table-driven rejection test.
+	fn rejects_invalid_inputs()
+	{
+		// Empty input is not an empty successful dataset; C++ assert error alternative.
+		assert!(SiteData::parse(b"").is_err());
+		// Try independent corruptions of otherwise valid data; C++ range-for over replacement pairs.
+		for (pointer, replacement) in [
+			("/sun/t", serde_json::json!([])),
+			("/sun/az_deg", serde_json::json!([1])),
+			("/sun/t", serde_json::json!([0, 0])),
+			("/earth/t", serde_json::json!([0, 3601])),
+			("/site/lat_deg", serde_json::json!(-100)),
+			("/sun/el_deg", serde_json::json!([91, 0])),
+			("/sun/az_deg", serde_json::json!([361, 0])),
+			("/horizon", serde_json::json!({"h_deg":[]})),
+			("/horizon", serde_json::json!({"h_deg":[100]})),
+		]
+		{
+			// Reset the fixture so errors do not mask one another; C++ a fresh local JSON object.
+			let mut v = fixture();
+			// Replace the selected nested member; C++ assign through a JSON pointer.
+			*v.pointer_mut(pointer).unwrap() = replacement;
+			// The production parser must reject every corruption; C++ assert with diagnostic context.
+			assert!(
+				SiteData::parse(&serde_json::to_vec(&v).unwrap()).is_err(),
+				"{pointer}"
+			);
+		}
+	}
+}
+```
+
+### 9.2. app/src/panorama.rs
+
+```rust
+//! Immediate-mode panorama controls over validated, hourly Horizons samples.
+
+// Import the owned model and pending-loader state; C++ includes project declarations.
+use crate::data::{self, Pending, SiteData};
+// Import UTC formatting without a platform clock; C++ chrono formats sys_seconds.
+use chrono::{DateTime, Utc};
+// Import UI widgets and plot primitives; C++ using declarations shorten qualified names.
+use eframe::egui::{self, Color32};
+// Import named plot items and explicit compass grid marks; C++ plotting library types.
+use egui_plot::{GridMark, HLine, Legend, Line, Plot, Points};
+// Import the track contract and solar disk visibility function; C++ project header declarations.
+use lunar_core::{Track, sun_fraction};
+// Name half-open index intervals; C++ a pair of iterator offsets.
+use std::ops::Range;
+
+// Own only persistent choices and data, not a retained widget tree; C++ an immediate-mode view model.
+pub(crate) struct Panorama
+{
+	// Shared result slot while loading; C++ shared_ptr to synchronized optional<expected>.
+	pending: Pending,
+	// Validated successful data, absent while pending or failed; C++ optional<SiteData>.
+	data: Option<SiteData>,
+	// Terminal diagnostic kept visible; C++ optional<string>.
+	error: Option<String>,
+	// Current sample, not interpolated ephemerides; C++ size_t.
+	index: usize,
+	// Centered window length in hours; zero means the entire dataset; C++ int64_t.
+	hours: i64,
+}
+
+// Define view-model member functions; C++ out-of-class member definitions.
+impl Panorama
+{
+	// Start loading once during application construction; C++ a constructor with an asynchronous operation.
+	pub fn new(ctx: egui::Context) -> Self
+	{
+		// Choose the first UTC sample and a centered 30-day window; C++ aggregate initialization.
+		Self {
+			pending: data::load(ctx),
+			data: None,
+			error: None,
+			index: 0,
+			hours: 720,
+		}
+	}
+
+	// Consume a completion at most once, before drawing; C++ moves out of an optional under a mutex.
+	pub fn update(&mut self)
+	{
+		// Drop the short-lived mutex guard before changing the view model; C++ scoped lock_guard.
+		let result = self.pending.lock().take();
+		// Exhaustively separate pending, success and failure; C++ switch over optional<expected> alternatives.
+		match result
+		{
+			// Move valid data into UI ownership; C++ move assignment.
+			Some(Ok(data)) => self.data = Some(data),
+			// Keep errors visible instead of retrying every animation frame; C++ move assignment.
+			Some(Err(error)) => self.error = Some(error),
+			// Pending or already consumed requires no work; C++ empty branch.
+			None =>
+			{}
+		}
+	}
+
+	// Return coordinates without exposing scientific data to globe; C++ optional<pair<double,double>>.
+	pub fn site(&self) -> Option<(f64, f64)>
+	{
+		// Borrow the model and copy two scalars; C++ optional transform of a const reference.
+		self.data.as_ref().map(|d| (d.site.lat_deg, d.site.lon_deg))
+	}
+
+	// Rebuild widgets every frame from stable state; C++ an immediate-mode draw method.
+	pub fn show(&mut self, ui: &mut egui::Ui)
+	{
+		// Announce the scientific view independently of the presentation globe; C++ submit a heading.
+		ui.heading("Sun and Earth panorama");
+		// Require validated data before building sliders or indexing arrays; C++ checked optional extraction.
+		let Some(data) = &self.data
+		else
+		{
+			// Preserve the asynchronous failure reason or pending state; C++ optional::value_or.
+			ui.label(self.error.as_deref().unwrap_or("Loading Horizons data..."));
+			// No fictional ephemeris is displayed while unavailable; C++ early return.
+			return;
+		};
+		// Identify the actual site; C++ submit a borrowed string label.
+		ui.label(&data.site.name);
+		// Make the missing-DEM assumption explicit; C++ conditional expression.
+		ui.label(
+			if data.horizon.is_some()
+			{
+				"terrain horizon"
+			}
+			else
+			{
+				"flat horizon (no DEM yet)"
+			},
+		);
+		// Display the selected sample in UTC, not local browser time; C++ chrono formatting.
+		ui.strong(utc_label(data.sun.t[self.index]));
+		// Give the UTC slider the remaining row width; C++ set a local widget style dimension.
+		ui.spacing_mut().slider_width = (ui.available_width() - 100.0).max(100.0);
+		// Quantize the slider to real samples, so no uncomputed ephemerides are invented; C++ size_t slider binding.
+		ui.add(
+			egui::Slider::new(&mut self.index, 0..=data.sun.t.len() - 1)
+				.show_value(false)
+				.text("UTC sample"),
+		);
+		// Place window choices and single-sample steps together; C++ immediate-mode row callback.
+		ui.horizontal(|ui| {
+			// Saturate at the first sample rather than underflowing usize; C++ max(index-1,0).
+			if ui.button("< 1h").clicked()
+			{
+				self.index = self.index.saturating_sub(1);
+			}
+			// Clamp the next step at the final inclusive endpoint; C++ min(index+1,last).
+			if ui.button("1h >").clicked()
+			{
+				self.index = (self.index + 1).min(data.sun.t.len() - 1);
+			}
+			// Rebuild the menu with a stable widget identity; C++ a combo box bound to the integer choice.
+			egui::ComboBox::from_id_salt("time_window")
+				.selected_text(window_label(self.hours))
+				.show_ui(ui, |ui| {
+					// Fixed scientific time spans, not variable sample counts; C++ range-for over pairs.
+					for (hours, label) in [
+						(24, "1 day"),
+						(168, "7 days"),
+						(720, "30 days"),
+						(0, "All data"),
+					]
+					{
+						// Clicking updates persistent choice, while widgets themselves are rebuilt; C++ radio/menu binding.
+						ui.selectable_value(&mut self.hours, hours, label);
+					}
+				});
+		});
+		// Borrow the selected Sun direction and interpolate its local horizon; C++ two float locals.
+		let (sun_az, sun_el) = (data.sun.az_deg[self.index], data.sun.el_deg[self.index]);
+		// Use the core's finite-disk approximation, not a duplicate visibility formula; C++ function call.
+		let fraction = sun_fraction(sun_el, data.horizon_at(sun_az));
+		// Distinguish any/partial/full solar visibility; C++ nested conditional expression.
+		let sun_status = if fraction <= 0.0
+		{
+			"below"
+		}
+		else if fraction >= 1.0
+		{
+			"above"
+		}
+		else
+		{
+			"partly above"
+		};
+		// Keep Sun numbers and plotted color consistent; C++ formatted colored label.
+		ui.colored_label(
+			Color32::YELLOW,
+			format!("Sun az {sun_az:.2}, el {sun_el:+.2} deg"),
+		);
+		// State that the percentage describes the solar disk, not time availability; C++ formatted label.
+		ui.label(format!(
+			"Sun {sun_status}; {:.1}% disk visible",
+			fraction * 100.0
+		));
+		// Borrow the aligned Earth direction; C++ two float locals.
+		let (earth_az, earth_el) = (data.earth.az_deg[self.index], data.earth.el_deg[self.index]);
+		// Use the precomputed core center-visibility result; C++ bool lookup and conditional string.
+		let earth_status = if data.earth_above[self.index]
+		{
+			"above"
+		}
+		else
+		{
+			"below"
+		};
+		// Report azimuth, elevation, and visibility without substituting an expected azimuth; C++ formatted colored label.
+		ui.colored_label(
+			Color32::LIGHT_BLUE,
+			format!("Earth az {earth_az:.2}, el {earth_el:+.2} deg"),
+		);
+		// Clarify Earth is a center-above-horizon test, unlike the solar disk fraction; C++ string formatting.
+		ui.label(format!("Earth center {earth_status} horizon"));
+		// Select by UTC duration, allowing irregular future timestamps; C++ binary-search interval.
+		let range = window(&data.sun.t, self.index, self.hours);
+		// Explain endpoint clipping without crowding a phone with duplicate timestamps; C++ formatted count label.
+		ui.small(format!(
+			"Window: {} samples (centered, clipped)",
+			range.len()
+		));
+		// Reserve a usable graph even when a short viewport needs outer scrolling; C++ max of remaining height.
+		let height = ui.available_height().max(220.0);
+		// Fix azimuth bounds while allowing elevation to fit terrain/track extrema; C++ plotting builder.
+		Plot::new("panorama")
+			// Leave room for the right endpoint's centered tick label inside the panel clip; C++ explicit plot width.
+			.width((ui.available_width() - 20.0).max(100.0))
+			.height(height)
+			.default_x_bounds(0.0, 360.0)
+			.include_y(-8.0)
+			.include_y(8.0)
+			.set_margin_fraction(egui::vec2(0.0, 0.05))
+			.allow_zoom(false)
+			.allow_drag(false)
+			.allow_scroll(false)
+			.allow_double_click_reset(false)
+			.x_axis_label("Azimuth (deg, north clockwise)")
+			.y_axis_label("Elevation (deg)")
+			// Force cardinal ticks rather than accepting automatic 100-degree spacing; C++ generate five grid marks.
+			.x_grid_spacer(|_| {
+				(0..=4)
+					.map(|i| GridMark {
+						value: f64::from(i) * 90.0,
+						step_size: 90.0,
+					})
+					.collect()
+			})
+			// Name both north endpoints of the unwrapped plot; C++ formatter lambda.
+			.x_axis_formatter(|mark, _| {
+				match mark.value as i32
+				{
+					0 => "0 N",
+					90 => "90 E",
+					180 => "180 S",
+					270 => "270 W",
+					_ => "360 N",
+				}
+				.into()
+			})
+			.legend(Legend::default())
+			.show(ui, |plot| {
+				// Always show the geometric flat reference, even if terrain is supplied; C++ submit a horizontal line.
+				plot.hline(HLine::new("Flat 0 deg", 0.0).color(Color32::GRAY));
+				// Add terrain only when present; this is profile interpolation, not DEM ingestion; C++ if(optional).
+				if let Some(horizon) = &data.horizon
+				{
+					// Include every original uniform bin, with extra points for coarse profiles; C++ max(size,360).
+					let bins = horizon.h_deg.len().max(360);
+					// Close the cyclic line at 360 using Horizon::at, including all bin boundaries; C++ transform a counted range.
+					let points: Vec<_> = (0..=bins)
+						.map(|i| {
+							// Convert this uniform bin boundary to degrees; C++ float arithmetic.
+							let az = i as f32 * 360.0 / bins as f32;
+							// Ask the core for the interpolated elevation, then widen plot coordinates; C++ array<double,2>.
+							[f64::from(az), f64::from(horizon.at(az))]
+						})
+						.collect();
+					// Keep the terrain visually distinct from the flat reference and both bodies; C++ submit a colored polyline.
+					plot.line(Line::new("Terrain", points).color(Color32::LIGHT_RED));
+				}
+				// Apply identical window/wrap rules to both tracks; C++ range-for over named borrowed tracks.
+				for (name, track, color) in [
+					("Sun", &data.sun, Color32::YELLOW),
+					("Earth", &data.earth, Color32::LIGHT_BLUE),
+				]
+				{
+					// Never connect segments separated by a north wrap; C++ range-for over polyline pieces.
+					for segment in segments(track, range.clone())
+					{
+						// Same body name groups pieces under a single legend entry; C++ submit each independent line.
+						plot.line(Line::new(name, segment).color(color));
+					}
+					// Mark the current direction even for a one-sample interval; C++ one-point scatter series.
+					plot.points(
+						Points::new(
+							format!("{name} now"),
+							vec![[
+								f64::from(track.az_deg[self.index].rem_euclid(360.0)),
+								f64::from(track.el_deg[self.index]),
+							]],
+						)
+						.color(color)
+						.radius(4.0),
+					);
+				}
+			});
+	}
+}
+
+// Format a UTC epoch without consulting a platform clock; C++ chrono::format of sys_seconds.
+fn utc_label(t: i64) -> String
+{
+	// Defensive fallback is unreachable after validation, but formatting never panics; C++ optional transform/value_or.
+	DateTime::<Utc>::from_timestamp(t, 0).map_or_else(
+		|| "Invalid UTC".into(),
+		|d| d.format("%Y-%m-%d %H:%M UTC").to_string(),
+	)
+}
+
+// Map the small persistent integer choice to menu text; C++ switch returning string_view.
+fn window_label(hours: i64) -> &'static str
+{
+	// The lifetime is static because literals live for the process; C++ static string storage.
+	match hours
+	{
+		24 => "1 day",
+		168 => "7 days",
+		720 => "30 days",
+		_ => "All data",
+	}
+}
+
+// Find a centered, clipped interval; precondition: validated nonempty sorted times and a valid index; C++ binary searches.
+fn window(times: &[i64], index: usize, hours: i64) -> Range<usize>
+{
+	// Zero is an explicit entire-dataset choice, not a zero-duration plot; C++ early return.
+	if hours == 0
+	{
+		return 0..times.len();
+	}
+	// Half of hours converted to seconds on each side of the current sample; C++ integer multiplication.
+	let half = hours * 1800;
+	// Include exact boundary samples; C++ lower_bound and upper_bound offsets.
+	times.partition_point(|&t| t < times[index] - half)
+		..times.partition_point(|&t| t <= times[index] + half)
+}
+
+// Split at a >180-degree jump, preserving time order; precondition: validated arrays/range; C++ vector<vector<point>>.
+fn segments(track: &Track, range: Range<usize>) -> Vec<Vec<[f64; 2]>>
+{
+	// Own separate polylines rather than drawing a spurious chord across north; C++ nested vectors.
+	let mut parts: Vec<Vec<[f64; 2]>> = Vec::new();
+	// Visit only the chosen time samples; C++ counted loop over a half-open interval.
+	for i in range
+	{
+		// Normalize an exact 360 endpoint to north before checking wraps; C++ positive modulo.
+		let point = [
+			f64::from(track.az_deg[i].rem_euclid(360.0)),
+			f64::from(track.el_deg[i]),
+		];
+		// Start a new line for the first point or a seam crossing; C++ optional last-element tests.
+		if parts
+			.last()
+			.and_then(|p| p.last())
+			.is_none_or(|last| (last[0] - point[0]).abs() > 180.0)
+		{
+			// Seed this independent piece, including isolated samples; C++ emplace_back(vector{point}).
+			parts.push(vec![point]);
+		}
+		// The previous branch guarantees a final part exists; C++ else with mutable vector back().
+		else if let Some(part) = parts.last_mut()
+		{
+			// Append only adjacent non-wrapping samples; C++ push_back.
+			part.push(point);
+		}
+	}
+	// Move all pieces to the plot caller; C++ return by value.
+	parts
+}
+
+// Keep tests out of production binaries; C++ test-only compilation.
+#[cfg(test)]
+// Group helper regressions; C++ test namespace.
+mod tests
+{
+	// Import private helpers; C++ test translation unit includes declarations.
+	use super::*;
+	// Register the regression; C++ test macro.
+	#[test]
+	// Cover normal, empty, forward and reverse wrap cases; C++ unit test.
+	fn wraps_do_not_draw_chords()
+	{
+		// Cross north in both directions and include exact 360; C++ aggregate vectors.
+		let track = Track {
+			t: vec![0, 1, 2, 3, 4, 5],
+			az_deg: vec![358.0, 359.0, 0.0, 1.0, 359.0, 360.0],
+			el_deg: vec![0.0; 6],
+		};
+		// Expect independent pieces without losing points; C++ equality of transformed sizes.
+		assert_eq!(
+			segments(&track, 0..6)
+				.iter()
+				.map(Vec::len)
+				.collect::<Vec<_>>(),
+			[2, 2, 1, 1]
+		);
+		// An empty selection produces no polyline; C++ assert empty vector.
+		assert!(segments(&track, 0..0).is_empty());
+		// A single sample is safe even though it has no line span; C++ size comparison.
+		assert_eq!(segments(&track, 2..3)[0].len(), 1);
+	}
+	// Register the regression; C++ test macro.
+	#[test]
+	// Check real time boundaries, clipping, and the whole-dataset sentinel; C++ unit test.
+	fn windows_are_utc_intervals_not_sample_counts()
+	{
+		// Deliberately irregular times discriminate duration from index arithmetic; C++ vector<int64_t>.
+		let t = [0, 3600, 7200, 100_000];
+		// Centering 24h includes the first three but not a distant fourth; C++ interval equality.
+		assert_eq!(window(&t, 1, 24), 0..3);
+		// At the endpoint the window clips safely; C++ interval equality.
+		assert_eq!(window(&t, 3, 24), 3..4);
+		// All data must mean both endpoints, regardless of current index; C++ interval equality.
+		assert_eq!(window(&t, 0, 0), 0..4);
+		// One sample remains selectable and readable; C++ interval equality.
+		assert_eq!(window(&[0], 0, 24), 0..1);
+		// Verify UTC rendering at the Unix epoch; C++ formatted timestamp assertion.
+		assert_eq!(utc_label(0), "1970-01-01 00:00 UTC");
+	}
+}
+```
+
+### 9.3. app/Cargo.toml
+
+```toml
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+globe = { path = "../globe" }
+lunar_core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui_plot = "0.38"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ehttp = "0.7"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement"] }
+```

@@ -25,6 +25,8 @@ pub struct Globe
 	tier: u32,
 	// Optional animation epoch in seconds; C++ optional<double>.
 	started: Option<f64>,
+	// Optional unit object-space site direction; C++ optional<array<float,3>> without a core dependency.
+	site: Option<[f32; 3]>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -63,7 +65,25 @@ impl Globe
 			tier,
 			// Optional animation epoch in seconds; C++ optional<double>.
 			started: None,
+			// No marker until valid geographic coordinates arrive; C++ nullopt.
+			site: None,
 		})
+	}
+
+	// Accept only finite geographic coordinates; absent/invalid input clears the marker; C++ optional setter.
+	pub fn set_site(&mut self, site: Option<(f64, f64)>)
+	{
+		// Convert degrees to the renderer's object-space convention, independent of scientific data types; C++ optional transform.
+		self.site = site
+			.filter(|&(lat, lon)| {
+				lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
+			})
+			.map(|(lat, lon)| {
+				math::direction(
+					lat.to_radians() as f32,
+					lon.rem_euclid(360.0).to_radians() as f32,
+				)
+			});
 	}
 
 	/// Fill the available UI rectangle and rotate once per 60 seconds of egui time.
@@ -153,6 +173,30 @@ impl Globe
 			rect,
 			callback: Arc::new(callback),
 		});
+		// Draw the marker only after the Moon is available and the site faces the camera; C++ checked optional projection.
+		if self.renderer.lock().is_some()
+			&& let Some(ndc) = self
+				.site
+				.and_then(|p| math::marker(p, angle, rect.aspect_ratio()))
+		{
+			// Convert NDC to top-left-origin logical UI coordinates, reversing vertical sign; C++ viewport transform.
+			let position = rect.center()
+				+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
+			// Keep marker radius constant on screen, independent of texture tier; C++ draw a filled overlay circle.
+			ui.painter()
+				.circle_filled(position, 4.5, egui::Color32::LIGHT_RED);
+			// Add an outline for contrast against either highlands or a dark terminator; C++ stroked-circle overlay.
+			ui.painter()
+				.circle_stroke(position, 4.5, egui::Stroke::new(1.0, egui::Color32::WHITE));
+		}
+		// Distinguish the presentation camera/light from scientific ephemerides in the adjacent plot; C++ overlay text.
+		ui.painter().text(
+			rect.left_top() + egui::vec2(8.0, 8.0),
+			egui::Align2::LEFT_TOP,
+			"Site marker: red | illustrative south view",
+			egui::FontId::proportional(12.0),
+			egui::Color32::LIGHT_RED,
+		);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 	}
@@ -485,8 +529,12 @@ impl Renderer
 				false,
 				&math::perspective(aspect),
 			);
-			// Send the rotation angle in radians; C++ glUniform1f.
-			gl.uniform_1_f32(gl.get_uniform_location(program, "u_angle").as_ref(), angle);
+			// Share one column-major rigid model matrix with geometry, normals, and CPU marker projection; C++ glUniformMatrix3fv.
+			gl.uniform_matrix_3_f32_slice(
+				gl.get_uniform_location(program, "u_model").as_ref(),
+				false,
+				&math::rotation(angle),
+			);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 			for (unit, name) in ["u_albedo", "u_normal"].iter().enumerate()
 			{
