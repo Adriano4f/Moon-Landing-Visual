@@ -1339,7 +1339,7 @@ Trunk is the browser build tool and local development server. The build table co
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Moon Landing Visual</title>
+	<title>Karaya Explore</title>
 	<link data-trunk rel="rust">
 	<link data-trunk rel="copy-dir" href="assets">
 	<base data-trunk-public-url>
@@ -1392,7 +1392,7 @@ impl eframe::App for MoonApp
 	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
 	{
 		eframe::egui::CentralPanel::default().show(ui, |ui| {
-			ui.heading("Moon Landing Visual");
+			ui.heading("Karaya Explore");
 			ui.label("The panorama is coming.");
 		});
 	}
@@ -1436,7 +1436,7 @@ fn main() -> eframe::Result
 {
 	env_logger::init();
 	eframe::run_native(
-		"Moon Landing Visual",
+		"Karaya Explore",
 		eframe::NativeOptions::default(),
 		Box::new(|_| Ok(Box::new(app::MoonApp))),
 	)
@@ -1444,7 +1444,7 @@ fn main() -> eframe::Result
 ```
 
 1. Initialize logging before launching the UI.
-2. Pass Moon Landing Visual as the native title.
+2. Pass Karaya Explore as the native title.
 3. Use default window options.
 4. Pass a heap-owned closure, ignoring its creation-context argument with an underscore pattern.
 5. Construct the fieldless MoonApp, box it, and wrap it in Ok.

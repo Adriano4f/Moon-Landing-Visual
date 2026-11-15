@@ -5,7 +5,7 @@ fn main() -> eframe::Result
 {
 	env_logger::init();
 	eframe::run_native(
-		"Moon Landing Visual",
+		"Karaya Explore",
 		eframe::NativeOptions::default(),
 		Box::new(|_| Ok(Box::new(app::MoonApp))),
 	)

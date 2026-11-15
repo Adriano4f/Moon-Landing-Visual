@@ -1,4 +1,4 @@
-# Moon Landing Visual
+# Karaya Explore
 
 Compare lunar south pole landing sites using Sun visibility for power and Earth visibility for direct communication.
 
