@@ -12,6 +12,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11"] }
 egui_plot = "0.38"
 ehttp = "0.7"
+web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"

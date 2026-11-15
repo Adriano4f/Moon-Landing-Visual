@@ -20,7 +20,7 @@ and longitude displayed in -180..180 degrees.
 `app/src/custom.rs` fetches the URLs from `terrain_requests` with `ehttp`,
 both natively and in the browser, and loads the `moon-ephemeris.bin` asset.
 The TIFF responses stay in request order. Core performs no HTTP or filesystem I/O.
-`HorizonJob` computes 720 azimuth bins, with 12 bins advanced per app frame.
+`HorizonJob` computes 720 azimuth bins, advanced for up to 12 ms per app frame. Requests are 512² pixels (about 1 MB), or 1024² for polar fine windows; downloads time out after 30 s.
 The observer's radial height is the tile-center surface height plus 2 m.
 `lunar_core::ephemeris::topocentric` computes the Sun and Earth tracks hourly
 from 2027-01-01 through 2030-01-01 UTC, inclusive, matching the published sites.

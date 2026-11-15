@@ -11,7 +11,10 @@ use crate::{
 };
 
 pub const N_AZ: usize = 720;
-const SIZE: usize = 1024;
+// Pixels per side; 512² F32 is about 1 MB per request.
+const SIZE: usize = 512;
+// Polar fine windows keep their native 5-30 m spacing.
+const POLAR_FINE_SIZE: usize = 1024;
 const LIMIT_M: f64 = 250_000.0;
 const SERVICE: &str = "https://trek.nasa.gov/moon/trekarcgis/rest/services";
 
@@ -231,13 +234,15 @@ fn windows(lat: f64, lon: f64) -> Vec<Window>
 }
 
 /// Fine coverage first, then coarse; seam-crossing windows use two requests.
-/// Invalid coordinates return no requests. Each response is at most 1024² F32.
+/// Invalid coordinates return no requests. Each response is 512² F32, or 1024² for polar fine windows.
 pub fn terrain_requests(lat_deg: f64, lon_deg: f64) -> Vec<String>
 {
 	windows(lat_deg, lon_deg).iter().map(|w| {
 		let name = w.service;
 		let [a, b, c, d] = w.bbox;
-		format!("{SERVICE}/{name}/ImageServer/exportImage?f=image&bbox={a}%2C{b}%2C{c}%2C{d}&size={SIZE}%2C{SIZE}&adjustAspectRatio=false&format=tiff&pixelType=F32&compression=none&renderingRule=%7B%22rasterFunction%22%3A%22None%22%7D&interpolation=RSP_BilinearInterpolation")
+		let polar_fine = !matches!(w.projection, Projection::Geographic) && c - a < 100_000.0;
+		let size = if polar_fine { POLAR_FINE_SIZE } else { SIZE };
+		format!("{SERVICE}/{name}/ImageServer/exportImage?f=image&bbox={a}%2C{b}%2C{c}%2C{d}&size={size}%2C{size}&adjustAspectRatio=false&format=tiff&pixelType=F32&compression=none&renderingRule=%7B%22rasterFunction%22%3A%22None%22%7D&interpolation=RSP_BilinearInterpolation")
 	}).collect()
 }
 

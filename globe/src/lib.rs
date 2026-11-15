@@ -115,6 +115,8 @@ pub struct Globe
 	selected: usize,
 	// A caller-supplied real initial epoch, cleared on the first complete selected track; C++ optional pair.
 	startup_light: Option<[[f32; 3]; 2]>,
+	// Last real light, kept while the selected marker's track is still loading.
+	last_light: Option<[[f32; 3]; 2]>,
 	yaw: f32,
 	epoch: i64,
 	body_rotation: math::Mat3,
@@ -161,6 +163,7 @@ mod scene_tests
 			scene: vec![],
 			selected: 0,
 			startup_light: None,
+			last_light: None,
 			yaw: 0.0,
 			epoch: orientation::INITIAL_UTC,
 			body_rotation: orientation::at_utc(orientation::INITIAL_UTC),
@@ -310,6 +313,7 @@ impl Globe
 			scene: Vec::new(),
 			selected: 0,
 			startup_light: None,
+			last_light: None,
 			yaw: 0.0,
 			epoch: orientation::INITIAL_UTC,
 			body_rotation: orientation::at_utc(orientation::INITIAL_UTC),

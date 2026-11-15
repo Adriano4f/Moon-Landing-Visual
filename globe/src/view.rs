@@ -113,8 +113,16 @@ impl Globe
 		if selected.is_some()
 		{
 			self.startup_light = None;
+			self.last_light = selected;
 		}
-		selected.or(self.startup_light)
+		// Moon-fixed Sun/Earth directions do not depend on the site, so a loading marker keeps the last light.
+		let loading = self
+			.scene
+			.iter()
+			.any(|s| s.id == self.selected && s.directions.is_none());
+		selected
+			.or(self.startup_light)
+			.or(self.last_light.filter(|_| loading))
 	}
 
 	fn scene_lighting(&mut self, ui: &mut egui::Ui) -> Option<Lighting>

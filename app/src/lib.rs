@@ -118,7 +118,7 @@ impl MoonApp
 		if let Some((lat, lon)) = self.globe.take_pick()
 		{
 			let tile = lunar_core::anypoint::tile_of(lat, lon);
-			if self.custom.as_ref().is_none_or(|c| c.tile.id != tile.id)
+			if self.custom.as_ref().is_none_or(|c| c.tile.id != tile.id || c.failed)
 			{
 				// Keep a finished current point; unfinished or failed ones are dropped.
 				let old = self.panoramas.get_mut(self.published).and_then(Option::take);

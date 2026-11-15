@@ -5,7 +5,7 @@ use crate::timeline;
 use eframe::egui::{self, mutex::Mutex};
 use lunar_core::anypoint::{self, HorizonJob, Tile};
 use lunar_core::ephemeris::{Ephemeris, topocentric};
-use lunar_core::{Site, Track};
+use lunar_core::{Horizon, Site, Track};
 use std::sync::Arc;
 
 // One asynchronous byte download; None while in flight.
@@ -17,7 +17,11 @@ const END_UTC: i64 = 1_893_456_000;
 // Instrument height above terrain, as for the published sites.
 const MAST_M: f64 = 2.0;
 // Bins integrated per frame; small enough to keep the UI responsive.
-const BINS_PER_FRAME: usize = 12;
+const BINS_PER_FRAME: usize = 4;
+// Horizon work per frame; keeps the UI smooth while using most of the frame.
+const FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
+// Give up on NASA downloads after this many seconds.
+const TIMEOUT_S: f64 = 30.0;
 
 enum Stage
 {
@@ -39,6 +43,10 @@ pub(crate) struct Custom
 	pub name: String,
 	pub pending: Pending,
 	timeline: timeline::Shared,
+	// Set when the job ended in an error, so a new click retries.
+	pub failed: bool,
+	// UI time when downloads started, for the timeout.
+	started: f64,
 	stage: Stage,
 }
 
@@ -53,7 +61,9 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 	let result = slot();
 	let done = Arc::clone(&result);
 	let ctx = ctx.clone();
-	ehttp::fetch(ehttp::Request::get(&url), move |response| {
+	let mut request = ehttp::Request::get(&url);
+	request.timeout = Some(std::time::Duration::from_secs_f64(TIMEOUT_S));
+	ehttp::fetch(request, move |response| {
 		*done.lock() = Some(response.and_then(|r| {
 			if r.ok
 			{
@@ -93,6 +103,8 @@ impl Custom
 			tile,
 			pending: Arc::new(Mutex::new(None)),
 			timeline,
+			failed: false,
+			started: 0.0,
 			stage: Stage::Finished,
 		}
 	}
@@ -110,6 +122,8 @@ impl Custom
 			tile,
 			pending: Arc::new(Mutex::new(None)),
 			timeline,
+			failed: false,
+			started: ctx.input(|i| i.time),
 			stage: Stage::Fetching { terrain },
 		}
 	}
@@ -138,8 +152,10 @@ impl Custom
 	// Advance at most one frame's worth of work.
 	pub fn step(&mut self, ctx: &egui::Context)
 	{
-		if let Err(error) = self.advance()
+		let elapsed = ctx.input(|i| i.time) - self.started;
+		if let Err(error) = self.advance(elapsed)
 		{
+			self.failed = true;
 			*self.pending.lock() = Some(Err(error));
 			self.stage = Stage::Finished;
 		}
@@ -149,7 +165,7 @@ impl Custom
 		}
 	}
 
-	fn advance(&mut self) -> Result<(), String>
+	fn advance(&mut self, elapsed: f64) -> Result<(), String>
 	{
 		match &mut self.stage
 		{
@@ -163,6 +179,10 @@ impl Custom
 				};
 				if !terrain.iter().all(ready)
 				{
+					if elapsed > TIMEOUT_S
+					{
+						return Err("NASA terrain server did not answer in 30 s. Click the point again to retry.".into());
+					}
 					return Ok(());
 				}
 				let take = |s: &Slot| s.lock().take().unwrap();
@@ -182,7 +202,7 @@ impl Custom
 			}
 			Stage::Computing { job, ephemeris } =>
 			{
-				if let Some(horizon) = job.step(BINS_PER_FRAME)?
+				if let Some(horizon) = step_for(job, FRAME_BUDGET)?
 				{
 					let height = job.surface_m() + MAST_M;
 					let (lat, lon) = (self.tile.lat_deg, self.tile.lon_deg);
@@ -234,6 +254,23 @@ impl Custom
 	}
 }
 
+// Run horizon bins until the job ends or the frame budget is used.
+fn step_for(job: &mut HorizonJob, budget: std::time::Duration) -> Result<Option<Horizon>, String>
+{
+	let start = web_time::Instant::now();
+	loop
+	{
+		if let Some(horizon) = job.step(BINS_PER_FRAME)?
+		{
+			return Ok(Some(horizon));
+		}
+		if start.elapsed() >= budget
+		{
+			return Ok(None);
+		}
+	}
+}
+
 // A finished custom point kept for the session while another tile is shown.
 pub(crate) struct Cached
 {
@@ -255,6 +292,8 @@ mod tests
 			name: "Custom point".into(),
 			pending: Arc::new(Mutex::new(None)),
 			timeline: Arc::clone(&timeline),
+			failed: false,
+			started: 0.0,
 			stage: Stage::Fetching { terrain: vec![] },
 		};
 		let ctx = egui::Context::default();

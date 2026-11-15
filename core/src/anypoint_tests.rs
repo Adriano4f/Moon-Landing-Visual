@@ -195,7 +195,7 @@ fn requests_choose_projection_and_split_seams()
 		{
 			assert!(url.starts_with("https://trek.nasa.gov/"));
 			assert!(url.contains(name));
-			assert!(url.contains("size=1024%2C1024"));
+			assert!(url.contains("size=512%2C512") || url.contains("size=1024%2C1024"));
 			assert!(url.contains("pixelType=F32&compression=none"));
 			assert!(url.contains("adjustAspectRatio=false"));
 		}
@@ -268,7 +268,7 @@ fn finest_polar_service_respects_extent_and_keeps_coarse_window()
 		assert_eq!(w.len(), 2);
 		assert_eq!(w[0].service, fine);
 		assert_eq!(w.last().unwrap().service, coarse);
-		assert!(((w[0].bbox[2] - w[0].bbox[0]) / SIZE as f64 - spacing).abs() < 1e-9);
+		assert!(((w[0].bbox[2] - w[0].bbox[0]) / POLAR_FINE_SIZE as f64 - spacing).abs() < 1e-9);
 		let urls = terrain_requests(lat, lon);
 		assert!(urls[0].contains(fine));
 		assert!(urls.last().unwrap().contains(coarse));
