@@ -52,9 +52,22 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 {
 	// Name body colors without requiring a legend click; C++ caption.
 	legend(ui);
-	// A fixed-height strip remains usable within the outer scrolling layout; C++ layout allocation.
+	let id = ui.scope_id().with("sky-true-scale");
+	let mut true_scale = ui.ctx().data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+	ui.checkbox(&mut true_scale, "True scale 1:1")
+		.on_hover_text("One vertical degree occupies the same screen distance as one horizontal degree.");
+	ui.ctx().data_mut(|d| d.insert_temp(id, true_scale));
+	let maximum = if ui.ctx().content_rect().width() < 700.0
+	{
+		210.0
+	}
+	else
+	{
+		(ui.available_height() - 240.0).clamp(75.0, 260.0)
+	};
+	let height = plot_height(ui.available_width(), maximum, true_scale);
 	let (response, painter) = ui.allocate_painter(
-		egui::vec2(ui.available_width(), 210.0),
+		egui::vec2(ui.available_width(), height),
 		egui::Sense::hover(),
 	);
 	// Reserve labeled margins rather than clipping compass/elevation text; C++ inset rectangle.
@@ -72,9 +85,10 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 	// Calculate the actual nonuniform angular display scale from the allocated rectangle; C++ ratio of pixels per degree.
 	let stretch = (rect.height() / 20.0) / (rect.width() / 360.0);
 	// Warn about vertical exaggeration rather than depicting the ellipses as true visual aspect ratios; C++ caption.
-	ui.small(format!(
-		"Height exaggerated {stretch:.1}×"
-	));
+	if !true_scale
+	{
+		ui.small(format!("Vertical scale ×{stretch:.1}"));
+	}
 	// Preserve explicit missing-terrain labeling for legacy data; C++ optional guard.
 	if data.horizon.is_none()
 	{
@@ -82,6 +96,22 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 			Color32::LIGHT_RED,
 			"Flat horizon: hills are not loaded yet.",
 		);
+	}
+}
+
+fn plot_height(width: f32, maximum: f32, true_scale: bool) -> f32
+{
+	if true_scale
+	{
+		(width - 42.0).max(1.0) / 18.0 + 30.0
+	}
+	else if maximum.is_finite()
+	{
+		maximum.max(31.0)
+	}
+	else
+	{
+		210.0
 	}
 }
 
@@ -96,7 +126,7 @@ fn legend(ui: &mut egui::Ui)
 		);
 		ui.colored_label(Color32::YELLOW, "● Sun");
 		ui.colored_label(Color32::LIGHT_BLUE, "● Earth");
-		ui.colored_label(Color32::GRAY, "■ Ground blocks view");
+		ui.colored_label(Color32::GRAY, "■ Terrain");
 	});
 }
 
@@ -106,6 +136,26 @@ mod tests
 {
 	// Access internal helpers for deterministic numerical checks; C++ test declarations.
 	use super::*;
+
+	#[test]
+	fn true_scale_has_equal_pixels_per_degree()
+	{
+		for width in [320.0, 600.0, 1000.0]
+		{
+			let height = plot_height(width, 210.0, true);
+			let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width - 42.0, height - 30.0));
+			let origin = project(rect, 0.0, 0.0);
+			let horizontal = project(rect, 1.0, 0.0).x - origin.x;
+			let vertical = origin.y - project(rect, 0.0, 1.0).y;
+			assert!((horizontal - vertical).abs() < 1e-5);
+		}
+		for width in [0.0, f32::NAN]
+		{
+			assert!(plot_height(width, 210.0, true).is_finite());
+		}
+		assert_eq!(plot_height(320.0, f32::NAN, false), 210.0);
+		assert_eq!(plot_height(320.0, 150.0, false), 150.0);
+	}
 	// Check angular size, wrap continuity, empty and invalid inputs; C++ unit test.
 	#[test]
 	fn angular_disks_and_projection()
@@ -157,6 +207,10 @@ fn guides(painter: &egui::Painter, sky: &egui::Painter, rect: Rect)
 			),
 		);
 		// Label degrees outside the scene's clipping rectangle; C++ positioned text.
+		if rect.height() < 40.0 && el != -10.0 && el != 10.0
+		{
+			continue;
+		}
 		painter.text(
 			egui::pos2(rect.left() - 4.0, p.y),
 			egui::Align2::RIGHT_CENTER,
@@ -231,13 +285,16 @@ fn bodies(sky: &egui::Painter, rect: Rect, data: &SiteData, time:i64, range: Ran
 			// The finite disks are painted before ground, so covered parts vanish; C++ filled polygon.
 			sky.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
 			// A small caption identifies even the true-size subpixel-width Sun; C++ positioned label.
-			sky.text(
+			if rect.height() >= 40.0
+			{
+				sky.text(
 				project(rect, a + shift, e + radius) + egui::vec2(4.0, -2.0),
 				egui::Align2::LEFT_BOTTOM,
 				name,
 				egui::FontId::proportional(11.0),
 				color,
-			);
+				);
+			}
 		}
 	}
 }

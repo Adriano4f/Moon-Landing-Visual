@@ -7,6 +7,7 @@ impl Panorama
 	{
 		// Scrollable child UIs must wrap prose instead of widening the entire panorama; C++ local text-layout policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+		ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 		globe::help::annotated(
 			ui,
 			egui::RichText::new("Standing on the Moon").heading(),
@@ -28,20 +29,12 @@ impl Panorama
 			return;
 		};
 		// Identify the published observation point; C++ borrowed text.
-		globe::help::annotated(
-			ui,
-			&data.site.name,
-			"The site you are looking from; change it under Site in the menu.",
-		);
+		ui.small(&data.site.name);
 		let Some(directions)=self.directions() else { ui.label(self.sky_status()); return; };
 		solar_status(ui, data, directions[0]);
 		earth_status(ui, directions[1].visible);
 		// Keep UTC explicit, independent of the computer's time zone; C++ time formatting.
-		globe::help::annotated(
-			ui,
-			utc_label(self.cursor),
-			"The selected UTC date and time; change it under Time in the menu.",
-		);
+		ui.small(utc_label(self.cursor));
 		// Show the same scientific data in either presentation; C++ view-mode branch.
 		if self.technical
 		{
@@ -74,7 +67,14 @@ fn technical(ui: &mut egui::Ui, data: &SiteData, time:i64, range:Range<usize>)
 		range.len()
 	));
 	// Keep a readable graph while leaving space for summary cards below it; C++ fixed logical height.
-	let height = 260.0;
+	let height = if ui.ctx().content_rect().width() < 700.0
+	{
+		210.0
+	}
+	else
+	{
+		(ui.available_height() - 240.0).clamp(80.0, 260.0)
+	};
 	// Fix azimuth bounds while allowing elevation to fit terrain/track extrema; C++ plotting builder.
 	Plot::new("panorama")
 		// Leave room for the right endpoint's centered tick label inside the panel clip; C++ explicit plot width.
@@ -137,23 +137,15 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, direction:globe::BodyDirecti
 		("Sunlight: blocked by hills".into(), Color32::LIGHT_RED)
 	};
 	// Use large wrapping text so the whole status fits a phone; C++ rich-text widget.
-	globe::help::annotated(
-		ui,
-		egui::RichText::new(sun_text)
-			.size(18.0)
-			.strong()
-			.color(sun_color),
-		"Percentage of the Sun showing above the hills right now.",
-	);
+	ui.label(egui::RichText::new(sun_text).size(16.0).color(sun_color))
+		.on_hover_text("Percentage of the Sun showing above the hills right now.");
 }
 
 fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 {
 	// Include the selected radio clearance, not just visible blue pixels; C++ cached bool.
 	// Keep the full plain-language status visible without interpreting a graph; C++ conditional string.
-	globe::help::annotated(
-		ui,
-		egui::RichText::new(
+	ui.label(egui::RichText::new(
 			if earth_visible
 			{
 				"Earth link: clear above hills"
@@ -163,7 +155,7 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 				"Earth link: blocked or too close to hills"
 			},
 		)
-		.size(18.0)
+		.size(16.0)
 		.strong()
 		.color(
 			if earth_visible
@@ -174,17 +166,19 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 			{
 				Color32::LIGHT_RED
 			},
-		),
-		"Earth is linked when you can see it directly, at least the safety margin above the hills.",
-	);
+		))
+		.on_hover_text("Earth is linked when you can see it directly, at least the safety margin above the hills.");
 }
 
 fn summary_cards(ui: &mut egui::Ui, options:crate::timeline::Options, summary: &lunar_core::Stats)
 {
 	// Anchor summary cards to the full period, never the selected path window; C++ subheading.
-	ui.strong(options.period.label());
+	ui.horizontal(|ui| {
+		ui.strong(options.period.label());
+		globe::help::question(ui, "Percentages cover the chosen period; Sun means any sunlight, Earth means a clear direct link, and longest night measures continuous darkness.");
+	});
 	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
-	let card_width = ((ui.available_width() - 56.0) / 2.0).clamp(90.0, 180.0);
+	let card_width = ((ui.available_width() - 40.0) / 2.0).max(70.0);
 	card_grid(ui, summary, card_width);
 	// Avoid implying that hourly held-sample statistics are continuous event solutions; C++ disclaimer.
 	ui.small(format!("Sampling: {}",options.step.label()));
@@ -210,7 +204,7 @@ fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
 			.iter()
 			.enumerate()
 			{
-				summary_card(ui, title, value, i, card_width);
+				summary_card(ui, title, value, card_width);
 				// Close each pair explicitly; C++ grid row break.
 				if i % 2 == 1
 				{
@@ -220,11 +214,11 @@ fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
 		});
 }
 
-fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_width: f32)
+fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, card_width: f32)
 {
 	// A filled frame separates each summary from controls; C++ styled card container.
 	egui::Frame::NONE
-						.inner_margin(10.0)
+						.inner_margin(8.0)
 						.corner_radius(10.0)
 						.fill(Color32::from_rgb(18, 25, 33))
 						.show(ui, |ui| {
@@ -235,7 +229,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the chosen period when any part of the Sun shows above the hills.", 1 => "Share of the chosen period when Earth is linked.", 2 => "Share of the chosen period when the Sun is visible and Earth is linked at the same time.", _ => "Longest stretch of the chosen period with no part of the Sun visible." }); });
+								ui.small(title);
 							});
 						});
 }
