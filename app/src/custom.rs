@@ -138,14 +138,18 @@ impl Custom
 			Stage::Fetching { terrain } =>
 			{
 				let ready = |s: &Slot| s.lock().is_some();
-				let ephemeris = self.timeline.lock().sky.clone();
-				if !terrain.iter().all(ready) || ephemeris.is_none()
+				let Some(ephemeris) = self.timeline.lock().sky.clone()
+				else
+				{
+					return Ok(());
+				};
+				if !terrain.iter().all(ready)
 				{
 					return Ok(());
 				}
 				let take = |s: &Slot| s.lock().take().unwrap();
 				let tiffs = terrain.iter().map(take).collect::<Result<Vec<_>, _>>()?;
-				let ephemeris = ephemeris.unwrap()?;
+				let ephemeris = ephemeris?;
 				let job = HorizonJob::new(
 					self.tile.lat_deg,
 					self.tile.lon_deg,
@@ -195,7 +199,10 @@ impl Custom
 						earth,
 						horizon: Some(horizon),
 						earth_above: vec![],
-						terrain: Some(Altitude { surface_height_m:job.surface_m(), observer_height_m:MAST_M }),
+						terrain: Some(Altitude {
+							surface_height_m: job.surface_m(),
+							observer_height_m: MAST_M,
+						}),
 					};
 					data.update_earth_margin(lunar_core::EARTH_MARGIN_DEG);
 					*self.pending.lock() = Some(Ok(data));
@@ -206,5 +213,34 @@ impl Custom
 			{}
 		}
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn shared_sky_loading_and_errors_reach_the_custom_point()
+	{
+		let timeline = Arc::new(Mutex::new(timeline::Timeline::default()));
+		let mut custom = Custom {
+			tile: anypoint::tile_of(0.0, 0.0),
+			name: "Custom point".into(),
+			pending: Arc::new(Mutex::new(None)),
+			timeline: Arc::clone(&timeline),
+			stage: Stage::Fetching { terrain: vec![] },
+		};
+		let ctx = egui::Context::default();
+		custom.step(&ctx);
+		assert!(custom.pending.lock().is_none());
+		assert!(custom.status().is_some());
+		timeline.lock().sky = Some(Err("injected unavailable sky".into()));
+		custom.step(&ctx);
+		assert!(
+			matches!(custom.pending.lock().take(),Some(Err(error)) if error=="injected unavailable sky")
+		);
+		assert!(custom.status().is_none());
 	}
 }

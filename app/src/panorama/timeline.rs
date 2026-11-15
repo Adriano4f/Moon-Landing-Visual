@@ -151,26 +151,16 @@ mod tests
 	#[test]
 	fn extension_is_chunked_preserves_original_tracks_and_uses_observer_altitude()
 	{
-		let data =
+		let mut data =
 			SiteData::parse(include_bytes!("../../assets/data/connecting-ridge-c1.json")).unwrap();
+		data.site.name = "Custom point".into();
 		let original = data.sun.t.len();
 		let last = [data.sun.az_deg[original - 1], data.sun.el_deg[original - 1]];
 		let timeline = std::sync::Arc::new(egui::mutex::Mutex::new(timeline::Timeline::default()));
-		let mut p = Panorama {
-			pending: Pending::default(),
-			data: Some(data),
-			error: None,
-			index: 0,
-			hours: 720,
-			earth_margin_deg: 0.5,
-			technical: false,
-			summary: Default::default(),
-			timeline,
-			cursor: timeline::START,
-			summary_key: None,
-			sky_error: None,
-		};
-		p.refresh_summary();
+		let pending = Pending::default();
+		*pending.lock() = Some(Ok(data));
+		let mut p = Panorama::with_pending(pending, timeline);
+		p.update(&egui::Context::default());
 		assert!(p.summary_key.is_some());
 		p.timeline.lock().options.period.end = timeline::STOP;
 		p.refresh_summary();
