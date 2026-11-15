@@ -380,6 +380,7 @@ impl MoonApp
 				});
 			},
 		);
+		self.globe.view_controls(ui);
 		section(
 			ui,
 			"Time",

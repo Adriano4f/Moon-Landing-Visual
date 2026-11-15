@@ -2,6 +2,20 @@ use super::*;
 
 impl Globe
 {
+	pub fn view_controls(&mut self, ui: &mut egui::Ui)
+	{
+		ui.horizontal(|ui| {
+			if ui.selectable_label(self.earth_view,"From Earth").clicked() {
+				self.earth_view=true; self.paused=true; self.zoom=1.0; self.focus=None;
+			}
+			if ui.selectable_label(!self.earth_view,"Free").clicked() {
+				self.earth_view=false; self.paused=true; self.focus=None;
+			}
+			help::question(ui,"Follow Earth, drag to turn freely, or show the orbit from space.");
+		});
+		ui.toggle_value(&mut self.space_view,"From space");
+	}
+
 	// Draw camera controls independently of the illustration; C++ member function.
 	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
 	{
@@ -12,16 +26,6 @@ impl Globe
 			help::question(ui, "Enlarge the Moon up to eight times to see south-polar detail.");
 		});
 		self.site_camera(ui);
-		// Require real Earth directions before entering Earth-following mode; C++ optional guard.
-		let ready = self
-			.scene
-			.iter()
-			.any(|s| s.id == self.selected && s.directions.is_some());
-		ui.horizontal(|ui| {
-			if ui.add_enabled(ready, egui::Button::new("View from Earth")).clicked()
-			{ self.earth_view = true; self.paused = true; self.zoom = 1.0; self.focus = None; }
-			help::question(ui, "See the Moon as it faces Earth on the selected date.");
-		});
 		// Keep synthetic camera spin optional; C++ bool edit.
 		let mut spin = !self.paused;
 		ui.horizontal(|ui| {
@@ -34,11 +38,11 @@ impl Globe
 			self.zoom,
 			if self.earth_view
 			{
-				"Earth-following view"
+				"From Earth"
 			}
 			else
 			{
-				"Inertial view"
+				"Free"
 			}
 		));
 		self.texture_controls(ui);

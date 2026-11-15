@@ -48,6 +48,7 @@ impl Globe
 		self.paint_tile(ui, rect, view);
 		self.surface_pick(&response, rect, view, clicked.is_some());
 		Self::legend(ui, rect, &self.polar.lock());
+		if self.space_view { space::paint(ui,rect,self.body_rotation,lighting); }
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 		clicked

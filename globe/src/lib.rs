@@ -14,6 +14,7 @@ mod field;
 mod math;
 mod orientation;
 mod pick;
+mod space;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
 pub mod help;
 
@@ -125,6 +126,7 @@ pub struct Globe
 	paused: bool,
 	// Track the current ephemeris Earth line of sight instead of spinning; C++ bool.
 	earth_view: bool,
+	space_view: bool,
 	// Multiply only Earthshine for display when explicitly requested; C++ bool.
 	boosted: bool,
 	// Add an explicitly artificial far-side fill only on request; C++ bool.
@@ -171,6 +173,7 @@ mod scene_tests
 			zoom: 1.0,
 			paused: true,
 			earth_view: true,
+			space_view: false,
 			boosted: false,
 			fill: false,
 			last_time: None,
@@ -309,7 +312,7 @@ impl Globe
 				false,
 				Some("8"),
 			)?,
-			// Default to a fixed inertial camera without artificial spin; C++ scalar initialization.
+			// Default to the current Earth direction without artificial spin; C++ scalar initialization.
 			scene: Vec::new(),
 			selected: 0,
 			startup_light: None,
@@ -320,7 +323,8 @@ impl Globe
 			tilt: 0.0,
 			zoom: 1.0,
 			paused: true,
-			earth_view: false,
+			earth_view: true,
+			space_view: false,
 			boosted: false,
 			fill: false,
 			last_time: None,
