@@ -24,7 +24,7 @@ impl Globe
 		marker_hit: bool,
 	)
 	{
-		if marker_hit || !response.clicked()
+		if marker_hit || !response.clicked_by(egui::PointerButton::Primary) || response.double_clicked()
 		{
 			return;
 		}
@@ -228,6 +228,7 @@ mod tests
 	fn unproject_inverts_project()
 	{
 		let view = View {
+			pan: [0.0; 2],
 			rotation: super::math::IDENTITY,
 			yaw: 0.7,
 			tilt: -0.4,
@@ -259,6 +260,7 @@ mod tests
 			for zoom in [0.5, 1.0, 8.0, 64.0, 1024.0]
 			{
 				let view = View {
+					pan: [0.0; 2],
 					rotation: crate::orientation::at_utc(utc),
 					yaw: 0.7,
 					tilt: -1.56,

@@ -125,6 +125,7 @@ mod tests
 				let world = math::transform(rotation, point);
 				let [yaw, tilt] = math::camera_angles(world);
 				let view = View {
+					pan: [0.0; 2],
 					yaw,
 					tilt,
 					zoom: 1.0,

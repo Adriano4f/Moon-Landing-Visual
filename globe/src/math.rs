@@ -60,6 +60,7 @@ pub(crate) struct View
 	pub tilt: f32,
 	// Store this public value without platform-specific ownership; C++ aggregate member.
 	pub zoom: f32,
+	pub pan: [f32; 2],
 	// Store this public value without platform-specific ownership; C++ aggregate member.
 	pub aspect: f32,
 	// Store this public value without platform-specific ownership; C++ aggregate member.
@@ -99,6 +100,8 @@ impl View
 		let mut p = perspective(self.aspect);
 		p[0] *= self.zoom.min(1.0);
 		p[5] *= self.zoom.min(1.0);
+		p[8] = -self.pan[0];
+		p[9] = -self.pan[1];
 		let near = self.near();
 		let far = self.camera_distance() + 5.0;
 		p[10] = (far + near) / (near - far);
@@ -121,15 +124,19 @@ impl View
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let projection = self.projection();
 		Some([
-			projection[0] * p[0] / (distance - p[2]),
-			projection[5] * p[1] / (distance - p[2]),
+			projection[0] * p[0] / (distance - p[2]) + self.pan[0],
+			projection[5] * p[1] / (distance - p[2]) + self.pan[1],
 		])
 	}
 	// Invert project for the unit sphere: nearest ray hit in Moon-fixed coordinates.
 	pub fn unproject(self, ndc: [f32; 2]) -> Option<[f32; 3]>
 	{
 		let projection = self.projection();
-		let d = [ndc[0] / projection[0], ndc[1] / projection[5], -1.0];
+		let d = [
+			(ndc[0] - self.pan[0]) / projection[0],
+			(ndc[1] - self.pan[1]) / projection[5],
+			-1.0,
+		];
 		let distance = self.camera_distance();
 		// Stable nearest root of |o + t d|^2 = 1, matching the surface shader.
 		let a = d[0] * d[0] + d[1] * d[1] + 1.0;
@@ -450,6 +457,83 @@ mod tests
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
 
+	fn panned_view(zoom: f32) -> View
+	{
+		View {
+			rotation: IDENTITY,
+			yaw: -0.4,
+			tilt: 0.2,
+			zoom,
+			pan: [0.35, -0.27],
+			aspect: 1.4,
+			pixels: [1400.0, 1000.0],
+			scale: 1.0,
+		}
+	}
+
+	#[test]
+	fn panned_surface_projection_round_trip()
+	{
+		for zoom in [0.5, 1.0, 8.0, 128.0, 1024.0]
+		{
+			let view = panned_view(zoom);
+			let point = direction(0.2001, 0.4001);
+			let ndc = view.project(point, true).unwrap();
+			let back = view.unproject(ndc).unwrap();
+			assert!(point.iter().zip(back).all(|(a, b)| (a - b).abs() < 2e-4));
+			assert!(view.project(direction(-0.2, 0.4 + PI), true).is_none());
+		}
+		assert!(panned_view(1.0).unproject([10.0, 10.0]).is_none());
+	}
+
+	#[test]
+	fn pan_adds_ndc_offset_to_projection()
+	{
+		for zoom in [0.5, 1.0, 8.0, 128.0]
+		{
+			let view = panned_view(zoom);
+			let centered = View { pan: [0.0; 2], ..view };
+			let point = direction(0.201, 0.402);
+			let a = centered.project(point, true).unwrap();
+			let b = view.project(point, true).unwrap();
+			for i in 0..2
+			{
+				assert!((b[i] - a[i] - view.pan[i]).abs() < 1e-5);
+			}
+		}
+	}
+
+	#[test]
+	fn panned_cpu_projection_matches_gpu_matrix_and_surface_ray()
+	{
+		for zoom in [0.5, 1.0, 8.0, 128.0]
+		{
+			let view = panned_view(zoom);
+			let point = direction(0.201, 0.402);
+			let p = transform(view.model(), point);
+			let eye = [p[0], p[1], p[2] - view.camera_distance(), 1.0];
+			let projection = view.projection();
+			let clip: [f32; 4] = std::array::from_fn(|i| {
+				(0..4).map(|j| projection[4 * j + i] * eye[j]).sum()
+			});
+			let ndc = view.project(point, true).unwrap();
+			for i in 0..2
+			{
+				assert!((clip[i] / clip[3] - ndc[i]).abs() < 1e-5);
+			}
+			let ray = [
+				(ndc[0] + projection[8]) / projection[0],
+				(ndc[1] + projection[9]) / projection[5],
+				-1.0,
+			];
+			for i in 0..2
+			{
+				assert!((ray[i] - eye[i] / -eye[2]).abs() < 1e-5);
+			}
+		}
+		assert!(include_str!("moon.frag").contains("v_screen + u_projection[2].xy"));
+	}
+
 	#[test]
 	fn camera_margin_zoom_out_and_shared_uniform()
 	{
@@ -457,6 +541,7 @@ mod tests
 		{
 			let view = View {
 				rotation: IDENTITY,
+				pan: [0.0; 2],
 				yaw: 0.0,
 				tilt: 0.0,
 				zoom,
@@ -491,6 +576,7 @@ mod tests
 		{
 			let view = View {
 				rotation: IDENTITY,
+				pan: [0.0; 2],
 				yaw: 0.0,
 				tilt: 0.0,
 				zoom,
@@ -546,6 +632,7 @@ mod tests
 		// Bind this intermediate value for the current operation; C++ local initialization.
 		let view = View {
 			rotation: IDENTITY,
+			pan: [0.0; 2],
 			yaw: -lon,
 			tilt: lat,
 			zoom: 128.0,

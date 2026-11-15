@@ -5,8 +5,13 @@ impl Globe
 	pub fn view_controls(&mut self, ui: &mut egui::Ui)
 	{
 		ui.horizontal(|ui| {
-			if ui.add(egui::Button::selectable(self.earth_view,"From Earth").frame_when_inactive(true)).clicked() {
-				self.earth_view=true; self.paused=true; self.zoom=1.0; self.focus=None;
+			if ui.add(egui::Button::selectable(self.earth_view,"From Earth").frame_when_inactive(true)).clicked()
+			{
+				self.earth_view = true;
+				self.paused = true;
+				self.zoom = 1.0;
+				self.focus = None;
+				self.pan = [0.0; 2];
 			}
 			if ui.add(egui::Button::selectable(!self.earth_view,"Free").frame_when_inactive(true)).clicked() {
 				self.earth_view=false; self.paused=true; self.focus=None;
@@ -127,6 +132,7 @@ impl Globe
 		let time = ui.input(|i| i.time);
 		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
 		{
+			self.pan = [0.0; 2];
 			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
 			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.

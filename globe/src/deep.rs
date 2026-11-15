@@ -290,6 +290,7 @@ pub(crate) struct Camera
 	distance: f32,
 	sx: f32,
 	sy: f32,
+	pan: [f32; 2],
 	// Screen pixels per unit of tan(angle) vertically.
 	focal: f32,
 	// Surface seen on screen when the whole screen is covered by the sphere.
@@ -309,6 +310,7 @@ impl Camera
 			distance,
 			sx: p[0],
 			sy: p[5],
+			pan: view.pan,
 			focal: p[5] * view.pixels[1].max(1.0) / 2.0,
 			screen: None,
 		};
@@ -319,7 +321,7 @@ impl Camera
 	// Model-space surface point under normalized device coordinates (x, y), if the ray hits.
 	fn hit(self, x: f32, y: f32) -> Option<[f32; 3]>
 	{
-		let r = normalize([x / self.sx, y / self.sy, -1.0]);
+		let r = normalize([(x - self.pan[0]) / self.sx, (y - self.pan[1]) / self.sy, -1.0]);
 		// |o + t r|^2 = 1 with o = (0, 0, distance): t^2 + 2 b t + c = 0.
 		let b = self.distance * r[2];
 		let c = (self.distance - 1.0) * (self.distance + 1.0);
@@ -378,10 +380,19 @@ impl Camera
 		{
 			return false;
 		}
-		// Side planes through the eye: s * q - w = 0 with normal (s, 0, 1) or (0, s, 1).
-		let nx = (self.sx * self.sx + 1.0).sqrt();
-		let ny = (self.sy * self.sy + 1.0).sqrt();
-		(self.sx * q[0].abs() - w) / nx <= r && (self.sy * q[1].abs() - w) / ny <= r
+		// Shift each side plane with the projection's lens offset.
+		for (coordinate, scale, pan) in [(q[0], self.sx, self.pan[0]), (q[1], self.sy, self.pan[1])]
+		{
+			for sign in [-1.0, 1.0]
+			{
+				let edge = 1.0 - sign * pan;
+				if (sign * scale * coordinate - edge * w) / scale.hypot(edge) > r
+				{
+					return false;
+				}
+			}
+		}
+		true
 	}
 
 	// Screen pixels per texel at the nearest point of the cap.
@@ -521,7 +532,7 @@ pub(crate) struct State
 	failed: HashMap<Tile, Failure>,
 	// Insertion order of failed, oldest first, for the bound.
 	failed_order: VecDeque<Tile>,
-	view_key: Option<([u32; 9], [u32; 4])>,
+	view_key: Option<([u32; 9], [u32; 6])>,
 }
 
 impl State
@@ -644,7 +655,7 @@ pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 {
 	let key = (
 		view.model().map(f32::to_bits),
-		[view.zoom, view.aspect, view.pixels[0], view.pixels[1]].map(f32::to_bits),
+		[view.zoom, view.aspect, view.pixels[0], view.pixels[1], view.pan[0], view.pan[1]].map(f32::to_bits),
 	);
 	let changed = shared.lock().view_key != Some(key);
 	let wanted = changed.then(|| select(view));
@@ -680,6 +691,7 @@ mod tests
 		// model() maps direction(lat, lon) to +z when yaw = -lon and tilt = lat.
 		math::View {
 			rotation: math::IDENTITY,
+			pan: [0.0; 2],
 			yaw: -lon,
 			tilt: lat,
 			zoom,
@@ -692,6 +704,24 @@ mod tests
 	fn deg(x: f32) -> f32
 	{
 		x * PI / 180.0
+	}
+
+	#[test]
+	fn panned_camera_matches_picking_and_keeps_visible_caps()
+	{
+		for zoom in [1.0, 8.0, 128.0, 1024.0]
+		{
+			let mut view = view(-0.7, 0.4, zoom);
+			view.pan = [0.8, -0.6];
+			let camera = Camera::new(view);
+			for ndc in [view.pan, [0.85, -0.65]]
+			{
+				let expected = view.unproject(ndc).unwrap();
+				let actual = camera.hit(ndc[0], ndc[1]).unwrap();
+				assert!(expected.iter().zip(actual).all(|(a, b)| (a - b).abs() < 2e-4));
+				assert!(camera.sees(Cap { center: actual, angle: 1e-4 }));
+			}
+		}
 	}
 
 	fn tile_lat_lon(t: Tile) -> (f32, f32)

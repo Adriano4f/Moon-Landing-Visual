@@ -33,6 +33,7 @@ impl Globe
 			yaw: self.yaw,
 			tilt: self.tilt,
 			zoom: self.zoom,
+			pan: self.pan,
 			aspect: rect.aspect_ratio(),
 			pixels: [rect.width() * scale, rect.height() * scale],
 			scale,
@@ -122,7 +123,7 @@ impl Globe
 			ui.small("Moon overview");
 			help::question(
 				ui,
-				"Drag to turn the Moon, scroll or pinch to zoom, and click a marker to select it.",
+				"Left-drag to turn the Moon, right-drag to move the view, scroll to zoom, double-click to recenter.",
 			);
 		});
 		// Display the initial pair before starting an optional upgrade; keep the current Moon while waiting.
@@ -217,6 +218,7 @@ impl Globe
 		// Check this state or input before acting; C++ conditional branch.
 		if let Some((start, from, to)) = self.focus
 		{
+			self.pan = [0.0; 2];
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let t = ((time - start) / 0.8).clamp(0.0, 1.0) as f32;
 			// Bind this intermediate value for the current operation; C++ local initialization.
@@ -263,6 +265,10 @@ impl Globe
 
 	fn orbit_input(&mut self, ui: &mut egui::Ui, response: &egui::Response)
 	{
+		if response.double_clicked_by(egui::PointerButton::Primary)
+		{
+			self.pan = [0.0; 2];
+		}
 		let (wheel, pinch, touch) =
 			ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta(), i.multi_touch()));
 		// Touch hover can be absent; use the gesture center and respect covering menus.
@@ -283,8 +289,17 @@ impl Globe
 				ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
 			}
 		}
+		if touch.is_none()
+			&& (response.dragged_by(egui::PointerButton::Secondary)
+				|| response.dragged_by(egui::PointerButton::Middle))
+		{
+			let delta = ui.input(|i| i.pointer.delta());
+			self.pan[0] = (self.pan[0] + 2.0 * delta.x / response.rect.width()).clamp(-0.95, 0.95);
+			self.pan[1] = (self.pan[1] - 2.0 * delta.y / response.rect.height()).clamp(-0.95, 0.95);
+			self.focus = None;
+		}
 		// Two fingers zoom; one finger rotates.
-		if response.dragged() && touch.is_none()
+		else if response.dragged_by(egui::PointerButton::Primary) && touch.is_none()
 		{
 			// Direct orbit manipulation exits Earth lock while preserving the current orientation; C++ mode switch.
 			self.earth_view = false;
@@ -397,7 +412,7 @@ impl Globe
 				let selected = site.id == self.selected;
 				Self::draw_marker(&painter, position, site, selected);
 				// Check this state or input before acting; C++ conditional branch.
-				if response.clicked()
+				if response.clicked_by(egui::PointerButton::Primary) && !response.double_clicked()
 					&& let Some(p) = pointer
 				{
 					// Bind this intermediate value for the current operation; C++ local initialization.
@@ -445,7 +460,7 @@ impl Globe
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),
 			egui::Align2::LEFT_TOP,
-			format!("Drag for Free view; scroll or pinch to zoom\n{caption}"),
+			format!("Left-drag to turn; right/middle-drag to move\nScroll/pinch to zoom; double-click to recenter\n{caption}"),
 			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);
@@ -456,6 +471,101 @@ impl Globe
 mod tests
 {
 	use super::*;
+
+	#[test]
+	fn primary_drag_orbits_and_secondary_and_middle_drag_pan_without_picking()
+	{
+		for button in [egui::PointerButton::Primary, egui::PointerButton::Secondary, egui::PointerButton::Middle]
+		{
+			let ctx = egui::Context::default();
+			let mut globe = crate::scene_tests::unloaded();
+			globe.paused = false;
+			globe.focus = Some((0.0, [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]));
+			let mut rect = egui::Rect::NOTHING;
+			let mut frame = |events| {
+				let mut output = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+					let (area, response) = Globe::paint_rectangle(ui);
+					rect = area;
+					globe.orbit_input(ui, &response);
+					globe.surface_pick(&response, area, math::View {
+						rotation: math::IDENTITY,
+						yaw: globe.yaw,
+						tilt: globe.tilt,
+						zoom: globe.zoom,
+						pan: globe.pan,
+						aspect: area.aspect_ratio(),
+						pixels: [area.width(), area.height()],
+						scale: 1.0,
+					}, false);
+				});
+				output.textures_delta.clear();
+				rect
+			};
+			let rect = frame(vec![]);
+			let start = rect.center();
+			frame(vec![egui::Event::PointerMoved(start), egui::Event::PointerButton {
+				pos: start, button, pressed: true, modifiers: egui::Modifiers::NONE,
+			}]);
+			let end = start + egui::vec2(30.0, 20.0);
+			frame(vec![egui::Event::PointerMoved(end)]);
+			frame(vec![egui::Event::PointerButton {
+				pos: end, button, pressed: false, modifiers: egui::Modifiers::NONE,
+			}]);
+			if button == egui::PointerButton::Primary
+			{
+				assert_eq!(globe.pan, [0.0; 2]);
+				assert!((globe.yaw - 0.18).abs() < 1e-5);
+				assert!((globe.tilt - 0.12).abs() < 1e-5);
+				assert!(globe.paused);
+				assert!(!globe.earth_view);
+			}
+			else
+			{
+				assert!((globe.pan[0] - 60.0 / rect.width()).abs() < 1e-5);
+				assert!((globe.pan[1] + 40.0 / rect.height()).abs() < 1e-5);
+				assert_eq!([globe.yaw, globe.tilt], [0.0; 2]);
+				assert!(!globe.paused);
+			}
+			assert!(globe.focus.is_none());
+			assert!(globe.take_pick().is_none());
+		}
+	}
+
+	#[test]
+	fn pan_clamps_and_double_click_and_focus_recenter()
+	{
+		let ctx = egui::Context::default();
+		let mut globe = crate::scene_tests::unloaded();
+		let mut frame = |time, events| {
+			let mut rect = egui::Rect::NOTHING;
+			let mut output = ctx.run_ui(egui::RawInput { time: Some(time), events, ..Default::default() }, |ui| {
+				let (area, response) = Globe::paint_rectangle(ui);
+				rect = area;
+				globe.orbit_input(ui, &response);
+			});
+			output.textures_delta.clear();
+			(rect, globe.pan)
+		};
+		let (rect, _) = frame(0.0, vec![]);
+		let start = rect.center();
+		let button = |pos, button, pressed| egui::Event::PointerButton {
+			pos, button, pressed, modifiers: egui::Modifiers::NONE,
+		};
+		frame(0.1, vec![egui::Event::PointerMoved(start), button(start, egui::PointerButton::Secondary, true)]);
+		let end = start + rect.size() * 10.0;
+		let (_, pan) = frame(0.2, vec![egui::Event::PointerMoved(end)]);
+		assert_eq!(pan, [0.95, -0.95]);
+		frame(0.3, vec![button(end, egui::PointerButton::Secondary, false)]);
+		for (time, pressed) in [(1.0, true), (1.05, false), (1.1, true), (1.15, false)]
+		{
+			frame(time, vec![egui::Event::PointerMoved(start), button(start, egui::PointerButton::Primary, pressed)]);
+		}
+		assert_eq!(globe.pan, [0.0; 2]);
+		globe.pan = [0.5, -0.5];
+		globe.focus = Some((2.0, [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]));
+		globe.animate_camera(2.2, 0.1);
+		assert_eq!(globe.pan, [0.0; 2]);
+	}
 
 	#[test]
 	fn orbit_interaction_id_survives_phase_controls_changing()

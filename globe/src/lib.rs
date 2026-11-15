@@ -125,6 +125,7 @@ pub struct Globe
 	body_rotation: math::Mat3,
 	tilt: f32,
 	zoom: f32,
+	pan: [f32; 2],
 	paused: bool,
 	// Track the current ephemeris Earth line of sight instead of spinning; C++ bool.
 	earth_view: bool,
@@ -174,6 +175,7 @@ mod scene_tests
 			body_rotation: orientation::at_utc(orientation::INITIAL_UTC),
 			tilt: 0.0,
 			zoom: 1.0,
+			pan: [0.0; 2],
 			paused: true,
 			earth_view: true,
 			space_view: false,
@@ -326,6 +328,7 @@ impl Globe
 			body_rotation: orientation::at_utc(orientation::INITIAL_UTC),
 			tilt: 0.0,
 			zoom: 1.0,
+			pan: [0.0; 2],
 			paused: true,
 			earth_view: true,
 			space_view: false,

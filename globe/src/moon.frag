@@ -208,7 +208,8 @@ vec4 satellite(vec2 uv, int pole)
 // Analytic sphere intersection avoids mesh facets and remains stable near the surface.
 bool surface_point(out vec3 position, out vec3 object)
 {
-	vec3 ray = normalize(vec3(v_screen.x / u_projection[0][0], v_screen.y / u_projection[1][1], -1.0));
+	vec2 screen = v_screen + u_projection[2].xy;
+	vec3 ray = normalize(vec3(screen.x / u_projection[0][0], screen.y / u_projection[1][1], -1.0));
 	float b = -u_camera_distance * ray.z;
 	float c = (u_camera_distance - 1.0) * (u_camera_distance + 1.0);
 	float discriminant = b * b - c;
