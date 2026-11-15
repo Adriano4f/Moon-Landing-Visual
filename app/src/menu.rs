@@ -100,44 +100,7 @@ impl MoonApp
 	{
 		// Wrap every explanation to the sidebar width; C++ local text policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-		section(
-			ui,
-			"Site",
-			true,
-			"Choose an exact published observation point. Nearby points may overlap on the globe; the list always distinguishes them.",
-			|ui| {
-				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				ui.horizontal_wrapped(|ui| {
-				egui::ComboBox::from_id_salt("published-site").selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
-					// Visit each explanatory item in order; C++ range-for loop.
-					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name).on_hover_text(&entry.source); }
-				});
-				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				question(ui, "Select a published landing point. Its local sky, statuses and summaries replace the previous site's data while preserving the shared date. Data loads only when needed; coordinates are not moved to improve results.");
-			});
-				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				ui.small(&self.catalog[self.selected].source);
-			},
-		);
-		section(
-			ui,
-			"Time",
-			true,
-			"Choose the shared UTC date and the length of the faint paths. Summaries always cover the entire dataset.",
-			|ui| {
-				// Apply the UI event only when requested; C++ conditional branch.
-				if let Some(p) = &mut self.panoramas[self.selected]
-				{
-					p.time_controls(ui);
-					// Apply the UI event only when requested; C++ conditional branch.
-					if let Some(t) = p.time()
-					{
-						// Persist the presentation change between frames; C++ member assignment.
-						self.time = Some(t);
-					}
-				}
-			},
-		);
+		self.site_time_sections(ui);
 		section(
 			ui,
 			"View / camera",
@@ -286,5 +249,50 @@ fn explanations(ui: &mut egui::Ui)
 		ui.label(text);
 		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.add_space(6.0);
+	}
+}
+
+impl MoonApp
+{
+	fn site_time_sections(&mut self, ui: &mut egui::Ui)
+	{
+		section(
+			ui,
+			"Site",
+			true,
+			"Choose an exact published observation point. Nearby points may overlap on the globe; the list always distinguishes them.",
+			|ui| {
+				// Submit this immediate-mode widget or explanation; C++ UI helper call.
+				ui.horizontal_wrapped(|ui| {
+				egui::ComboBox::from_id_salt("published-site").selected_text(&self.catalog[self.selected].name).show_ui(ui, |ui| {
+					// Visit each explanatory item in order; C++ range-for loop.
+					for (id, entry) in self.catalog.iter().enumerate() { ui.selectable_value(&mut self.selected, id, &entry.name).on_hover_text(&entry.source); }
+				});
+				// Submit this immediate-mode widget or explanation; C++ UI helper call.
+				question(ui, "Select a published landing point. Its local sky, statuses and summaries replace the previous site's data while preserving the shared date. Data loads only when needed; coordinates are not moved to improve results.");
+			});
+				// Submit this immediate-mode widget or explanation; C++ UI helper call.
+				ui.small(&self.catalog[self.selected].source);
+			},
+		);
+		section(
+			ui,
+			"Time",
+			true,
+			"Choose the shared UTC date and the length of the faint paths. Summaries always cover the entire dataset.",
+			|ui| {
+				// Apply the UI event only when requested; C++ conditional branch.
+				if let Some(p) = &mut self.panoramas[self.selected]
+				{
+					p.time_controls(ui);
+					// Apply the UI event only when requested; C++ conditional branch.
+					if let Some(t) = p.time()
+					{
+						// Persist the presentation change between frames; C++ member assignment.
+						self.time = Some(t);
+					}
+				}
+			},
+		);
 	}
 }

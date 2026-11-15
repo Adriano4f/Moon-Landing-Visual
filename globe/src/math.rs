@@ -124,6 +124,12 @@ impl View
 				0.0,
 			]);
 		}
+		self.endpoint(&mut vertices, end);
+
+		vertices
+	}
+	fn endpoint(self, vertices: &mut Vec<f32>, end: [f32; 3])
+	{
 		// Visit each value without transferring the owner's resources; C++ range-for loop.
 		for i in 0..20
 		{
@@ -152,7 +158,6 @@ impl View
 				]);
 			}
 		}
-		vertices
 	}
 }
 

@@ -172,55 +172,11 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 		// Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 		#[cfg(not(target_arch = "wasm32"))]
 		// Move disk I/O and image decoding to a native worker thread; C++ launches a thread with a value capture.
-		std::thread::spawn(move || {
-			// Resolve the native asset directory once in this worker; C++ filesystem::path owns its path.
-			let directory = std::env::var_os("MOON_ASSET_DIR")
-				// Transform only a present/successful value; C++ applies a callable after checking optional/expected.
-				.map(std::path::PathBuf::from)
-				// Compute the fallback only when absent; C++ checks optional before calling a fallback lambda.
-				.unwrap_or_else(|| {
-					// Try assets/globe beside the executable before the development fallback; C++ optional<path>.
-					let beside = std::env::current_exe()
-						// Discard a platform error and retain only success as an Option; C++ converts expected to optional.
-						.ok()
-						// Chain a fallible/optional operation without nesting wrappers; C++ checks then invokes the next callable.
-						.and_then(|p| p.parent().map(|p| p.join("assets/globe")));
-					// Use the executable-relative directory only if it exists; C++ filesystem::is_directory guards a path.
-					beside.filter(|p| p.is_dir()).unwrap_or_else(|| {
-						// Fall back to the compile-time crate directory for workspace runs; C++ a build-defined source path is similar.
-						std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")
-					})
-				});
-			// Complete this asset exactly once with bytes or a diagnostic; C++ invokes the captured completion callable.
-			done(std::fs::read(directory.join(&filename)).map_err(|e| format!("{filename}: {e}")));
-		});
+		read_native(filename, done);
 		// Compile only for this target or test configuration; C++ uses #if, but Rust removes this entire syntax item.
 		#[cfg(target_arch = "wasm32")]
 		// Browser-native decoding runs asynchronously rather than in the WASM frame; C++ platform decoder task.
-		wasm_bindgen_futures::spawn_local(async move {
-			// Resolve DOM construction failures through the ordinary loader diagnostic; C++ expected-returning factory.
-			let result = match web_sys::HtmlImageElement::new()
-			{
-				Ok(image) =>
-				{
-					// Same-origin assets need no cross-origin permission or JS byte copies; C++ URL assignment.
-					image.set_src(&format!("assets/globe/{filename}"));
-					// Await the browser's own decoder and retain its native upload source; C++ future continuation.
-					wasm_bindgen_futures::JsFuture::from(image.decode())
-						.await
-						.map(|_| send_wrapper::SendWrapper::new(image))
-						.map_err(|e| format!("{filename}: {e:?}"))
-				}
-				Err(e) => Err(format!("{filename}: {e:?}")),
-			};
-			// Publish a complete image or a genuine error, never a half-decoded buffer; C++ synchronized slot.
-			state.lock().images[index] = Some(result);
-			// Background completion must repaint even when the first Moon is already visible; C++ event-loop wake.
-			if let Some(ctx) = ctx
-			{
-				ctx.request_repaint();
-			}
-		});
+		read_browser(filename, state, index, ctx);
 	}
 	state
 }
@@ -307,4 +263,65 @@ mod tests
 		// Panic if this geometric or state invariant is false; C++ assert is the nearest equivalent, but Rust tests keep assertions enabled.
 		assert!(s.take().unwrap().is_none());
 	}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_native(filename: String, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static)
+{
+	std::thread::spawn(move || {
+		// Resolve the native asset directory once in this worker; C++ filesystem::path owns its path.
+		let directory = std::env::var_os("MOON_ASSET_DIR")
+			// Transform only a present/successful value; C++ applies a callable after checking optional/expected.
+			.map(std::path::PathBuf::from)
+			// Compute the fallback only when absent; C++ checks optional before calling a fallback lambda.
+			.unwrap_or_else(|| {
+				// Try assets/globe beside the executable before the development fallback; C++ optional<path>.
+				let beside = std::env::current_exe()
+					// Discard a platform error and retain only success as an Option; C++ converts expected to optional.
+					.ok()
+					// Chain a fallible/optional operation without nesting wrappers; C++ checks then invokes the next callable.
+					.and_then(|p| p.parent().map(|p| p.join("assets/globe")));
+				// Use the executable-relative directory only if it exists; C++ filesystem::is_directory guards a path.
+				beside.filter(|p| p.is_dir()).unwrap_or_else(|| {
+					// Fall back to the compile-time crate directory for workspace runs; C++ a build-defined source path is similar.
+					std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")
+				})
+			});
+		// Complete this asset exactly once with bytes or a diagnostic; C++ invokes the captured completion callable.
+		done(std::fs::read(directory.join(&filename)).map_err(|e| format!("{filename}: {e}")));
+	});
+}
+
+#[cfg(target_arch = "wasm32")]
+fn read_browser(
+	filename: String,
+	state: Arc<Mutex<Loading>>,
+	index: usize,
+	ctx: Option<egui::Context>,
+)
+{
+	wasm_bindgen_futures::spawn_local(async move {
+		// Resolve DOM construction failures through the ordinary loader diagnostic; C++ expected-returning factory.
+		let result = match web_sys::HtmlImageElement::new()
+		{
+			Ok(image) =>
+			{
+				// Same-origin assets need no cross-origin permission or JS byte copies; C++ URL assignment.
+				image.set_src(&format!("assets/globe/{filename}"));
+				// Await the browser's own decoder and retain its native upload source; C++ future continuation.
+				wasm_bindgen_futures::JsFuture::from(image.decode())
+					.await
+					.map(|_| send_wrapper::SendWrapper::new(image))
+					.map_err(|e| format!("{filename}: {e:?}"))
+			}
+			Err(e) => Err(format!("{filename}: {e:?}")),
+		};
+		// Publish a complete image or a genuine error, never a half-decoded buffer; C++ synchronized slot.
+		state.lock().images[index] = Some(result);
+		// Background completion must repaint even when the first Moon is already visible; C++ event-loop wake.
+		if let Some(ctx) = ctx
+		{
+			ctx.request_repaint();
+		}
+	});
 }

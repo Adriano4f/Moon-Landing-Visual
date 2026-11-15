@@ -12,7 +12,7 @@ from photometry import front_facing_normal, reflectance
 class ShadingTests(unittest.TestCase):
     def test_trilinear_sampling_without_anisotropic_override(self):
         root = Path(__file__).resolve().parents[2]
-        renderer = re.sub(r"//[^\n]*", "", (root/"globe/src/lib.rs").read_text())
+        renderer = re.sub(r"//[^\n]*", "", "\n".join(p.read_text() for p in (root/"globe/src").rglob("*.rs")))
         self.assertIn("gl.generate_mipmap(glow::TEXTURE_2D)",renderer)
         self.assertIn("glow::LINEAR_MIPMAP_LINEAR as i32",renderer)
         self.assertNotIn("0X84FE",renderer.upper())

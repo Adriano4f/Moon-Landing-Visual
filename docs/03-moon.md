@@ -10,13 +10,13 @@ The globe also draws app-supplied Sun and Earth direction rays at the selected p
 
 ## 2. Pixels, vectors, and surface directions
 
-A pixel is one addressable image location. RGB assigns it red, green, and blue channel values. A framebuffer is the image storage into which rendering writes. A physical display pixel is not necessarily one UI coordinate: egui uses logical points and converts its paint rectangle to physical pixels. The callback's viewport supplies that conversion. Implementation: [globe/src/lib.rs:625](../globe/src/lib.rs#L625).
+A pixel is one addressable image location. RGB assigns it red, green, and blue channel values. A framebuffer is the image storage into which rendering writes. A physical display pixel is not necessarily one UI coordinate: egui uses logical points and converts its paint rectangle to physical pixels. The callback's viewport supplies that conversion. Implementation: [globe/src/view.rs:230](../globe/src/view.rs#L230).
 
 A three-component vector is an ordered triple. Addition and scalar multiplication act componentwise. Its Euclidean length is sqrt(x*x+y*y+z*z). A unit vector has length one; normalization divides by length and requires a nonzero vector. A point is a location, while subtracting two points gives a displacement vector. Our units for rendering positions are lunar reference radii.
 
 The dot product a dot b = ax*bx+ay*by+az*bz equals length(a)*length(b)*cos(angle). For unit directions it directly gives a cosine. For example, (0,0,1) dot (1,0,0) = 0 means a right angle; (0,0,1) dotted with itself is 1. The shader uses dot products to ask whether a surface faces the Sun and camera. Implementation: [globe/src/moon.frag:164](../globe/src/moon.frag#L164).
 
-The cross product a cross b = (ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx) is perpendicular to both vectors. Its sign distinguishes triangle orientations. For a=(1,0,0) and b=(0,1,0), a cross b=(0,0,1). The mesh test uses the z component of the cross product of two triangle edges to check outward winding. Implementation: [globe/src/math.rs:473](../globe/src/math.rs#L473).
+The cross product a cross b = (ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx) is perpendicular to both vectors. Its sign distinguishes triangle orientations. For a=(1,0,0) and b=(0,1,0), a cross b=(0,0,1). The mesh test uses the z component of the cross product of two triangle edges to check outward winding. Implementation: [globe/src/math.rs:478](../globe/src/math.rs#L478).
 
 Latitude measures angle north of the equator. Longitude increases eastward. In radians, latitude phi and longitude lambda become the unit direction
 
@@ -24,13 +24,13 @@ Latitude measures angle north of the equator. Longitude increases eastward. In r
 p = (cos(phi) sin(lambda), sin(phi), cos(phi) cos(lambda)).
 ```
 
-Thus north is +y, longitude zero faces +z, and longitude 90 degrees east faces +x. Tycho belongs in the southern hemisphere and Mare Crisium to the right of the near-side center. These are orientation checks, not an astronomical camera model. Implementation: [globe/src/math.rs:160](../globe/src/math.rs#L160).
+Thus north is +y, longitude zero faces +z, and longitude 90 degrees east faces +x. Tycho belongs in the southern hemisphere and Mare Crisium to the right of the near-side center. These are orientation checks, not an astronomical camera model. Implementation: [globe/src/math.rs:165](../globe/src/math.rs#L165).
 
 ## 3. Vertices, triangles, and the GPU
 
-A vertex is a mesh corner with numerical attributes. Here it stores five floats: position x,y,z and texture coordinates u,v. A triangle references three vertices. An index buffer stores these references, allowing adjacent triangles to share vertices instead of repeating all their floats. A vertex buffer stores the floats themselves. A vertex array object records how these bytes should be interpreted. Each vertex occupies 20 bytes: position starts at byte 0 and UV starts at byte 12. Implementation: [globe/src/lib.rs:905](../globe/src/lib.rs#L905).
+A vertex is a mesh corner with numerical attributes. Here it stores five floats: position x,y,z and texture coordinates u,v. A triangle references three vertices. An index buffer stores these references, allowing adjacent triangles to share vertices instead of repeating all their floats. A vertex buffer stores the floats themselves. A vertex array object records how these bytes should be interpreted. Each vertex occupies 20 bytes: position starts at byte 0 and UV starts at byte 12. Implementation: [globe/src/renderer/setup.rs:7](../globe/src/renderer/setup.rs#L7).
 
-The sphere has 256 longitude cells and 128 latitude cells. Its duplicated boundary vertices give 257*129 = 33,153 vertices, 65,536 triangles, and 196,608 indices. A cell with upper-left index a and lower-left index b=a+257 uses (a,b,a+1) and (a+1,b,b+1). The two seam copies must have identical positions even though u is 0 on one and 1 on the other. The poles use exact (0,+1,0) and (0,-1,0), not tiny cosine residuals. Implementation: [globe/src/math.rs:191](../globe/src/math.rs#L191).
+The sphere has 256 longitude cells and 128 latitude cells. Its duplicated boundary vertices give 257*129 = 33,153 vertices, 65,536 triangles, and 196,608 indices. A cell with upper-left index a and lower-left index b=a+257 uses (a,b,a+1) and (a+1,b,b+1). The two seam copies must have identical positions even though u is 0 on one and 1 on the other. The poles use exact (0,+1,0) and (0,-1,0), not tiny cosine residuals. Implementation: [globe/src/math.rs:196](../globe/src/math.rs#L196).
 
 The graphics processing unit, or GPU, transforms and shades many vertices/fragments in parallel. OpenGL is the command API that supplies data and configures this pipeline. `glow` exposes that API in Rust and also maps it to browser WebGL2. GLSL is the language of the small GPU programs called shaders. The vertex shader processes one vertex. Rasterization converts projected triangles into covered sample locations. A fragment shader computes a color for a covered location before depth testing decides whether it survives.
 
@@ -51,7 +51,7 @@ T * (1,0,0,1) = (1,0,-3.3,1).
 T * (1,0,0,0) = (1,0,0,0).
 ```
 
-Multiplication order matters: P*T*p translates first, then projects. OpenGL accepts our matrices in column-major memory order: consecutive groups of four floats are columns, not rows. The upload passes transpose=false. Implementation: [globe/src/lib.rs:1276](../globe/src/lib.rs#L1276).
+Multiplication order matters: P*T*p translates first, then projects. OpenGL accepts our matrices in column-major memory order: consecutive groups of four floats are columns, not rows. The upload passes transpose=false. Implementation: [globe/src/renderer.rs:100](../globe/src/renderer.rs#L100).
 
 Object space is the unrotated Moon's coordinate system. World space is object space after the model rotation. First rotate by angle theta around +y: x=cos(theta)*x+sin(theta)*z, y=y, and z=-sin(theta)*x+cos(theta)*z. At theta=90 degrees, (0,0,1) becomes (1,0,0). In the former presentation example, next apply a negative 30-degree x rotation to bring the south pole toward the camera. The current interactive tilt instead follows Earth or the user's orbit controls. Both shaders receive the composed column-major u_model matrix. A rigid rotation transforms normals by this same matrix. General nonuniform scaling would require an inverse-transpose normal matrix, which we do not need. The [panorama guide](05-panorama.md) derives this composition and the site marker's matching projection. This tilt is only a presentation choice; it changes no site coordinates, Horizons samples, or terrain visibility.
 
@@ -66,11 +66,11 @@ P = [f/a 0       0               0       ]
     [0   0      -1               0       ].
 ```
 
-The horizontal scale divides by aspect ratio so a sphere remains circular. The min(a,1) factor preserves a 45-degree field of view on the shorter viewport axis. The z rows map the near plane to normalized depth -1 and the far plane to +1. Implementation: [globe/src/math.rs:251](../globe/src/math.rs#L251).
+The horizontal scale divides by aspect ratio so a sphere remains circular. The min(a,1) factor preserves a 45-degree field of view on the shorter viewport axis. The z rows map the near plane to normalized depth -1 and the far plane to +1. Implementation: [globe/src/math.rs:256](../globe/src/math.rs#L256).
 
 For a square viewport, f=2.414214. A world point (1,0,0,1) becomes view (1,0,-3.3,1), then clip (2.414214,0,3.164646,3.3). Perspective divide produces normalized device coordinates, or NDC: approximately (0.73158,0,0.95898). This division by w makes equally sized distant objects appear smaller. Clipping removes geometry outside -w <= x,y,z <= w before the divide.
 
-Window space maps NDC into the viewport. In an 800 by 800 viewport, x_window=(x_NDC+1)*400 gives approximately 692.63; y=400. Depth maps (z_NDC+1)/2 into [0,1], approximately 0.97949. OpenGL window y grows upward; UI and screenshot coordinates often grow downward, which egui handles for the callback. The projection tests check the near/far endpoints and both aspect orientations. Implementation: [globe/src/math.rs:513](../globe/src/math.rs#L513).
+Window space maps NDC into the viewport. In an 800 by 800 viewport, x_window=(x_NDC+1)*400 gives approximately 692.63; y=400. Depth maps (z_NDC+1)/2 into [0,1], approximately 0.97949. OpenGL window y grows upward; UI and screenshot coordinates often grow downward, which egui handles for the callback. The projection tests check the near/far endpoints and both aspect orientations. Implementation: [globe/src/math.rs:518](../globe/src/math.rs#L518).
 
 ## 5. Rasterization, interpolation, and visibility
 
@@ -82,7 +82,7 @@ a_fragment = sum(weight_j * a_j / w_j) / sum(weight_j / w_j).
 
 This is perspective-correct interpolation. GLSL uses it by default for our floating-point outputs. Interpolated positions and normals must be normalized again where a unit direction is required. The shader reconstructs texture UV from interpolated object direction instead of interpolating a wrapped longitude directly. Implementation: [globe/src/moon.frag:192](../globe/src/moon.frag#L192).
 
-A depth buffer stores the closest surviving depth at each sample. Without it, draw order could put a rear triangle in front. The callback enables depth testing with LESS, permits writes, and clears depth to 1. A fragment with a smaller depth replaces the stored value. Counterclockwise triangles are front faces; back-face culling discards the rear surfaces of this closed opaque sphere. Blending is disabled because alpha is always one. Implementation: [globe/src/lib.rs:1223](../globe/src/lib.rs#L1223).
+A depth buffer stores the closest surviving depth at each sample. Without it, draw order could put a rear triangle in front. The callback enables depth testing with LESS, permits writes, and clears depth to 1. A fragment with a smaller depth replaces the stored value. Counterclockwise triangles are front faces; back-face culling discards the rear surfaces of this closed opaque sphere. Blending is disabled because alpha is always one. Implementation: [globe/src/renderer.rs:100](../globe/src/renderer.rs#L100).
 
 Multisample anti-aliasing, or MSAA, tests multiple coverage locations per pixel and resolves them into a final color. Four samples soften the geometric silhouette; this does not mean four independent texture or lighting evaluations everywhere, and it does not replace mipmaps. Native `NativeOptions.multisampling=4` remains enabled. The browser uses its context's available antialiasing behavior rather than claiming native's exact sample count. Implementation: [app/src/main.rs:19](../app/src/main.rs#L19).
 
@@ -92,11 +92,11 @@ The GLSL qualifier `centroid` asks for an interpolation location inside both the
 
 ## 6. Textures, filtering, and a continuous longitude seam
 
-A texture is an image addressed by normalized coordinates u,v. Our equirectangular maps use u=lambda/(2*pi)+0.5 and v=0.5-phi/pi: top is north, middle longitude is zero. Each stored pixel is called a texel. A sampler combines the image with rules for filtering and coordinates outside its bounds. Longitude repeats; latitude clamps to the edge. Implementation: [globe/src/lib.rs:1098](../globe/src/lib.rs#L1098).
+A texture is an image addressed by normalized coordinates u,v. Our equirectangular maps use u=lambda/(2*pi)+0.5 and v=0.5-phi/pi: top is north, middle longitude is zero. Each stored pixel is called a texel. A sampler combines the image with rules for filtering and coordinates outside its bounds. Longitude repeats; latitude clamps to the edge. Implementation: [globe/src/renderer/textures.rs:8](../globe/src/renderer/textures.rs#L8).
 
-Bilinear filtering blends four neighboring texels at one resolution. A mipmap is a sequence of smaller images, each approximately half as wide and high. When many texels fit under one screen pixel, sampling an appropriate smaller level suppresses shimmering. LINEAR_MIPMAP_LINEAR also blends between two levels, often called trilinear filtering. The level chain costs about one third beyond the base image because 1+1/4+1/16+...=4/3. Implementation: [globe/src/lib.rs:1100](../globe/src/lib.rs#L1100).
+Bilinear filtering blends four neighboring texels at one resolution. A mipmap is a sequence of smaller images, each approximately half as wide and high. When many texels fit under one screen pixel, sampling an appropriate smaller level suppresses shimmering. LINEAR_MIPMAP_LINEAR also blends between two levels, often called trilinear filtering. The level chain costs about one third beyond the base image because 1+1/4+1/16+...=4/3. Implementation: [globe/src/renderer/textures.rs:8](../globe/src/renderer/textures.rs#L8).
 
-At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. The earlier renderer requested a ratio up to eight through the optional anisotropic-filtering extension. The current renderer deliberately leaves every new texture at its default anisotropy ratio of one, retaining isotropic trilinear mipmapping. This is a portable conservative choice rather than a GPU-vendor-name workaround. It can blur grazing detail more than a correctly functioning anisotropic path, but removes the observed dotted arc without removing mipmaps or 4x MSAA. Implementation: [globe/src/lib.rs:1100](../globe/src/lib.rs#L1100).
+At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. The earlier renderer requested a ratio up to eight through the optional anisotropic-filtering extension. The current renderer deliberately leaves every new texture at its default anisotropy ratio of one, retaining isotropic trilinear mipmapping. This is a portable conservative choice rather than a GPU-vendor-name workaround. It can blur grazing detail more than a correctly functioning anisotropic path, but removes the observed dotted arc without removing mipmaps or 4x MSAA. Implementation: [globe/src/renderer/textures.rs:8](../globe/src/renderer/textures.rs#L8).
 
 Ordinary automatic UV derivatives see u jump from almost 1 to almost 0 at the longitude boundary. They can incorrectly select a very small mip level and produce a visible seam. The shader instead differentiates the continuous unit direction p. For a differential dp, du=(pz*dpx-px*dpz)/(2*pi*(px*px+pz*pz)), and dv=-dpy/(pi*sqrt(px*px+pz*pz)). It obtains dp with dFdx and dFdy, bounds the polar denominator, and passes these explicit gradients to textureGrad for both maps. The texture still repeats, but the footprint never differentiates the wrapped u value. Implementation: [globe/src/moon.frag:203](../globe/src/moon.frag#L203).
 
@@ -226,7 +226,7 @@ The independent Python implementation checks 1,296 valid geometries, a dark face
 
 ## 9. Linear light, color maps, and tone mapping
 
-sRGB is a nonlinear encoding of display RGB. A stored channel c decodes to c/12.92 when c<=0.04045, otherwise ((c+0.055)/1.055)^2.4. Multiplication and interpolation for physical light belong in linear values, not encoded values. We upload albedo as SRGB8_ALPHA8, so texture sampling decodes it before filtering; normal maps use ordinary RGB8 and must not be color-decoded. Mipmap generation uses the texture's color-space rules. Implementation: [globe/src/lib.rs:1077](../globe/src/lib.rs#L1077).
+sRGB is a nonlinear encoding of display RGB. A stored channel c decodes to c/12.92 when c<=0.04045, otherwise ((c+0.055)/1.055)^2.4. Multiplication and interpolation for physical light belong in linear values, not encoded values. We upload albedo as SRGB8_ALPHA8, so texture sampling decodes it before filtering; normal maps use ordinary RGB8 and must not be color-decoded. Mipmap generation uses the texture's color-space rules. Implementation: [globe/src/renderer/textures.rs:8](../globe/src/renderer/textures.rs#L8).
 
 The NASA map is aesthetic RGB imagery, not a per-pixel inversion of 566 nm Hapke parameters. Our explicit modeling choice is to multiply the common photometric response by each linear RGB channel divided by 0.4832, a rounded common area-weighted color-map luminance reference. Individual tier pre-JPEG means are recorded in manifest.json and are approximately 0.483. This preserves relative spatial brightness and color but does not convert RGB to measured spectral single-scattering albedo. It applies the mapped-band average outside its original 70-degree latitude coverage too, including the poles, solely for presentation.
 

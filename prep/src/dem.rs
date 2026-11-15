@@ -181,6 +181,38 @@ impl<R: Read + Seek> Raster<R>
 	{
 		// Decode TIFF/BigTIFF directory and compression information; C++ checked constructor.
 		let mut decoder = Decoder::new(reader).map_err(|e| e.to_string())?;
+		Self::validate_header(&mut decoder)?;
+		// Read named TIFF tags instead of hardcoded raster dimensions; C++ typed tag accessors.
+		let (w, h) = decoder.dimensions().map_err(|e| e.to_string())?;
+		let scale = decoder
+			.get_tag_f64_vec(Tag::ModelPixelScaleTag)
+			.map_err(|e| e.to_string())?;
+		let tie = decoder
+			.get_tag_f64_vec(Tag::ModelTiepointTag)
+			.map_err(|e| e.to_string())?;
+		let keys = decoder
+			.get_tag_u16_vec(Tag::GeoKeyDirectoryTag)
+			.map_err(|e| e.to_string())?;
+		let doubles = decoder
+			.get_tag_f64_vec(Tag::GeoDoubleParamsTag)
+			.map_err(|e| e.to_string())?;
+		// Validate projection and pixel semantics before allowing any samples; C++ checked factory.
+		let grid = grid(w, h, &scale, &tie, &keys, &doubles)?;
+		// TIFF abstracts both strips and tiles as chunks; C++ pair of dimensions.
+		let chunk = decoder.chunk_dimensions();
+		// Start with no decoded elevation payload; C++ aggregate initialization.
+		Ok(Self {
+			decoder,
+			grid,
+			chunk,
+			cache: HashMap::new(),
+			order: VecDeque::new(),
+			bytes: 0,
+		})
+	}
+
+	fn validate_header(decoder: &mut Decoder<R>) -> Result<(), String>
+	{
 		// PGDA DEMs are scalar IEEE float32, not encoded normals or integer radii; C++ type check.
 		if decoder.colortype().map_err(|e| e.to_string())? != tiff::ColorType::Gray(32)
 			|| decoder
@@ -214,33 +246,7 @@ impl<R: Read + Seek> Raster<R>
 		{
 			return Err("Expected NaN nodata".into());
 		}
-		// Read named TIFF tags instead of hardcoded raster dimensions; C++ typed tag accessors.
-		let (w, h) = decoder.dimensions().map_err(|e| e.to_string())?;
-		let scale = decoder
-			.get_tag_f64_vec(Tag::ModelPixelScaleTag)
-			.map_err(|e| e.to_string())?;
-		let tie = decoder
-			.get_tag_f64_vec(Tag::ModelTiepointTag)
-			.map_err(|e| e.to_string())?;
-		let keys = decoder
-			.get_tag_u16_vec(Tag::GeoKeyDirectoryTag)
-			.map_err(|e| e.to_string())?;
-		let doubles = decoder
-			.get_tag_f64_vec(Tag::GeoDoubleParamsTag)
-			.map_err(|e| e.to_string())?;
-		// Validate projection and pixel semantics before allowing any samples; C++ checked factory.
-		let grid = grid(w, h, &scale, &tie, &keys, &doubles)?;
-		// TIFF abstracts both strips and tiles as chunks; C++ pair of dimensions.
-		let chunk = decoder.chunk_dimensions();
-		// Start with no decoded elevation payload; C++ aggregate initialization.
-		Ok(Self {
-			decoder,
-			grid,
-			chunk,
-			cache: HashMap::new(),
-			order: VecDeque::new(),
-			bytes: 0,
-		})
+		Ok(())
 	}
 
 	// Fetch one scalar, decoding a chunk only on a cache miss; C++ checked member function.

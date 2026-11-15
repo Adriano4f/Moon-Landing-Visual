@@ -215,25 +215,7 @@ pub fn horizon_from_terrain(
 	{
 		return Err("Invalid horizon sampling parameters".into());
 	}
-	// A missing observer invalidates the whole calculation; C++ checked optional extraction.
-	let origin = sample(lat, lon)?.ok_or("Observer is outside valid DEM coverage")?;
-	// Validate the sampler contract before using spacing in a loop; C++ floating-point guards.
-	if !origin.z_m.is_finite()
-		|| origin.z_m <= -MOON_RADIUS_M
-		|| !origin.resolution_m.is_finite()
-		|| origin.resolution_m <= 0.0
-	{
-		return Err("Invalid observer terrain sample".into());
-	}
-	// The instrument is above the local radial surface, not above a flat zero plane; C++ double.
-	let z0 = origin.z_m + observer_height_m;
-	// Use half the finest starting ground pixel near the observer; C++ double.
-	let near = origin.resolution_m / 2.0;
-	// Refuse overflow or a spacing rounded to zero before entering the integration loop; C++ floating-point guard.
-	if !z0.is_finite() || near <= 0.0
-	{
-		return Err("Invalid observer height or spacing".into());
-	}
+	let (z0, near) = horizon_origin(lat, lon, observer_height_m, &mut sample)?;
 	// A quarter bearing-bin width is the adaptive angular target; C++ radians constant.
 	let angular = std::f64::consts::TAU / n_az as f64 / 4.0;
 	// A ray never wraps around the Moon; normal production termination is coverage, not this guard; C++ min.
@@ -245,44 +227,18 @@ pub fn horizon_from_terrain(
 	{
 		// Convert the bearing index into degrees; C++ double arithmetic.
 		let az = i as f64 * 360.0 / n_az as f64;
-		// Start off the observer so atan2 never evaluates the coincident point; C++ loop variable.
-		let mut s = near;
-		// Trace until the requested compatibility limit or continuous DEM edge; C++ while.
-		while s <= limit
-		{
-			// Advance on the sphere before projecting in the sampler; C++ structured binding.
-			let (p, l) = destination(lat, lon, az, s);
-			// Propagate decoding errors; only absent data terminates a ray; C++ expected/optional extraction.
-			let Some(point) = sample(p, l)?
-			else
-			{
-				break;
-			};
-			// A malformed sample is an error, never an artificial horizon gap; C++ guard.
-			if !point.z_m.is_finite()
-				|| point.z_m <= -MOON_RADIUS_M
-				|| !point.resolution_m.is_finite()
-				|| point.resolution_m <= 0.0
-			{
-				return Err("Invalid terrain sample".into());
-			}
-			// Retain the largest exact spherical elevation seen on this ray; C++ std::max.
-			*h = h.max(spherical_elevation(point.z_m, z0, s / MOON_RADIUS_M) as f32);
-			// Grow only up to half a local pixel: do not skip resolved narrow radial features; C++ min/max.
-			let next = s + (s * angular).max(near).min(point.resolution_m / 2.0);
-			// A broken callback must not stall a finite ray forever; C++ monotonic-progress guard.
-			if next <= s
-			{
-				return Err("Terrain spacing is below floating-point resolution".into());
-			}
-			// Advance only after validating floating-point progress; C++ assignment.
-			s = next;
-		}
-		// Fail closed if a ray has no noncoincident sample; C++ sentinel check.
-		if *h == -90.0
-		{
-			return Err(format!("No terrain samples at azimuth {az}"));
-		}
+		*h = terrain_ray(
+			HorizonRay {
+				lat,
+				lon,
+				z0,
+				near,
+				limit,
+				angular,
+			},
+			az,
+			&mut sample,
+		)?;
 	}
 	// Move the cyclic profile to the caller; C++ expected<Horizon>.
 	Ok(Horizon { h_deg })
@@ -390,47 +346,7 @@ pub fn parse_horizons(text: &str) -> Result<Track, String>
 	// Skip blank separator lines inside the data block; C++ filtered line iteration.
 	for line in body.lines().filter(|line| !line.trim().is_empty())
 	{
-		// Whitespace tokenization also accepts optional printed event flags; C++ vector<string_view>.
-		let fields: Vec<_> = line.split_whitespace().collect();
-		// Need a date, time, azimuth and elevation; C++ minimum-length guard.
-		if fields.len() < 4
-		{
-			// Preserve the failing row in diagnostics; C++ formatted error alternative.
-			return Err(format!("Invalid ephemeris row: {line}"));
-		}
-		// Accept both minute and second precision in Horizons UTC output; C++ alternate chrono parse formats.
-		let time = NaiveDateTime::parse_from_str(
-			&format!("{} {}", fields[0], fields[1]),
-			"%Y-%b-%d %H:%M",
-		)
-		.or_else(|_| {
-			NaiveDateTime::parse_from_str(
-				&format!("{} {}", fields[0], fields[1]),
-				"%Y-%b-%d %H:%M:%S",
-			)
-		})
-		.map_err(|e| format!("Invalid date: {e}"))?
-		.and_utc()
-		.timestamp();
-		// The requested two angles are the last two numeric columns, after any event flags; C++ reverse numeric-token iterator.
-		let mut angles = fields[2..]
-			.iter()
-			.rev()
-			.filter_map(|s| s.parse::<f32>().ok());
-		// Reverse order yields elevation first, then azimuth; C++ optional<float> extraction.
-		let el = angles.next();
-		let az = angles.next();
-		// A successful row must contain both values; C++ checked optional destructuring.
-		let (Some(az), Some(el)) = (az, el)
-		else
-		{
-			return Err(format!("Expected azimuth and elevation: {line}"));
-		};
-		// JSON and downstream geometry require finite directions; C++ std::isfinite.
-		if !az.is_finite() || !el.is_finite()
-		{
-			return Err(format!("Expected finite azimuth and elevation: {line}"));
-		}
+		let (time, az, el) = horizons_row(line)?;
 		// Reject duplicate or reversed sample times before appending; C++ optional-last comparison.
 		if track.t.last().is_some_and(|&last| time <= last)
 		{
@@ -456,3 +372,143 @@ mod tests;
 // Keep geometry-only terrain fixtures independent of TIFF I/O; C++ conditional test translation unit.
 #[cfg(test)]
 mod terrain_tests;
+
+fn horizons_row(line: &str) -> Result<(i64, f32, f32), String>
+{
+	// Whitespace tokenization also accepts optional printed event flags; C++ vector<string_view>.
+	let fields: Vec<_> = line.split_whitespace().collect();
+	// Need a date, time, azimuth and elevation; C++ minimum-length guard.
+	if fields.len() < 4
+	{
+		// Preserve the failing row in diagnostics; C++ formatted error alternative.
+		return Err(format!("Invalid ephemeris row: {line}"));
+	}
+	// Accept both minute and second precision in Horizons UTC output; C++ alternate chrono parse formats.
+	let time =
+		NaiveDateTime::parse_from_str(&format!("{} {}", fields[0], fields[1]), "%Y-%b-%d %H:%M")
+			.or_else(|_| {
+				NaiveDateTime::parse_from_str(
+					&format!("{} {}", fields[0], fields[1]),
+					"%Y-%b-%d %H:%M:%S",
+				)
+			})
+			.map_err(|e| format!("Invalid date: {e}"))?
+			.and_utc()
+			.timestamp();
+	// The requested two angles are the last two numeric columns, after any event flags; C++ reverse numeric-token iterator.
+	let mut angles = fields[2..]
+		.iter()
+		.rev()
+		.filter_map(|s| s.parse::<f32>().ok());
+	// Reverse order yields elevation first, then azimuth; C++ optional<float> extraction.
+	let el = angles.next();
+	let az = angles.next();
+	// A successful row must contain both values; C++ checked optional destructuring.
+	let (Some(az), Some(el)) = (az, el)
+	else
+	{
+		return Err(format!("Expected azimuth and elevation: {line}"));
+	};
+	// JSON and downstream geometry require finite directions; C++ std::isfinite.
+	if !az.is_finite() || !el.is_finite()
+	{
+		return Err(format!("Expected finite azimuth and elevation: {line}"));
+	}
+	Ok((time, az, el))
+}
+
+fn terrain_ray(
+	ray: HorizonRay,
+	az: f64,
+	sample: &mut impl FnMut(f64, f64) -> Result<Option<TerrainSample>, String>,
+) -> Result<f32, String>
+{
+	let HorizonRay {
+		lat,
+		lon,
+		z0,
+		near,
+		limit,
+		angular,
+	} = ray;
+	let mut value = -90.0_f32;
+	let h = &mut value;
+	// Start off the observer so atan2 never evaluates the coincident point; C++ loop variable.
+	let mut s = near;
+	// Trace until the requested compatibility limit or continuous DEM edge; C++ while.
+	while s <= limit
+	{
+		// Advance on the sphere before projecting in the sampler; C++ structured binding.
+		let (p, l) = destination(lat, lon, az, s);
+		// Propagate decoding errors; only absent data terminates a ray; C++ expected/optional extraction.
+		let Some(point) = sample(p, l)?
+		else
+		{
+			break;
+		};
+		// A malformed sample is an error, never an artificial horizon gap; C++ guard.
+		if !point.z_m.is_finite()
+			|| point.z_m <= -MOON_RADIUS_M
+			|| !point.resolution_m.is_finite()
+			|| point.resolution_m <= 0.0
+		{
+			return Err("Invalid terrain sample".into());
+		}
+		// Retain the largest exact spherical elevation seen on this ray; C++ std::max.
+		*h = h.max(spherical_elevation(point.z_m, z0, s / MOON_RADIUS_M) as f32);
+		// Grow only up to half a local pixel: do not skip resolved narrow radial features; C++ min/max.
+		let next = s + (s * angular).max(near).min(point.resolution_m / 2.0);
+		// A broken callback must not stall a finite ray forever; C++ monotonic-progress guard.
+		if next <= s
+		{
+			return Err("Terrain spacing is below floating-point resolution".into());
+		}
+		// Advance only after validating floating-point progress; C++ assignment.
+		s = next;
+	}
+	// Fail closed if a ray has no noncoincident sample; C++ sentinel check.
+	if *h == -90.0
+	{
+		return Err(format!("No terrain samples at azimuth {az}"));
+	}
+	Ok(*h)
+}
+
+struct HorizonRay
+{
+	lat: f64,
+	lon: f64,
+	z0: f64,
+	near: f64,
+	limit: f64,
+	angular: f64,
+}
+
+fn horizon_origin(
+	lat: f64,
+	lon: f64,
+	observer_height_m: f64,
+	sample: &mut impl FnMut(f64, f64) -> Result<Option<TerrainSample>, String>,
+) -> Result<(f64, f64), String>
+{
+	// A missing observer invalidates the whole calculation; C++ checked optional extraction.
+	let origin = sample(lat, lon)?.ok_or("Observer is outside valid DEM coverage")?;
+	// Validate the sampler contract before using spacing in a loop; C++ floating-point guards.
+	if !origin.z_m.is_finite()
+		|| origin.z_m <= -MOON_RADIUS_M
+		|| !origin.resolution_m.is_finite()
+		|| origin.resolution_m <= 0.0
+	{
+		return Err("Invalid observer terrain sample".into());
+	}
+	// The instrument is above the local radial surface, not above a flat zero plane; C++ double.
+	let z0 = origin.z_m + observer_height_m;
+	// Use half the finest starting ground pixel near the observer; C++ double.
+	let near = origin.resolution_m / 2.0;
+	// Refuse overflow or a spacing rounded to zero before entering the integration loop; C++ floating-point guard.
+	if !z0.is_finite() || near <= 0.0
+	{
+		return Err("Invalid observer height or spacing".into());
+	}
+	Ok((z0, near))
+}

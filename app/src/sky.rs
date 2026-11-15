@@ -66,129 +66,9 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, index: usize, range: Rang
 	painter.rect_filled(rect, 0.0, Color32::BLACK);
 	// Limit every path, body and ground triangle to the same field; C++ clipped drawing context.
 	let sky = painter.with_clip_rect(rect);
-	// Give vertical angles a modest reference grid; C++ range-for over tick elevations.
-	for el in [-10.0, -5.0, 0.0, 5.0, 10.0]
-	{
-		// Place the zero-degree tangent plane consistently with the numerical view; C++ point transform.
-		let p = project(rect, 0.0, el);
-		// Draw faint horizontal guides behind the bodies; C++ line primitive.
-		sky.line_segment(
-			[p, egui::pos2(rect.right(), p.y)],
-			Stroke::new(0.5, Color32::from_gray(38)),
-		);
-		// Label degrees outside the scene's clipping rectangle; C++ positioned text.
-		painter.text(
-			egui::pos2(rect.left() - 4.0, p.y),
-			egui::Align2::RIGHT_CENTER,
-			format!("{el:+.0}"),
-			egui::FontId::proportional(10.0),
-			Color32::GRAY,
-		);
-	}
-	// Cardinal marks describe direction around the observer; C++ counted loop.
-	for (i, label) in ["N", "E", "S", "W", "N"].iter().enumerate()
-	{
-		// Include both north endpoints without joining paths across the wrap; C++ affine transform.
-		let p = project(rect, i as f64 * 90.0, -10.0);
-		// Compass labels stay readable against the outer panel; C++ text primitive.
-		painter.text(
-			p + egui::vec2(0.0, 13.0),
-			egui::Align2::CENTER_CENTER,
-			*label,
-			egui::FontId::proportional(13.0),
-			Color32::WHITE,
-		);
-	}
-	// Draw time-window paths before the current disks and terrain; C++ pair iteration.
-	for (track, color) in [
-		(&data.sun, Color32::from_rgb(95, 85, 15)),
-		(&data.earth, Color32::from_rgb(30, 70, 110)),
-	]
-	{
-		// Reuse exactly the technical view's north-wrap splitting; C++ polyline iteration.
-		for part in super::panorama::segments(track, range.clone())
-		{
-			// Convert only the selected window's coordinates; C++ transform into screen points.
-			let points = part
-				.iter()
-				.map(|p| project(rect, p[0], p[1]))
-				.collect::<Vec<_>>();
-			// A single point needs no line primitive; C++ size guard.
-			if points.len() > 1
-			{
-				sky.add(egui::Shape::line(points, Stroke::new(1.0, color)));
-			}
-		}
-	}
-	// Angular radii are scientific inputs, not arbitrary point-marker sizes; C++ tuple loop.
-	for (track, radius, color, name) in [
-		(&data.sun, f64::from(SUN_RADIUS_DEG), Color32::YELLOW, "Sun"),
-		(&data.earth, 0.95, Color32::LIGHT_BLUE, "Earth"),
-	]
-	{
-		// Read current direction once for all wrapped copies; C++ scalar locals.
-		let a = f64::from(track.az_deg[index]);
-		let e = f64::from(track.el_deg[index]);
-		// Preserve a partially visible disk at either edge of north; C++ three translated copies.
-		for shift in [-360.0, 0.0, 360.0]
-		{
-			// Convert the spherical boundary rather than inflating a small Sun for visibility; C++ polygon transform.
-			let points = disk(a, e, radius)
-				.iter()
-				.map(|p| project(rect, p[0] + shift, p[1]))
-				.collect();
-			// The finite disks are painted before ground, so covered parts vanish; C++ filled polygon.
-			sky.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
-			// A small caption identifies even the true-size subpixel-width Sun; C++ positioned label.
-			sky.text(
-				project(rect, a + shift, e + radius) + egui::vec2(4.0, -2.0),
-				egui::Align2::LEFT_BOTTOM,
-				name,
-				egui::FontId::proportional(11.0),
-				color,
-			);
-		}
-	}
-	// Tessellate the nonconvex silhouette as independent adjacent trapezoids; C++ mesh value.
-	let mut ground = egui::Mesh::default();
-	// Preserve every supplied bearing bin and the cyclic endpoint; C++ maximum sample count.
-	let bins = data
-		.horizon
-		.as_ref()
-		.map_or(360, |h| h.h_deg.len().max(360));
-	// Ground is intentionally submitted after both finite bodies; C++ counted loop.
-	for i in 0..bins
-	{
-		// Convert neighboring bins to angular positions; C++ two double locals.
-		let a = i as f64 * 360.0 / bins as f64;
-		let b = (i + 1) as f64 * 360.0 / bins as f64;
-		// Save the first vertex index before appending this trapezoid; C++ uint32_t offset.
-		let first = ground.vertices.len() as u32;
-		// The same Horizon::at interpolation drives the status and visible boundary; C++ array iteration.
-		for p in [
-			project(rect, a, -10.0),
-			project(rect, b, -10.0),
-			project(
-				rect,
-				b,
-				f64::from(data.horizon_at(b as f32)).clamp(-10.0, 10.0),
-			),
-			project(
-				rect,
-				a,
-				f64::from(data.horizon_at(a as f32)).clamp(-10.0, 10.0),
-			),
-		]
-		{
-			// Opaque grey blocks the hidden portions rather than merely drawing an outline; C++ colored vertex append.
-			ground.colored_vertex(p, Color32::from_gray(92));
-		}
-		// Two triangles exactly cover the trapezoid; C++ indexed triangle append.
-		ground.add_triangle(first, first + 1, first + 2);
-		ground.add_triangle(first, first + 2, first + 3);
-	}
-	// Occlude sky paths and the Sun/Earth consistently with the current terrain profile; C++ mesh submission.
-	sky.add(egui::Shape::mesh(ground));
+	guides(&painter, &sky, rect);
+	bodies(&sky, rect, data, index, range);
+	terrain(&sky, rect, data);
 	// Calculate the actual nonuniform angular display scale from the allocated rectangle; C++ ratio of pixels per degree.
 	let stretch = (rect.height() / 20.0) / (rect.width() / 360.0);
 	// Warn about vertical exaggeration rather than depicting the ellipses as true visual aspect ratios; C++ caption.
@@ -242,4 +122,139 @@ mod tests
 		assert_eq!(project(rect, 0.0, 10.0), rect.min);
 		assert_eq!(project(rect, 360.0, -10.0), rect.max);
 	}
+}
+
+fn guides(painter: &egui::Painter, sky: &egui::Painter, rect: Rect)
+{
+	// Give vertical angles a modest reference grid; C++ range-for over tick elevations.
+	for el in [-10.0, -5.0, 0.0, 5.0, 10.0]
+	{
+		// Place the zero-degree tangent plane consistently with the numerical view; C++ point transform.
+		let p = project(rect, 0.0, el);
+		// Draw faint horizontal guides behind the bodies; C++ line primitive.
+		sky.line_segment(
+			[p, egui::pos2(rect.right(), p.y)],
+			Stroke::new(0.5, Color32::from_gray(38)),
+		);
+		// Label degrees outside the scene's clipping rectangle; C++ positioned text.
+		painter.text(
+			egui::pos2(rect.left() - 4.0, p.y),
+			egui::Align2::RIGHT_CENTER,
+			format!("{el:+.0}"),
+			egui::FontId::proportional(10.0),
+			Color32::GRAY,
+		);
+	}
+	// Cardinal marks describe direction around the observer; C++ counted loop.
+	for (i, label) in ["N", "E", "S", "W", "N"].iter().enumerate()
+	{
+		// Include both north endpoints without joining paths across the wrap; C++ affine transform.
+		let p = project(rect, i as f64 * 90.0, -10.0);
+		// Compass labels stay readable against the outer panel; C++ text primitive.
+		painter.text(
+			p + egui::vec2(0.0, 13.0),
+			egui::Align2::CENTER_CENTER,
+			*label,
+			egui::FontId::proportional(13.0),
+			Color32::WHITE,
+		);
+	}
+}
+
+fn bodies(sky: &egui::Painter, rect: Rect, data: &SiteData, index: usize, range: Range<usize>)
+{
+	// Draw time-window paths before the current disks and terrain; C++ pair iteration.
+	for (track, color) in [
+		(&data.sun, Color32::from_rgb(95, 85, 15)),
+		(&data.earth, Color32::from_rgb(30, 70, 110)),
+	]
+	{
+		// Reuse exactly the technical view's north-wrap splitting; C++ polyline iteration.
+		for part in super::panorama::segments(track, range.clone())
+		{
+			// Convert only the selected window's coordinates; C++ transform into screen points.
+			let points = part
+				.iter()
+				.map(|p| project(rect, p[0], p[1]))
+				.collect::<Vec<_>>();
+			// A single point needs no line primitive; C++ size guard.
+			if points.len() > 1
+			{
+				sky.add(egui::Shape::line(points, Stroke::new(1.0, color)));
+			}
+		}
+	}
+	// Angular radii are scientific inputs, not arbitrary point-marker sizes; C++ tuple loop.
+	for (track, radius, color, name) in [
+		(&data.sun, f64::from(SUN_RADIUS_DEG), Color32::YELLOW, "Sun"),
+		(&data.earth, 0.95, Color32::LIGHT_BLUE, "Earth"),
+	]
+	{
+		// Read current direction once for all wrapped copies; C++ scalar locals.
+		let a = f64::from(track.az_deg[index]);
+		let e = f64::from(track.el_deg[index]);
+		// Preserve a partially visible disk at either edge of north; C++ three translated copies.
+		for shift in [-360.0, 0.0, 360.0]
+		{
+			// Convert the spherical boundary rather than inflating a small Sun for visibility; C++ polygon transform.
+			let points = disk(a, e, radius)
+				.iter()
+				.map(|p| project(rect, p[0] + shift, p[1]))
+				.collect();
+			// The finite disks are painted before ground, so covered parts vanish; C++ filled polygon.
+			sky.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+			// A small caption identifies even the true-size subpixel-width Sun; C++ positioned label.
+			sky.text(
+				project(rect, a + shift, e + radius) + egui::vec2(4.0, -2.0),
+				egui::Align2::LEFT_BOTTOM,
+				name,
+				egui::FontId::proportional(11.0),
+				color,
+			);
+		}
+	}
+}
+
+fn terrain(sky: &egui::Painter, rect: Rect, data: &SiteData)
+{
+	// Tessellate the nonconvex silhouette as independent adjacent trapezoids; C++ mesh value.
+	let mut ground = egui::Mesh::default();
+	// Preserve every supplied bearing bin and the cyclic endpoint; C++ maximum sample count.
+	let bins = data
+		.horizon
+		.as_ref()
+		.map_or(360, |h| h.h_deg.len().max(360));
+	// Ground is intentionally submitted after both finite bodies; C++ counted loop.
+	for i in 0..bins
+	{
+		// Convert neighboring bins to angular positions; C++ two double locals.
+		let a = i as f64 * 360.0 / bins as f64;
+		let b = (i + 1) as f64 * 360.0 / bins as f64;
+		// Save the first vertex index before appending this trapezoid; C++ uint32_t offset.
+		let first = ground.vertices.len() as u32;
+		// The same Horizon::at interpolation drives the status and visible boundary; C++ array iteration.
+		for p in [
+			project(rect, a, -10.0),
+			project(rect, b, -10.0),
+			project(
+				rect,
+				b,
+				f64::from(data.horizon_at(b as f32)).clamp(-10.0, 10.0),
+			),
+			project(
+				rect,
+				a,
+				f64::from(data.horizon_at(a as f32)).clamp(-10.0, 10.0),
+			),
+		]
+		{
+			// Opaque grey blocks the hidden portions rather than merely drawing an outline; C++ colored vertex append.
+			ground.colored_vertex(p, Color32::from_gray(92));
+		}
+		// Two triangles exactly cover the trapezoid; C++ indexed triangle append.
+		ground.add_triangle(first, first + 1, first + 2);
+		ground.add_triangle(first, first + 2, first + 3);
+	}
+	// Occlude sky paths and the Sun/Earth consistently with the current terrain profile; C++ mesh submission.
+	sky.add(egui::Shape::mesh(ground));
 }

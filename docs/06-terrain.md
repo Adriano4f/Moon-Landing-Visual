@@ -111,7 +111,7 @@ Site01's actual tag is $(0,0)\leftrightarrow(-19{,}000,-4{,}000)$ m and $p=5$ m.
 
 Usable interpolation-center bounds are inset by half a pixel on every edge, and actual valid data may be reduced by NaNs. The four surrounding centers define bilinear interpolation. For fractions $a=c-\lfloor c\rfloor$ and $b=r-\lfloor r\rfloor$, weights are $(1-a)(1-b),a(1-b),(1-a)b,ab$. Contributing NaN corners invalidate that resolution. A zero-weight NaN must not invalidate an exact valid center, so the implementation excludes zero-weight terms before multiplying.
 
-Implementation: [core/src/lib.rs:83](../core/src/lib.rs#L83), [prep/src/dem.rs:283](../prep/src/dem.rs#L283).
+Implementation: [core/src/lib.rs:83](../core/src/lib.rs#L83), [prep/src/dem.rs:289](../prep/src/dem.rs#L289).
 
 ## 6. Multiresolution lookup and bounded memory
 
@@ -125,7 +125,7 @@ Each raster uses a HashMap from chunk index to decoded float32 samples and a Vec
 
 Raster is generic over Read + Seek. A trait bound states the operations its reader must support, analogous to a constrained C++ template parameter. Production uses BufReader<File>; tests use Cursor<Vec<u8>> as an in-memory binary stream. Ownership keeps each decoder and cache together. Mutable borrowing gives the integrator exclusive access to sampling state while preventing another simultaneous decoder seek.
 
-Implementation: [prep/src/dem.rs:344](../prep/src/dem.rs#L344), [prep/src/dem.rs:390](../prep/src/dem.rs#L390).
+Implementation: [prep/src/dem.rs:350](../prep/src/dem.rs#L350), [prep/src/dem.rs:396](../prep/src/dem.rs#L396).
 
 ## 7. Great-circle rays and exact spherical elevation
 
@@ -188,7 +188,7 @@ This is visible area, not visible diameter. At $u=1$ the fraction is zero; at $u
 
 For Earth, the user-selected margin $m$ applies to the center: visible means $e_E>H_E+m$. Equality is blocked. The default is 0.5 degrees and one minimal slider permits 0.5 through 1.0 degrees. The core function retains its explicit margin parameter; no scientific constant is hidden in visible. The UI recomputes the cached visibility vector only on a margin edit. This does not claim that the entire Earth or any particular ground station is visible.
 
-Implementation: [core/src/lib.rs:291](../core/src/lib.rs#L291), [core/src/lib.rs:299](../core/src/lib.rs#L299), [app/src/data.rs:108](../app/src/data.rs#L108).
+Implementation: [core/src/lib.rs:247](../core/src/lib.rs#L247), [core/src/lib.rs:255](../core/src/lib.rs#L255), [app/src/data.rs:108](../app/src/data.rs#L108).
 
 ## 10. Preparation, statistics and reproducibility
 
@@ -231,7 +231,7 @@ The completed release run for Example 89.45S 222.69E reported:
 
 The benchmark is a single Linux release run with empty decoded-chunk caches, not a statistical performance study. Files had just been hashed, so operating-system file caches may be warm. Network request time is excluded from the horizon timer. Raw terrain files are on local storage at /home/ubuntu/data/lola. The Sun elevation range is -2.075228 through 2.061621 degrees; values are not clipped to an expected visual range.
 
-Implementation: [prep/src/main.rs:105](../prep/src/main.rs#L105), [core/src/lib.rs:329](../core/src/lib.rs#L329).
+Implementation: [prep/src/main.rs:105](../prep/src/main.rs#L105), [core/src/lib.rs:285](../core/src/lib.rs#L285).
 
 ## 11. Published comparison and its limits
 
@@ -363,6 +363,8 @@ The alphabetical callable index below links each detected Rust method, qualified
 - `Horizon`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `horizon_from_dem`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `horizon_from_terrain`: [annotated core/src/lib.rs](#143-coresrclibrs)
+- `horizon_origin`: [annotated core/src/lib.rs](#143-coresrclibrs)
+- `horizons_row`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `hypot`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `include_str!`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
 - `insert`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
@@ -417,6 +419,7 @@ The alphabetical callable index below links each detected Rust method, qualified
 - `rev`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `rows_per_strip`: [annotated prep/src/dem_tests.rs](#145-prepsrcdem_testsrs)
 - `sample`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
+- `Self::validate_header`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
 - `serde_json::from_str`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
 - `set_position`: [annotated prep/src/dem_tests.rs](#145-prepsrcdem_testsrs)
 - `sin`: [annotated core/src/lib.rs](#143-coresrclibrs)
@@ -435,6 +438,7 @@ The alphabetical callable index below links each detected Rust method, qualified
 - `SUN_RADIUS_DEG`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `tan`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `Terrain`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
+- `terrain_ray`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `terrain_sampler_height_edges_and_errors`: [annotated core/src/terrain_tests.rs](#144-coresrcterrain_testsrs)
 - `TerrainSample`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `then_some`: [annotated core/src/lib.rs](#143-coresrclibrs)
@@ -456,6 +460,7 @@ The alphabetical callable index below links each detected Rust method, qualified
 - `unwrap_or`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `unwrap_or_else`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `usize::from`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
+- `validate_header`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
 - `vec!`: [annotated core/src/lib.rs](#143-coresrclibrs)
 - `Vec::new`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
 - `VecDeque::new`: [annotated prep/src/dem.rs](#141-prepsrcdemrs)
@@ -655,6 +660,38 @@ impl<R: Read + Seek> Raster<R>
 	{
 		// Decode TIFF/BigTIFF directory and compression information; C++ checked constructor.
 		let mut decoder = Decoder::new(reader).map_err(|e| e.to_string())?;
+		Self::validate_header(&mut decoder)?;
+		// Read named TIFF tags instead of hardcoded raster dimensions; C++ typed tag accessors.
+		let (w, h) = decoder.dimensions().map_err(|e| e.to_string())?;
+		let scale = decoder
+			.get_tag_f64_vec(Tag::ModelPixelScaleTag)
+			.map_err(|e| e.to_string())?;
+		let tie = decoder
+			.get_tag_f64_vec(Tag::ModelTiepointTag)
+			.map_err(|e| e.to_string())?;
+		let keys = decoder
+			.get_tag_u16_vec(Tag::GeoKeyDirectoryTag)
+			.map_err(|e| e.to_string())?;
+		let doubles = decoder
+			.get_tag_f64_vec(Tag::GeoDoubleParamsTag)
+			.map_err(|e| e.to_string())?;
+		// Validate projection and pixel semantics before allowing any samples; C++ checked factory.
+		let grid = grid(w, h, &scale, &tie, &keys, &doubles)?;
+		// TIFF abstracts both strips and tiles as chunks; C++ pair of dimensions.
+		let chunk = decoder.chunk_dimensions();
+		// Start with no decoded elevation payload; C++ aggregate initialization.
+		Ok(Self {
+			decoder,
+			grid,
+			chunk,
+			cache: HashMap::new(),
+			order: VecDeque::new(),
+			bytes: 0,
+		})
+	}
+
+	fn validate_header(decoder: &mut Decoder<R>) -> Result<(), String>
+	{
 		// PGDA DEMs are scalar IEEE float32, not encoded normals or integer radii; C++ type check.
 		if decoder.colortype().map_err(|e| e.to_string())? != tiff::ColorType::Gray(32)
 			|| decoder
@@ -688,33 +725,7 @@ impl<R: Read + Seek> Raster<R>
 		{
 			return Err("Expected NaN nodata".into());
 		}
-		// Read named TIFF tags instead of hardcoded raster dimensions; C++ typed tag accessors.
-		let (w, h) = decoder.dimensions().map_err(|e| e.to_string())?;
-		let scale = decoder
-			.get_tag_f64_vec(Tag::ModelPixelScaleTag)
-			.map_err(|e| e.to_string())?;
-		let tie = decoder
-			.get_tag_f64_vec(Tag::ModelTiepointTag)
-			.map_err(|e| e.to_string())?;
-		let keys = decoder
-			.get_tag_u16_vec(Tag::GeoKeyDirectoryTag)
-			.map_err(|e| e.to_string())?;
-		let doubles = decoder
-			.get_tag_f64_vec(Tag::GeoDoubleParamsTag)
-			.map_err(|e| e.to_string())?;
-		// Validate projection and pixel semantics before allowing any samples; C++ checked factory.
-		let grid = grid(w, h, &scale, &tie, &keys, &doubles)?;
-		// TIFF abstracts both strips and tiles as chunks; C++ pair of dimensions.
-		let chunk = decoder.chunk_dimensions();
-		// Start with no decoded elevation payload; C++ aggregate initialization.
-		Ok(Self {
-			decoder,
-			grid,
-			chunk,
-			cache: HashMap::new(),
-			order: VecDeque::new(),
-			bytes: 0,
-		})
+		Ok(())
 	}
 
 	// Fetch one scalar, decoding a chunk only on a cache miss; C++ checked member function.
@@ -999,6 +1010,60 @@ fn download(
 // Native command entry point; C++ main with an error-returning implementation.
 fn main() -> Result<(), Box<dyn Error>>
 {
+	let job = configuration()?;
+	let args = &job.args;
+	let height = job.height;
+	let expected = job.expected;
+	let sites = read_sites(&args[0])?;
+	// Reuse caches across sites; transpose converts optional failure into operation failure; C++ optional/expected conversion.
+	let mut terrain = args
+		.get(5)
+		.map(|p| dem::Terrain::open(Path::new(p)))
+		.transpose()?;
+	// Explicitly identify legacy runs without a DEM; C++ formatted diagnostic.
+	println!(
+		"Preparation: {expected} rows/body, observer height {height} m, terrain={}",
+		terrain.is_some()
+	);
+	// Preserve the previous output default; C++ path from optional argument.
+	let output = Path::new(args.get(4).map(String::as_str).unwrap_or("app/assets/data"));
+	// Bound remote request time; C++ HTTP client timeout.
+	let client = reqwest::blocking::Client::builder()
+		.timeout(Duration::from_secs(180))
+		.build()?;
+	// Create only the selected output directory; C++ filesystem::create_directories.
+	fs::create_dir_all(output)?;
+	// Process fixed sites rather than interactive map positions; C++ range-for over owned values.
+	for site in sites
+	{
+		prepare_site(&client, site, &mut terrain, &job, output)?;
+	}
+	// Signal success to the shell; C++ return success.
+	Ok(())
+}
+
+// Convert a label to the existing filename convention; C++ string utility.
+fn slug(name: &str) -> String
+{
+	// Split punctuation runs, lowercase nonempty ASCII words, then join; C++ ranges pipeline.
+	name.split(|c: char| !c.is_ascii_alphanumeric())
+		.filter(|s| !s.is_empty())
+		.map(str::to_ascii_lowercase)
+		.collect::<Vec<_>>()
+		.join("-")
+}
+
+struct Job
+{
+	args: Vec<String>,
+	start: NaiveDate,
+	seconds: i64,
+	expected: usize,
+	height: f64,
+}
+
+fn configuration() -> Result<Job, Box<dyn Error>>
+{
 	// Own arguments after the executable name; C++ vector<string> from argv.
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	// Append DEM directory and height without breaking the prior CLI; C++ argument-count guard.
@@ -1006,6 +1071,25 @@ fn main() -> Result<(), Box<dyn Error>>
 	{
 		return Err("Usage: prep <sites.json> <start YYYY-MM-DD> <stop YYYY-MM-DD> <step, e.g. 1h> [output-dir] [dem-dir] [observer-height-m, default 2]".into());
 	}
+	let (start, seconds, expected) = timing(&args)?;
+	// Instrument height is a nonnegative physical input; C++ optional argument parsing.
+	let height = args.get(6).map_or(Ok(2.0), |s| s.parse::<f64>())?;
+	if !height.is_finite() || height < 0.0
+	{
+		return Err("Observer height must be finite and nonnegative".into());
+	}
+
+	Ok(Job {
+		args,
+		start,
+		seconds,
+		expected,
+		height,
+	})
+}
+
+fn timing(args: &[String]) -> Result<(NaiveDate, i64, usize), Box<dyn Error>>
+{
 	// Parse inclusive UTC dates before making requests; C++ checked calendar parsing.
 	let start = NaiveDate::parse_from_str(&args[1], "%Y-%m-%d")?;
 	let stop = NaiveDate::parse_from_str(&args[2], "%Y-%m-%d")?;
@@ -1034,14 +1118,13 @@ fn main() -> Result<(), Box<dyn Error>>
 	{
 		return Err(format!("{expected} rows exceeds Horizons' 90,000-row limit").into());
 	}
-	// Instrument height is a nonnegative physical input; C++ optional argument parsing.
-	let height = args.get(6).map_or(Ok(2.0), |s| s.parse::<f64>())?;
-	if !height.is_finite() || height < 0.0
-	{
-		return Err("Observer height must be finite and nonnegative".into());
-	}
+	Ok((start, seconds, expected))
+}
+
+fn read_sites(path: &str) -> Result<Vec<Site>, Box<dyn Error>>
+{
 	// Decode fixed sites before opening large rasters; C++ JSON parser.
-	let sites: Vec<Site> = serde_json::from_str(&fs::read_to_string(&args[0])?)?;
+	let sites: Vec<Site> = serde_json::from_str(&fs::read_to_string(path)?)?;
 	if sites.is_empty()
 	{
 		return Err("At least one fixed site is required".into());
@@ -1063,173 +1146,168 @@ fn main() -> Result<(), Box<dyn Error>>
 			.into());
 		}
 	}
-	// Reuse caches across sites; transpose converts optional failure into operation failure; C++ optional/expected conversion.
-	let mut terrain = args
-		.get(5)
-		.map(|p| dem::Terrain::open(Path::new(p)))
-		.transpose()?;
-	// Explicitly identify legacy runs without a DEM; C++ formatted diagnostic.
-	println!(
-		"Preparation: {expected} rows/body, observer height {height} m, terrain={}",
-		terrain.is_some()
-	);
-	// Preserve the previous output default; C++ path from optional argument.
-	let output = Path::new(args.get(4).map(String::as_str).unwrap_or("app/assets/data"));
-	// Bound remote request time; C++ HTTP client timeout.
-	let client = reqwest::blocking::Client::builder()
-		.timeout(Duration::from_secs(180))
-		.build()?;
-	// Create only the selected output directory; C++ filesystem::create_directories.
-	fs::create_dir_all(output)?;
-	// Process fixed sites rather than interactive map positions; C++ range-for over owned values.
-	for site in sites
-	{
-		// Legacy no-DEM preparation uses the reference sphere; C++ initialized local.
-		let mut surface_height = 0.0;
-		// Optional mutable borrowing gives the sampler exclusive cache access; C++ optional reference.
-		let horizon = if let Some(dem) = &mut terrain
-		{
-			// Missing observer data must not silently become flat terrain; C++ checked optional extraction.
-			surface_height = dem
-				.sample(site.lat_deg, site.lon_deg)?
-				.ok_or("Site outside DEM coverage")?
-				.z_m;
-			// Include tile decoding and cold-cache work in wall time; C++ steady_clock.
-			let timer = Instant::now();
-			// Trace 1,440 bearings to available coverage edges, with no fixed production distance; C++ mutable lambda.
-			let h = horizon_from_terrain(
-				site.lat_deg,
-				site.lon_deg,
-				1440,
-				height,
-				None,
-				|lat, lon| dem.sample(lat, lon),
-			)?;
-			// Report exact extrema and a one-site elapsed benchmark; C++ reductions and stream output.
-			println!(
-				"Horizon {}: {} azimuths, surface {:.6} m, min {:.6} deg, max {:.6} deg, benchmark {:.3} s",
-				site.name,
-				h.h_deg.len(),
-				surface_height,
-				h.h_deg.iter().copied().fold(f32::INFINITY, f32::min),
-				h.h_deg.iter().copied().fold(f32::NEG_INFINITY, f32::max),
-				timer.elapsed().as_secs_f64()
-			);
-			Some(h)
-		}
-		else
-		{
-			None
-		};
-		// Query both bodies at the actual surface plus instrument altitude; C++ common scalar parameter.
-		let sun = download(
-			&client,
-			&site,
-			surface_height + height,
-			"'10'",
-			&args[1],
-			&args[2],
-			step,
-		)?;
-		let earth = download(
-			&client,
-			&site,
-			surface_height + height,
-			"'399'",
-			&args[1],
-			&args[2],
-			step,
-		)?;
-		// A UTC date endpoint is midnight in the service's sample grid; C++ chrono conversion.
-		let first = start.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
-		// Verify count, endpoints, cadence and exact inter-body UTC alignment; C++ vector predicates.
-		if sun.t != earth.t
-			|| sun.t.len() != expected
-			|| sun.t[0] != first
-			|| *sun.t.last().unwrap() != first + (expected as i64 - 1) * seconds
-			|| sun.t.windows(2).any(|t| t[1] - t[0] != seconds)
-		{
-			return Err("Unexpected Horizons row counts or mismatched timestamps".into());
-		}
-		// Only the legacy no-DEM path has a flat fallback; C++ local profile.
-		let flat = Horizon { h_deg: vec![0.0] };
-		let h = horizon.as_ref().unwrap_or(&flat);
-		// Evaluate visible solar area at every sample; C++ zipped transform.
-		let fractions: Vec<_> = sun
-			.el_deg
-			.iter()
-			.zip(&sun.az_deg)
-			.map(|(&el, &az)| sun_fraction(el, h.at(az)))
-			.collect();
-		// stats requires booleans: report any visible area, not average power; C++ predicate transform.
-		let any_sun: Vec<_> = fractions.iter().map(|&f| f > 0.0).collect();
-		// Report both allowed communication-margin endpoints; C++ range-for.
-		for margin in [EARTH_MARGIN_DEG, 1.0]
-		{
-			println!(
-				"Stats (Sun area > 0, Earth margin {margin} deg): {}",
-				serde_json::to_string(&stats(&sun.t, &any_sun, &visible(&earth, h, margin)))?
-			);
-		}
-		// Match stats' left-held weighting and durationless final sample; C++ weighted sum.
-		let mean_area: f64 = if sun.t.len() < 2
-		{
-			0.0
-		}
-		else
-		{
-			sun.t
-				.windows(2)
-				.zip(&fractions)
-				.map(|(t, &f)| (t[1] - t[0]) as f64 * f64::from(f))
-				.sum::<f64>()
-				/ (sun.t.last().unwrap() - sun.t[0]) as f64
-		};
-		println!("Mean visible solar area: {:.6}%", mean_area * 100.0);
-		// Add provenance only for real terrain; C++ optional factory with error propagation.
-		let provenance = horizon
-			.as_ref()
-			.map(|_| {
-				Ok::<_, String>(TerrainInfo {
-					observer_height_m: height,
-					surface_height_m: surface_height,
-					reference_radius_m: lunar_core::MOON_RADIUS_M,
-					assets: dem::assets()?,
-				})
+	Ok(sites)
+}
+
+fn prepare_site(
+	client: &reqwest::blocking::Client,
+	site: Site,
+	terrain: &mut Option<dem::Terrain>,
+	job: &Job,
+	output: &Path,
+) -> Result<(), Box<dyn Error>>
+{
+	let height = job.height;
+	let (surface_height, horizon) = site_horizon(&site, terrain, height)?;
+	let (sun, earth) = ephemerides(client, &site, surface_height + height, job)?;
+	report_stats(&sun, &earth, horizon.as_ref())?;
+	// Add provenance only for real terrain; C++ optional factory with error propagation.
+	let provenance = horizon
+		.as_ref()
+		.map(|_| {
+			Ok::<_, String>(TerrainInfo {
+				observer_height_m: height,
+				surface_height_m: surface_height,
+				reference_radius_m: lunar_core::MOON_RADIUS_M,
+				assets: dem::assets()?,
 			})
-			.transpose()?;
-		// Derive the existing stable ASCII basename; C++ path concatenation.
-		let path = output.join(format!("{}.json", slug(&site.name)));
-		// Transfer owned arrays into the serialized record; C++ aggregate moves.
-		let data = SiteData {
-			site,
-			sun,
-			earth,
-			horizon,
-			terrain: provenance,
-		};
-		// Pretty JSON is shared unchanged by native and web; C++ encoded file write.
-		fs::write(&path, serde_json::to_string_pretty(&data)?)?;
-		println!(
-			"Wrote {} ({} samples per track, {} bytes)",
-			path.display(),
-			data.sun.t.len(),
-			fs::metadata(&path)?.len()
-		);
-	}
-	// Signal success to the shell; C++ return success.
+		})
+		.transpose()?;
+	// Derive the existing stable ASCII basename; C++ path concatenation.
+	let path = output.join(format!("{}.json", slug(&site.name)));
+	// Transfer owned arrays into the serialized record; C++ aggregate moves.
+	let data = SiteData {
+		site,
+		sun,
+		earth,
+		horizon,
+		terrain: provenance,
+	};
+	// Pretty JSON is shared unchanged by native and web; C++ encoded file write.
+	fs::write(&path, serde_json::to_string_pretty(&data)?)?;
+	println!(
+		"Wrote {} ({} samples per track, {} bytes)",
+		path.display(),
+		data.sun.t.len(),
+		fs::metadata(&path)?.len()
+	);
 	Ok(())
 }
 
-// Convert a label to the existing filename convention; C++ string utility.
-fn slug(name: &str) -> String
+fn site_horizon(
+	site: &Site,
+	terrain: &mut Option<dem::Terrain>,
+	height: f64,
+) -> Result<(f64, Option<Horizon>), Box<dyn Error>>
 {
-	// Split punctuation runs, lowercase nonempty ASCII words, then join; C++ ranges pipeline.
-	name.split(|c: char| !c.is_ascii_alphanumeric())
-		.filter(|s| !s.is_empty())
-		.map(str::to_ascii_lowercase)
-		.collect::<Vec<_>>()
-		.join("-")
+	// Legacy no-DEM preparation uses the reference sphere; C++ initialized local.
+	let mut surface_height = 0.0;
+	// Optional mutable borrowing gives the sampler exclusive cache access; C++ optional reference.
+	let horizon = if let Some(dem) = terrain
+	{
+		// Missing observer data must not silently become flat terrain; C++ checked optional extraction.
+		surface_height = dem
+			.sample(site.lat_deg, site.lon_deg)?
+			.ok_or("Site outside DEM coverage")?
+			.z_m;
+		// Include tile decoding and cold-cache work in wall time; C++ steady_clock.
+		let timer = Instant::now();
+		// Trace 1,440 bearings to available coverage edges, with no fixed production distance; C++ mutable lambda.
+		let h = horizon_from_terrain(
+			site.lat_deg,
+			site.lon_deg,
+			1440,
+			height,
+			None,
+			|lat, lon| dem.sample(lat, lon),
+		)?;
+		// Report exact extrema and a one-site elapsed benchmark; C++ reductions and stream output.
+		println!(
+			"Horizon {}: {} azimuths, surface {:.6} m, min {:.6} deg, max {:.6} deg, benchmark {:.3} s",
+			site.name,
+			h.h_deg.len(),
+			surface_height,
+			h.h_deg.iter().copied().fold(f32::INFINITY, f32::min),
+			h.h_deg.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+			timer.elapsed().as_secs_f64()
+		);
+		Some(h)
+	}
+	else
+	{
+		None
+	};
+	Ok((surface_height, horizon))
+}
+
+fn ephemerides(
+	client: &reqwest::blocking::Client,
+	site: &Site,
+	observer_z: f64,
+	job: &Job,
+) -> Result<(Track, Track), Box<dyn Error>>
+{
+	let args = &job.args;
+	let start = job.start;
+	let seconds = job.seconds;
+	let expected = job.expected;
+	let step = &args[3];
+	// Query both bodies at the actual surface plus instrument altitude; C++ common scalar parameter.
+	let sun = download(client, site, observer_z, "'10'", &args[1], &args[2], step)?;
+	let earth = download(client, site, observer_z, "'399'", &args[1], &args[2], step)?;
+	// A UTC date endpoint is midnight in the service's sample grid; C++ chrono conversion.
+	let first = start.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+	// Verify count, endpoints, cadence and exact inter-body UTC alignment; C++ vector predicates.
+	if sun.t != earth.t
+		|| sun.t.len() != expected
+		|| sun.t[0] != first
+		|| *sun.t.last().unwrap() != first + (expected as i64 - 1) * seconds
+		|| sun.t.windows(2).any(|t| t[1] - t[0] != seconds)
+	{
+		return Err("Unexpected Horizons row counts or mismatched timestamps".into());
+	}
+	Ok((sun, earth))
+}
+
+fn report_stats(sun: &Track, earth: &Track, horizon: Option<&Horizon>)
+-> Result<(), Box<dyn Error>>
+{
+	// Only the legacy no-DEM path has a flat fallback; C++ local profile.
+	let flat = Horizon { h_deg: vec![0.0] };
+	let h = horizon.unwrap_or(&flat);
+	// Evaluate visible solar area at every sample; C++ zipped transform.
+	let fractions: Vec<_> = sun
+		.el_deg
+		.iter()
+		.zip(&sun.az_deg)
+		.map(|(&el, &az)| sun_fraction(el, h.at(az)))
+		.collect();
+	// stats requires booleans: report any visible area, not average power; C++ predicate transform.
+	let any_sun: Vec<_> = fractions.iter().map(|&f| f > 0.0).collect();
+	// Report both allowed communication-margin endpoints; C++ range-for.
+	for margin in [EARTH_MARGIN_DEG, 1.0]
+	{
+		println!(
+			"Stats (Sun area > 0, Earth margin {margin} deg): {}",
+			serde_json::to_string(&stats(&sun.t, &any_sun, &visible(earth, h, margin)))?
+		);
+	}
+	// Match stats' left-held weighting and durationless final sample; C++ weighted sum.
+	let mean_area: f64 = if sun.t.len() < 2
+	{
+		0.0
+	}
+	else
+	{
+		sun.t
+			.windows(2)
+			.zip(&fractions)
+			.map(|(t, &f)| (t[1] - t[0]) as f64 * f64::from(f))
+			.sum::<f64>()
+			/ (sun.t.last().unwrap() - sun.t[0]) as f64
+	};
+	println!("Mean visible solar area: {:.6}%", mean_area * 100.0);
+	Ok(())
 }
 ```
 
@@ -1453,25 +1531,7 @@ pub fn horizon_from_terrain(
 	{
 		return Err("Invalid horizon sampling parameters".into());
 	}
-	// A missing observer invalidates the whole calculation; C++ checked optional extraction.
-	let origin = sample(lat, lon)?.ok_or("Observer is outside valid DEM coverage")?;
-	// Validate the sampler contract before using spacing in a loop; C++ floating-point guards.
-	if !origin.z_m.is_finite()
-		|| origin.z_m <= -MOON_RADIUS_M
-		|| !origin.resolution_m.is_finite()
-		|| origin.resolution_m <= 0.0
-	{
-		return Err("Invalid observer terrain sample".into());
-	}
-	// The instrument is above the local radial surface, not above a flat zero plane; C++ double.
-	let z0 = origin.z_m + observer_height_m;
-	// Use half the finest starting ground pixel near the observer; C++ double.
-	let near = origin.resolution_m / 2.0;
-	// Refuse overflow or a spacing rounded to zero before entering the integration loop; C++ floating-point guard.
-	if !z0.is_finite() || near <= 0.0
-	{
-		return Err("Invalid observer height or spacing".into());
-	}
+	let (z0, near) = horizon_origin(lat, lon, observer_height_m, &mut sample)?;
 	// A quarter bearing-bin width is the adaptive angular target; C++ radians constant.
 	let angular = std::f64::consts::TAU / n_az as f64 / 4.0;
 	// A ray never wraps around the Moon; normal production termination is coverage, not this guard; C++ min.
@@ -1483,44 +1543,18 @@ pub fn horizon_from_terrain(
 	{
 		// Convert the bearing index into degrees; C++ double arithmetic.
 		let az = i as f64 * 360.0 / n_az as f64;
-		// Start off the observer so atan2 never evaluates the coincident point; C++ loop variable.
-		let mut s = near;
-		// Trace until the requested compatibility limit or continuous DEM edge; C++ while.
-		while s <= limit
-		{
-			// Advance on the sphere before projecting in the sampler; C++ structured binding.
-			let (p, l) = destination(lat, lon, az, s);
-			// Propagate decoding errors; only absent data terminates a ray; C++ expected/optional extraction.
-			let Some(point) = sample(p, l)?
-			else
-			{
-				break;
-			};
-			// A malformed sample is an error, never an artificial horizon gap; C++ guard.
-			if !point.z_m.is_finite()
-				|| point.z_m <= -MOON_RADIUS_M
-				|| !point.resolution_m.is_finite()
-				|| point.resolution_m <= 0.0
-			{
-				return Err("Invalid terrain sample".into());
-			}
-			// Retain the largest exact spherical elevation seen on this ray; C++ std::max.
-			*h = h.max(spherical_elevation(point.z_m, z0, s / MOON_RADIUS_M) as f32);
-			// Grow only up to half a local pixel: do not skip resolved narrow radial features; C++ min/max.
-			let next = s + (s * angular).max(near).min(point.resolution_m / 2.0);
-			// A broken callback must not stall a finite ray forever; C++ monotonic-progress guard.
-			if next <= s
-			{
-				return Err("Terrain spacing is below floating-point resolution".into());
-			}
-			// Advance only after validating floating-point progress; C++ assignment.
-			s = next;
-		}
-		// Fail closed if a ray has no noncoincident sample; C++ sentinel check.
-		if *h == -90.0
-		{
-			return Err(format!("No terrain samples at azimuth {az}"));
-		}
+		*h = terrain_ray(
+			HorizonRay {
+				lat,
+				lon,
+				z0,
+				near,
+				limit,
+				angular,
+			},
+			az,
+			&mut sample,
+		)?;
 	}
 	// Move the cyclic profile to the caller; C++ expected<Horizon>.
 	Ok(Horizon { h_deg })
@@ -1628,47 +1662,7 @@ pub fn parse_horizons(text: &str) -> Result<Track, String>
 	// Skip blank separator lines inside the data block; C++ filtered line iteration.
 	for line in body.lines().filter(|line| !line.trim().is_empty())
 	{
-		// Whitespace tokenization also accepts optional printed event flags; C++ vector<string_view>.
-		let fields: Vec<_> = line.split_whitespace().collect();
-		// Need a date, time, azimuth and elevation; C++ minimum-length guard.
-		if fields.len() < 4
-		{
-			// Preserve the failing row in diagnostics; C++ formatted error alternative.
-			return Err(format!("Invalid ephemeris row: {line}"));
-		}
-		// Accept both minute and second precision in Horizons UTC output; C++ alternate chrono parse formats.
-		let time = NaiveDateTime::parse_from_str(
-			&format!("{} {}", fields[0], fields[1]),
-			"%Y-%b-%d %H:%M",
-		)
-		.or_else(|_| {
-			NaiveDateTime::parse_from_str(
-				&format!("{} {}", fields[0], fields[1]),
-				"%Y-%b-%d %H:%M:%S",
-			)
-		})
-		.map_err(|e| format!("Invalid date: {e}"))?
-		.and_utc()
-		.timestamp();
-		// The requested two angles are the last two numeric columns, after any event flags; C++ reverse numeric-token iterator.
-		let mut angles = fields[2..]
-			.iter()
-			.rev()
-			.filter_map(|s| s.parse::<f32>().ok());
-		// Reverse order yields elevation first, then azimuth; C++ optional<float> extraction.
-		let el = angles.next();
-		let az = angles.next();
-		// A successful row must contain both values; C++ checked optional destructuring.
-		let (Some(az), Some(el)) = (az, el)
-		else
-		{
-			return Err(format!("Expected azimuth and elevation: {line}"));
-		};
-		// JSON and downstream geometry require finite directions; C++ std::isfinite.
-		if !az.is_finite() || !el.is_finite()
-		{
-			return Err(format!("Expected finite azimuth and elevation: {line}"));
-		}
+		let (time, az, el) = horizons_row(line)?;
 		// Reject duplicate or reversed sample times before appending; C++ optional-last comparison.
 		if track.t.last().is_some_and(|&last| time <= last)
 		{
@@ -1694,6 +1688,146 @@ mod tests;
 // Keep geometry-only terrain fixtures independent of TIFF I/O; C++ conditional test translation unit.
 #[cfg(test)]
 mod terrain_tests;
+
+fn horizons_row(line: &str) -> Result<(i64, f32, f32), String>
+{
+	// Whitespace tokenization also accepts optional printed event flags; C++ vector<string_view>.
+	let fields: Vec<_> = line.split_whitespace().collect();
+	// Need a date, time, azimuth and elevation; C++ minimum-length guard.
+	if fields.len() < 4
+	{
+		// Preserve the failing row in diagnostics; C++ formatted error alternative.
+		return Err(format!("Invalid ephemeris row: {line}"));
+	}
+	// Accept both minute and second precision in Horizons UTC output; C++ alternate chrono parse formats.
+	let time =
+		NaiveDateTime::parse_from_str(&format!("{} {}", fields[0], fields[1]), "%Y-%b-%d %H:%M")
+			.or_else(|_| {
+				NaiveDateTime::parse_from_str(
+					&format!("{} {}", fields[0], fields[1]),
+					"%Y-%b-%d %H:%M:%S",
+				)
+			})
+			.map_err(|e| format!("Invalid date: {e}"))?
+			.and_utc()
+			.timestamp();
+	// The requested two angles are the last two numeric columns, after any event flags; C++ reverse numeric-token iterator.
+	let mut angles = fields[2..]
+		.iter()
+		.rev()
+		.filter_map(|s| s.parse::<f32>().ok());
+	// Reverse order yields elevation first, then azimuth; C++ optional<float> extraction.
+	let el = angles.next();
+	let az = angles.next();
+	// A successful row must contain both values; C++ checked optional destructuring.
+	let (Some(az), Some(el)) = (az, el)
+	else
+	{
+		return Err(format!("Expected azimuth and elevation: {line}"));
+	};
+	// JSON and downstream geometry require finite directions; C++ std::isfinite.
+	if !az.is_finite() || !el.is_finite()
+	{
+		return Err(format!("Expected finite azimuth and elevation: {line}"));
+	}
+	Ok((time, az, el))
+}
+
+fn terrain_ray(
+	ray: HorizonRay,
+	az: f64,
+	sample: &mut impl FnMut(f64, f64) -> Result<Option<TerrainSample>, String>,
+) -> Result<f32, String>
+{
+	let HorizonRay {
+		lat,
+		lon,
+		z0,
+		near,
+		limit,
+		angular,
+	} = ray;
+	let mut value = -90.0_f32;
+	let h = &mut value;
+	// Start off the observer so atan2 never evaluates the coincident point; C++ loop variable.
+	let mut s = near;
+	// Trace until the requested compatibility limit or continuous DEM edge; C++ while.
+	while s <= limit
+	{
+		// Advance on the sphere before projecting in the sampler; C++ structured binding.
+		let (p, l) = destination(lat, lon, az, s);
+		// Propagate decoding errors; only absent data terminates a ray; C++ expected/optional extraction.
+		let Some(point) = sample(p, l)?
+		else
+		{
+			break;
+		};
+		// A malformed sample is an error, never an artificial horizon gap; C++ guard.
+		if !point.z_m.is_finite()
+			|| point.z_m <= -MOON_RADIUS_M
+			|| !point.resolution_m.is_finite()
+			|| point.resolution_m <= 0.0
+		{
+			return Err("Invalid terrain sample".into());
+		}
+		// Retain the largest exact spherical elevation seen on this ray; C++ std::max.
+		*h = h.max(spherical_elevation(point.z_m, z0, s / MOON_RADIUS_M) as f32);
+		// Grow only up to half a local pixel: do not skip resolved narrow radial features; C++ min/max.
+		let next = s + (s * angular).max(near).min(point.resolution_m / 2.0);
+		// A broken callback must not stall a finite ray forever; C++ monotonic-progress guard.
+		if next <= s
+		{
+			return Err("Terrain spacing is below floating-point resolution".into());
+		}
+		// Advance only after validating floating-point progress; C++ assignment.
+		s = next;
+	}
+	// Fail closed if a ray has no noncoincident sample; C++ sentinel check.
+	if *h == -90.0
+	{
+		return Err(format!("No terrain samples at azimuth {az}"));
+	}
+	Ok(*h)
+}
+
+struct HorizonRay
+{
+	lat: f64,
+	lon: f64,
+	z0: f64,
+	near: f64,
+	limit: f64,
+	angular: f64,
+}
+
+fn horizon_origin(
+	lat: f64,
+	lon: f64,
+	observer_height_m: f64,
+	sample: &mut impl FnMut(f64, f64) -> Result<Option<TerrainSample>, String>,
+) -> Result<(f64, f64), String>
+{
+	// A missing observer invalidates the whole calculation; C++ checked optional extraction.
+	let origin = sample(lat, lon)?.ok_or("Observer is outside valid DEM coverage")?;
+	// Validate the sampler contract before using spacing in a loop; C++ floating-point guards.
+	if !origin.z_m.is_finite()
+		|| origin.z_m <= -MOON_RADIUS_M
+		|| !origin.resolution_m.is_finite()
+		|| origin.resolution_m <= 0.0
+	{
+		return Err("Invalid observer terrain sample".into());
+	}
+	// The instrument is above the local radial surface, not above a flat zero plane; C++ double.
+	let z0 = origin.z_m + observer_height_m;
+	// Use half the finest starting ground pixel near the observer; C++ double.
+	let near = origin.resolution_m / 2.0;
+	// Refuse overflow or a spacing rounded to zero before entering the integration loop; C++ floating-point guard.
+	if !z0.is_finite() || near <= 0.0
+	{
+		return Err("Invalid observer height or spacing".into());
+	}
+	Ok((z0, near))
+}
 ```
 
 ### 14.4. core/src/terrain_tests.rs
