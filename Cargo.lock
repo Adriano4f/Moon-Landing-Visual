@@ -130,6 +130,7 @@ dependencies = [
  "eframe",
  "egui_plot",
  "env_logger",
+ "globe",
  "wasm-bindgen-futures",
  "web-sys",
 ]
@@ -1003,6 +1004,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "egui_glow",
+ "image",
+]
+
+[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1375,6 +1386,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

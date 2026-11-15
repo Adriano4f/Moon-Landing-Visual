@@ -4,11 +4,14 @@ Compare lunar south pole landing sites using Sun visibility for power and Earth 
 
 Start with [the skeleton guide for C++ programmers](docs/01-skeleton.md) for Rust basics, the math, every crate, and Windows/Linux setup. Continue with [the full code walkthrough](docs/02-code.md) for every source file and Rust API used.
 
+Read [the Moon renderer guide](docs/03-moon.md) for the separate OpenGL globe, NASA assets, surface normals, photometry, and color pipeline. The first two guides describe the original scientific workspace and placeholder app; the renderer guide documents its replacement.
+
 Open the folder in Zed with `zed .` or File > Open. Zed's Rust support is built in and downloads rust-analyzer automatically. There is no extension to install.
 
 - `core/` (`lunar_core`): pure geometry, terrain horizons, visibility, time-weighted statistics, and Horizons text parsing.
 - `prep/`: downloads JPL Horizons observer tracks and writes one JSON per site in `app/assets/data/`. Terrain is currently `null`; LOLA DEM loading is a future step.
-- `app/`: native and browser eframe placeholder. The panorama is coming.
+- `globe/`: rotating Moon renderer with embedded NASA color and LOLA-derived normal maps. It has no dependency on `lunar_core` and does not compute landing-site visibility.
+- `app/`: native and browser eframe shell displaying the globe against black. A terrain panorama is still future work. Native OpenGL or browser WebGL2 is required.
 
 ```sh
 cargo test -p lunar_core

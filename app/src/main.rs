@@ -6,8 +6,11 @@ fn main() -> eframe::Result
 	env_logger::init();
 	eframe::run_native(
 		"Moon Landing Visual",
-		eframe::NativeOptions::default(),
-		Box::new(|_| Ok(Box::new(app::MoonApp))),
+		eframe::NativeOptions {
+			depth_buffer: 24,
+			..Default::default()
+		},
+		Box::new(|cc| Ok(Box::new(app::MoonApp::new(cc)?))),
 	)
 }
 
@@ -28,8 +31,11 @@ fn main()
 		let result = eframe::WebRunner::new()
 			.start(
 				canvas,
-				eframe::WebOptions::default(),
-				Box::new(|_| Ok(Box::new(app::MoonApp))),
+				eframe::WebOptions {
+					depth_buffer: 24,
+					..Default::default()
+				},
+				Box::new(|cc| Ok(Box::new(app::MoonApp::new(cc)?))),
 			)
 			.await;
 		if let Some(loading) = document.get_element_by_id("loading_text")
