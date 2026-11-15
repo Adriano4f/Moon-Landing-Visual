@@ -301,32 +301,32 @@ fn explanations(ui: &mut egui::Ui)
 	// Each topic can be read independently on a small screen; C++ range-for over explanatory records.
 	for (title, text) in [
 		(
-			"Horizon and panorama",
-			"The strip shows the full circle around the site, with gray hills hiding the sky behind them.",
+			"View around the site",
+			"Gray hills hide whatever is behind them.",
 		),
 		(
-			"Sun and power",
-			"The yellow Sun percentage is how much of the Sun shows above the hills.",
+			"Sun",
+			"The percentage is how much of the Sun is above the hills.",
 		),
 		(
-			"Earth, direct communication and margin",
-			"Blue Earth counts as linked when it has a direct line of sight with a small safety margin above the hills.",
+			"Earth link",
+			"Earth is linked when it is a little above the hills.",
 		),
 		(
-			"Time and summaries",
-			"All times are UTC and the summary cards cover the whole chosen period.",
+			"Time",
+			"Times are UTC; the cards cover the whole chosen period.",
 		),
 		(
-			"Rays and camera",
-			"Rays point toward the Sun and Earth, and dragging or zooming moves the camera.",
+			"Rays",
+			"Rays point toward the Sun and Earth.",
 		),
 		(
-			"Lighting, earthshine and fill",
-			"Earthshine boost and fill light only brighten the picture, never the results.",
+			"Lighting",
+			"Extra light only brightens the picture, not the results.",
 		),
 		(
-			"Data sources and limits",
-			"Sun and Earth directions come from NASA Horizons and hills from NASA LOLA elevation maps.",
+			"Data",
+			"Sky positions and hills come from NASA.",
 		),
 	]
 	{
