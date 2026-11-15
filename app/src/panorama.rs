@@ -9,7 +9,7 @@ use eframe::egui::{self, Color32};
 // Import named plot items and explicit compass grid marks; C++ plotting library types.
 use egui_plot::{GridMark, HLine, Legend, Line, Plot, Points};
 // Import the track contract and solar disk visibility function; C++ project header declarations.
-use lunar_core::{Track, sun_fraction};
+use lunar_core::{EARTH_MARGIN_DEG, Track, sun_fraction};
 // Name half-open index intervals; C++ a pair of iterator offsets.
 use std::ops::Range;
 
@@ -26,6 +26,8 @@ pub(crate) struct Panorama
 	index: usize,
 	// Centered window length in hours; zero means the entire dataset; C++ int64_t.
 	hours: i64,
+	// User-selected angular clearance for a direct-to-Earth link; C++ float.
+	earth_margin_deg: f32,
 }
 
 // Define view-model member functions; C++ out-of-class member definitions.
@@ -41,6 +43,8 @@ impl Panorama
 			error: None,
 			index: 0,
 			hours: 720,
+			// Default to the user-selected half-degree communication margin; C++ scalar initializer.
+			earth_margin_deg: EARTH_MARGIN_DEG,
 		}
 	}
 
@@ -75,7 +79,7 @@ impl Panorama
 		// Announce the scientific view independently of the presentation globe; C++ submit a heading.
 		ui.heading("Sun and Earth panorama");
 		// Require validated data before building sliders or indexing arrays; C++ checked optional extraction.
-		let Some(data) = &self.data
+		let Some(data) = &mut self.data
 		else
 		{
 			// Preserve the asynchronous failure reason or pending state; C++ optional::value_or.
@@ -96,6 +100,18 @@ impl Panorama
 				"flat horizon (no DEM yet)"
 			},
 		);
+		// Add only the requested clearance control, retaining the existing layout; C++ immediate-mode float slider.
+		if ui
+			.add(
+				egui::Slider::new(&mut self.earth_margin_deg, 0.5..=1.0)
+					.suffix(" deg")
+					.text("Earth margin"),
+			)
+			.changed()
+		{
+			// Refresh the scientific cache once per edit, not every animation frame; C++ member call.
+			data.update_earth_margin(self.earth_margin_deg);
+		}
 		// Display the selected sample in UTC, not local browser time; C++ chrono formatting.
 		ui.strong(utc_label(data.sun.t[self.index]));
 		// Give the UTC slider the remaining row width; C++ set a local widget style dimension.
@@ -159,7 +175,7 @@ impl Panorama
 		);
 		// State that the percentage describes the solar disk, not time availability; C++ formatted label.
 		ui.label(format!(
-			"Sun {sun_status}; {:.1}% disk visible",
+			"Sun {sun_status}; {:.1}% disk area visible",
 			fraction * 100.0
 		));
 		// Borrow the aligned Earth direction; C++ two float locals.
@@ -179,7 +195,10 @@ impl Panorama
 			format!("Earth az {earth_az:.2}, el {earth_el:+.2} deg"),
 		);
 		// Clarify Earth is a center-above-horizon test, unlike the solar disk fraction; C++ string formatting.
-		ui.label(format!("Earth center {earth_status} horizon"));
+		ui.label(format!(
+			"Earth center {earth_status} horizon + {:.2} deg",
+			self.earth_margin_deg
+		));
 		// Select by UTC duration, allowing irregular future timestamps; C++ binary-search interval.
 		let range = window(&data.sun.t, self.index, self.hours);
 		// Explain endpoint clipping without crowding a phone with duplicate timestamps; C++ formatted count label.

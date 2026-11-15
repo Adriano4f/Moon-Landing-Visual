@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 // Import shared completion storage; C++ shared_ptr and a mutex-protected value.
 use eframe::egui::{self, mutex::Mutex};
 // Import the scientific contracts rather than duplicating visibility math; C++ includes their header.
-use lunar_core::{Horizon, Site, Track, visible};
+use lunar_core::{EARTH_MARGIN_DEG, Horizon, Site, Track, visible};
 // Import the derive trait used by the JSON decoder; C++ needs explicit serialization adapters.
 use serde::Deserialize;
 // Import reference-counted ownership; C++ std::shared_ptr.
@@ -91,10 +91,8 @@ impl SiteData
 			// A supplied profile must actually contain valid bins; C++ unexpected<string>.
 			return Err("A supplied horizon needs nonempty finite elevation bins".into());
 		}
-		// Represent the explicitly labeled flat fallback by a constant profile; C++ Horizon with vector{0}.
-		let flat = Horizon { h_deg: vec![0.0] };
-		// Run the scientific center-visibility function once, with zero margin; C++ const optional reference fallback.
-		data.earth_above = visible(&data.earth, data.horizon.as_ref().unwrap_or(&flat), 0.0);
+		// Cache the default communication clearance, not mere center-above-horizon visibility; C++ member call.
+		data.update_earth_margin(EARTH_MARGIN_DEG);
 		// Move the validated model to the caller; C++ expected containing a moved value.
 		Ok(data)
 	}
@@ -104,6 +102,19 @@ impl SiteData
 	{
 		// Do not use core's empty-profile -90 convention for missing DEM; C++ optional transform with fallback.
 		self.horizon.as_ref().map_or(0.0, |h| h.at(az))
+	}
+
+	// Recompute only when the user changes clearance; C++ mutating cache member function.
+	pub fn update_earth_margin(&mut self, margin_deg: f32)
+	{
+		// Retain the labeled flat fallback for older datasets; C++ temporary constant profile.
+		let flat = Horizon { h_deg: vec![0.0] };
+		// Delegate the strict elevation > horizon + margin criterion to core; C++ vector assignment from a scientific function.
+		self.earth_above = visible(
+			&self.earth,
+			self.horizon.as_ref().unwrap_or(&flat),
+			margin_deg,
+		);
 	}
 }
 
@@ -190,23 +201,23 @@ mod tests
 	// Register a test; C++ testing framework macro.
 	#[test]
 	// Verify the committed Horizons payload, not a substitute dataset; C++ a data regression test.
-	fn bundled_year_is_aligned_hourly_and_has_no_dem()
+	fn bundled_three_years_are_aligned_hourly_and_have_terrain()
 	{
 		// Embed only in the test executable, never in the app/WASM; C++ test-only binary fixture.
 		let d =
 			SiteData::parse(include_bytes!("../assets/data/example-89-45s-222-69e.json")).unwrap();
 		// Count inclusive interval endpoints; C++ assert equality.
-		assert_eq!(d.sun.t.len(), 8761);
+		assert_eq!(d.sun.t.len(), 26305);
 		// Keep the request below the published row limit; C++ assert comparison.
 		assert!(d.sun.t.len() < 90_000);
 		// Check UTC cadence, independently of sample count; C++ ranges::all_of adjacent pairs.
 		assert!(d.sun.t.windows(2).all(|t| t[1] - t[0] == 3600));
 		// Verify exact endpoint dates; C++ chrono time-point equality.
 		assert_eq!(d.sun.t[0], 1_798_761_600);
-		// Verify one non-leap year later; C++ assert equality.
-		assert_eq!(*d.sun.t.last().unwrap(), 1_830_297_600);
-		// No terrain decisions were introduced; C++ assert optional is empty.
-		assert!(d.horizon.is_none());
+		// Include the leap year 2028 through the 2030 endpoint; C++ assert equality.
+		assert_eq!(*d.sun.t.last().unwrap(), 1_893_456_000);
+		// Real terrain uses 1,440 geographic azimuths; C++ optional extraction and vector size assertion.
+		assert_eq!(d.horizon.as_ref().unwrap().h_deg.len(), 1440);
 	}
 
 	// Register a test; C++ testing framework macro.
@@ -217,9 +228,14 @@ mod tests
 		// Own an editable fixture; C++ JSON value.
 		let mut v = fixture();
 		// Parse the null fallback; C++ serialize then deserialize for schema coverage.
-		let flat = SiteData::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
+		let mut flat = SiteData::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
 		// Earth centers use strict elevation > horizon; C++ vector comparison.
 		assert_eq!(flat.earth_above, [true, false]);
+		// Raising the clearance to one degree rejects an Earth center exactly one degree high; C++ strict-threshold check.
+		flat.update_earth_margin(1.0);
+		assert_eq!(flat.earth_above, [false, false]);
+		// Restore the default before exercising the existing horizon checks; C++ cache update.
+		flat.update_earth_margin(EARTH_MARGIN_DEG);
 		// At the horizon half the solar disk is visible; C++ call the scientific function.
 		assert!((lunar_core::sun_fraction(0.0, flat.horizon_at(359.0)) - 0.5).abs() < 1e-6);
 		// Supply a synthetic cyclic profile, not a chosen DEM; C++ replace a JSON member.
@@ -230,6 +246,11 @@ mod tests
 		assert!((terrain.horizon_at(90.0) - 2.0).abs() < 1e-6);
 		// Both Earth samples are now below the supplied profile; C++ ranges::none_of.
 		assert!(terrain.earth_above.iter().all(|v| !v));
+		// Values straddling half a degree prove parsing uses the default clearance, not zero; C++ threshold fixture.
+		let mut close = fixture();
+		close["earth"]["el_deg"] = serde_json::json!([0.25, 0.75]);
+		let clearance = SiteData::parse(&serde_json::to_vec(&close).unwrap()).unwrap();
+		assert_eq!(clearance.earth_above, [false, true]);
 	}
 
 	// Register a test; C++ testing framework macro.

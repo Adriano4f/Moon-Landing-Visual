@@ -60,9 +60,11 @@ fn wall_angle_and_local_azimuth()
 		dem.z_m[15 * dem.w + c] = 100.0;
 	}
 	let horizon = horizon_from_dem(&dem, -90.0, 90.0, 4, 800.0);
-	let expected = ((100.0 - 500.0_f64.powi(2) / (2.0 * MOON_RADIUS_M)) / 500.0)
-		.atan()
-		.to_degrees() as f32;
+	// The raised surface also changes the horizontal baseline; C++ exact radius-vector formula.
+	let beta = 500.0 / MOON_RADIUS_M;
+	let expected = (((MOON_RADIUS_M + 100.0) * beta.cos() - MOON_RADIUS_M)
+		.atan2((MOON_RADIUS_M + 100.0) * beta.sin()))
+	.to_degrees() as f32;
 	assert!((horizon.h_deg[1] - expected).abs() < 1e-4);
 	assert!(horizon.h_deg[3] < 0.0);
 }
@@ -161,6 +163,15 @@ fn visibility_and_solar_disc()
 	assert_eq!(sun_fraction(0.0, 0.0), 0.5);
 	assert_eq!(sun_fraction(-1.0, 0.0), 0.0);
 	assert_eq!(sun_fraction(1.0, 0.0), 1.0);
+	// At half a radius above the horizon the area is not 75 percent; C++ analytic circular segment.
+	let midpoint = (2.0 / 3.0 + 3.0_f64.sqrt() / (4.0 * std::f64::consts::PI)) as f32;
+	assert!((sun_fraction(SUN_RADIUS_DEG / 2.0, 0.0) - midpoint).abs() < 1e-6);
+	// Complementary offsets cover the corresponding lower segment; C++ symmetry check.
+	assert!((sun_fraction(-SUN_RADIUS_DEG / 2.0, 0.0) - (1.0 - midpoint)).abs() < 1e-6);
+	// Tangency is exactly zero or one, while malformed scalar input remains visibly invalid; C++ boundary checks.
+	assert_eq!(sun_fraction(-SUN_RADIUS_DEG, 0.0), 0.0);
+	assert_eq!(sun_fraction(SUN_RADIUS_DEG, 0.0), 1.0);
+	assert!(sun_fraction(f32::NAN, 0.0).is_nan());
 	let track = Track {
 		t: vec![0, 1],
 		az_deg: vec![0.0, 360.0],

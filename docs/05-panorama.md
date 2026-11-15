@@ -4,7 +4,7 @@
 
 The panorama answers a local question: at one landing site and one UTC time, where are the Sun and Earth relative to the horizon? Azimuth is the horizontal direction, measured clockwise from geographic north: north is 0 degrees, east 90, south 180, and west 270. Elevation is the vertical angle above the local horizontal plane. Positive elevation is up; negative elevation is down. This graph is an angular diagram, not a perspective photograph. Its horizontal endpoints represent the same north direction, but are separate positions on the rectangular graph.
 
-The yellow track is the Sun, the blue track is Earth, and larger dots identify the selected sample. The gray horizontal line is the zero-degree reference. When a terrain profile exists, a red line shows that profile. With the committed data it does not exist: the label says exactly `flat horizon (no DEM yet)`. A flat result is not a claim that a real lunar site has unobstructed terrain. Selecting a DEM source, reader, and maximum ray distance is deferred. No DEM ingestion is implemented here.
+The yellow track is the Sun, the blue track is Earth, and larger dots identify the selected sample. The gray horizontal line is the zero-degree reference. A red line shows the committed real terrain profile. The app still says exactly `flat horizon (no DEM yet)` for legacy JSON with a null horizon; that fallback is not a prediction of real lunar terrain. DEM ingestion now lives in prep, not in this UI. Read [the terrain guide](06-terrain.md) for the PGDA sources, GeoTIFF reader, observer height, and ray geometry. No UI redesign or interactive site/region selection is included.
 
 The rotating globe gives geographic context. Its fixed presentation light, one-minute rotation, and southward viewing tilt do not follow the selected UTC time. Do not infer power or communication availability from globe brightness. Only the Horizons tracks and core visibility functions drive the scientific readouts. The globe remains a separate crate with no dependency on lunar_core; the app passes only latitude and longitude to its marker setter.
 
@@ -15,14 +15,15 @@ Read [rendering from zero](03-moon.md) for vectors, matrices, projection, normal
 Run this command from the workspace root:
 
 ```sh
-cargo run -p prep -- sites.json 2027-01-01 2028-01-01 1h app/assets/data
+python3 prep/download_dem.py /home/ubuntu/data/lola
+cargo run -p prep --release -- sites.json 2027-01-01 2030-01-01 1h app/assets/data /home/ubuntu/data/lola 2
 ```
 
-The existing prep CLI accepts site file, start date, stop date, step, and optional output directory. Its Horizons requests use observer center `coord@301`, geodetic longitude/latitude with zero altitude, quantities 4 for azimuth/elevation, Sun body 10, and Earth body 399. The Horizons API is <https://ssd.jpl.nasa.gov/api/horizons.api>. Request construction and parsing are in [prep/src/main.rs](../prep/src/main.rs); neither was changed for this feature. Times are UTC. Both interval endpoints are included, so a 365-day year has $365\cdot24+1=8{,}761$ hourly samples. Each body request is below 90,000 rows; even the combined count is only 17,522.
+The prep CLI accepts site file, start date, stop date, step, optional output directory, optional external DEM directory, and optional observer height in meters (default 2). Horizons requests use observer center `coord@301`, geodetic longitude/latitude with DEM surface height plus observer height converted to kilometers, quantities 4 for azimuth/elevation, Sun body 10, and Earth body 399. The Horizons API is <https://ssd.jpl.nasa.gov/api/horizons.api>. Request construction is in [prep/src/main.rs](../prep/src/main.rs). Times are UTC. Both endpoints are included: $1{,}096\cdot24+1=26{,}305$ samples per body, including leap year 2028, below 90,000 rows per request.
 
-The resulting `app/assets/data/example-89-45s-222-69e.json` is 896,617 bytes. It contains the example site at 89.45 degrees south, 222.69 degrees east, two aligned 8,761-sample tracks, and `horizon: null`. UTC Unix seconds count seconds since 1970-01-01 00:00 UTC; here the first and last epochs are 1,798,761,600 and 1,830,297,600. The file is loaded at runtime, not embedded in the release executable or WASM.
+The resulting `app/assets/data/example-89-45s-222-69e.json` contains the example site at 89.45 degrees south, 222.69 degrees east, two aligned 26,305-sample tracks, 1,440 terrain bins, and terrain provenance. UTC Unix seconds count seconds since 1970-01-01 00:00 UTC; the first and last epochs are 1,798,761,600 and 1,893,456,000. The file is loaded at runtime, not embedded in the release executable or WASM. The terrain guide records its generated size and numerical checks.
 
-The initial selected sample is 2027-01-01 00:00 UTC. Its Sun direction is azimuth 40.433292 degrees, elevation +1.432576 degrees. Its Earth direction is azimuth 144.46072 degrees, elevation -6.695661 degrees. Earth's azimuth is near the geometric mean direction of approximately 137 degrees, but lunar libration makes it vary; it must not be forced to 137. The full-year solar elevation range is -2.075227 to +2.061621 degrees, not a hard limit of plus/minus 1.6 degrees. The initial sample is within the requested approximate plus/minus 1.6-degree visual check. Plotting never clips scientific values to an expected range.
+The initial selected sample is 2027-01-01 00:00 UTC. Earth's azimuth is near the geometric mean direction of approximately 137 degrees, but lunar libration makes it vary; it must not be forced to 137. Solar elevation near this site is not restricted to a hard limit of plus/minus 1.6 degrees. Plotting never clips scientific values to an expected range. The three-year tracks now use the actual DEM-based observer altitude rather than the earlier zero-altitude demonstration.
 
 `SiteData::parse` in [app/src/data.rs](../app/src/data.rs) uses serde's derived Deserialize implementation and serde_json::from_slice. Derive generates a decoder from named struct fields; C++ usually requires explicit adapters. The borrowed byte slice `&[u8]` is comparable to `std::span<const uint8_t>`. `#[serde(skip)]` leaves the Earth visibility cache out of the file schema. This cache starts empty and is filled only after validation.
 
@@ -42,7 +43,7 @@ A stable widget identity lets egui associate this frame's description with its p
 
 CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
 
-Implementation: [app/src/lib.rs:42](../app/src/lib.rs#L42), [app/src/panorama.rs:73](../app/src/panorama.rs#L73).
+Implementation: [app/src/lib.rs:42](../app/src/lib.rs#L42), [app/src/panorama.rs:77](../app/src/panorama.rs#L77).
 
 ## 4. Asynchronous loading and ownership
 
@@ -52,9 +53,9 @@ On native targets, std::thread::spawn moves a completion callback into a worker.
 
 On web targets, ehttp::Request::get requests assets/data/example-89-45s-222-69e.json. app/index.html already tells Trunk to copy the assets directory. ehttp::fetch completes asynchronously; the callback checks Response::ok because HTTP errors can be successful transports. Response::bytes is then decoded with the same parser. Browser same-origin and CORS rules still apply. The data request does not change the globe's per-tier texture fetch policy.
 
-The completion stores Some(Ok(data)) or Some(Err(message)) under a short mutex guard and calls Context::request_repaint. The UI calls Option::take under the same mutex: this moves the completion out and leaves None. It does not clone 8,761 samples each frame. Success moves into Panorama's data field; failure remains a visible diagnostic. While pending, the pane says Loading Horizons data. A failed load never substitutes synthetic tracks. Native and web branches are selected by cfg, comparable to C++ conditional compilation, rather than by a runtime branch that includes both implementations.
+The completion stores Some(Ok(data)) or Some(Err(message)) under a short mutex guard and calls Context::request_repaint. The UI calls Option::take under the same mutex: this moves the completion out and leaves None. It does not clone 26,305 samples each frame. Success moves into Panorama's data field; failure remains a visible diagnostic. While pending, the pane says Loading Horizons data. A failed load never substitutes synthetic tracks. Native and web branches are selected by cfg, comparable to C++ conditional compilation, rather than by a runtime branch that includes both implementations.
 
-Implementation: [app/src/data.rs:114](../app/src/data.rs#L114), [app/src/panorama.rs:48](../app/src/panorama.rs#L48).
+Implementation: [app/src/data.rs:125](../app/src/data.rs#L125), [app/src/panorama.rs:52](../app/src/panorama.rs#L52).
 
 ## 5. UTC selection and window mathematics
 
@@ -70,7 +71,7 @@ The first displayed index is the first timestamp at least $t_{\min}$; the exclus
 
 For example, on hourly timestamps [0,3600,7200], a 1-hour centered window around 3600 covers [1800,5400] seconds and contains only index 1. A 2-hour centered window covers [0,7200] and includes all three. Tests also use a deliberately irregular time grid to distinguish true duration selection from a sample-count approximation.
 
-Implementation: [app/src/panorama.rs:302](../app/src/panorama.rs#L302), [app/src/panorama.rs:279](../app/src/panorama.rs#L279).
+Implementation: [app/src/panorama.rs:321](../app/src/panorama.rs#L321), [app/src/panorama.rs:298](../app/src/panorama.rs#L298).
 
 ## 6. Plot construction and north-wrap handling
 
@@ -84,13 +85,13 @@ An empty selection yields no lines. A one-point piece remains safe; the separate
 
 For a supplied Horizon with $m$ uniform bins, the renderer samples at $\max(m,360)$ intervals including both endpoints. Each point calls Horizon::at; all original bin boundaries are included, and the 360-degree endpoint interpolates back to north. It does not read a DEM or recompute terrain rays. The terrain line remains distinct from the zero reference.
 
-Implementation: [app/src/panorama.rs:193](../app/src/panorama.rs#L193), [app/src/panorama.rs:317](../app/src/panorama.rs#L317).
+Implementation: [app/src/panorama.rs:212](../app/src/panorama.rs#L212), [app/src/panorama.rs:336](../app/src/panorama.rs#L336).
 
 ## 7. Visibility and the rotating site marker
 
-For Sun azimuth $A_S$, use the local horizon $h_S=\operatorname{Horizon.at}(A_S)$, or exactly zero if absent. lunar_core::sun_fraction returns its existing clipped linear approximation to visible disk fraction. It is not a new circular-segment integration and not a time-availability percentage. Zero means below, one means fully above, and intermediate values are labeled partly above. At center elevation equal to horizon, the core returns one half. A nonzero fraction means some sunlight is visible under this approximation; no atmosphere or refraction is modeled.
+For Sun azimuth $A_S$, use the local horizon $h_S=\operatorname{Horizon.at}(A_S)$, or exactly zero if absent. lunar_core::sun_fraction now integrates the visible circular-segment area, not the visible diameter. It is not a time-availability percentage. Zero means below, one means fully above, and intermediate values are labeled partly above. At center elevation equal to horizon, one half of the disk area is visible. The cheap model holds the horizon elevation constant across the solar disk; it does not integrate a jagged skyline across every solar pixel. The [terrain guide](06-terrain.md#9-visible-solar-area-and-earth-clearance) derives the formula.
 
-For Earth use lunar_core::visible with margin zero. This is a strict center-elevation test, $E_E>h_E$, not a finite Earth disk calculation. Equality is below. The loader caches that bool vector once after validation. The UI merely indexes the selected result. The Sun and Earth can legitimately have different visibility at the same moment. The initial Sun is fully above flat zero while the Earth center is below.
+For Earth use lunar_core::visible with default margin $m=0.5$ degrees and the strict center-elevation test $E_E>h_E+m$, not a finite Earth disk calculation. Equality is below. One added slider restricts $m$ to 0.5 through 1.0 degrees; this is a communication-clearance choice, not antenna gain or a DSN station model. The loader caches the default bool vector after validation. Slider::new borrows Panorama's float mutably, suffix adds the units, and Response::changed triggers SiteData::update_earth_margin only after an edit. In C++, these correspond to a float reference, widget caption, and change-event boolean. The UI otherwise only indexes the cache. The Sun and Earth may legitimately have different visibility at the same moment.
 
 The renderer's geographic convention maps latitude $\phi$ and east longitude $\lambda$ into a unit vector:
 
@@ -185,7 +186,7 @@ use chrono::{DateTime, Utc};
 // Import shared completion storage; C++ shared_ptr and a mutex-protected value.
 use eframe::egui::{self, mutex::Mutex};
 // Import the scientific contracts rather than duplicating visibility math; C++ includes their header.
-use lunar_core::{Horizon, Site, Track, visible};
+use lunar_core::{EARTH_MARGIN_DEG, Horizon, Site, Track, visible};
 // Import the derive trait used by the JSON decoder; C++ needs explicit serialization adapters.
 use serde::Deserialize;
 // Import reference-counted ownership; C++ std::shared_ptr.
@@ -271,10 +272,8 @@ impl SiteData
 			// A supplied profile must actually contain valid bins; C++ unexpected<string>.
 			return Err("A supplied horizon needs nonempty finite elevation bins".into());
 		}
-		// Represent the explicitly labeled flat fallback by a constant profile; C++ Horizon with vector{0}.
-		let flat = Horizon { h_deg: vec![0.0] };
-		// Run the scientific center-visibility function once, with zero margin; C++ const optional reference fallback.
-		data.earth_above = visible(&data.earth, data.horizon.as_ref().unwrap_or(&flat), 0.0);
+		// Cache the default communication clearance, not mere center-above-horizon visibility; C++ member call.
+		data.update_earth_margin(EARTH_MARGIN_DEG);
 		// Move the validated model to the caller; C++ expected containing a moved value.
 		Ok(data)
 	}
@@ -284,6 +283,19 @@ impl SiteData
 	{
 		// Do not use core's empty-profile -90 convention for missing DEM; C++ optional transform with fallback.
 		self.horizon.as_ref().map_or(0.0, |h| h.at(az))
+	}
+
+	// Recompute only when the user changes clearance; C++ mutating cache member function.
+	pub fn update_earth_margin(&mut self, margin_deg: f32)
+	{
+		// Retain the labeled flat fallback for older datasets; C++ temporary constant profile.
+		let flat = Horizon { h_deg: vec![0.0] };
+		// Delegate the strict elevation > horizon + margin criterion to core; C++ vector assignment from a scientific function.
+		self.earth_above = visible(
+			&self.earth,
+			self.horizon.as_ref().unwrap_or(&flat),
+			margin_deg,
+		);
 	}
 }
 
@@ -370,23 +382,23 @@ mod tests
 	// Register a test; C++ testing framework macro.
 	#[test]
 	// Verify the committed Horizons payload, not a substitute dataset; C++ a data regression test.
-	fn bundled_year_is_aligned_hourly_and_has_no_dem()
+	fn bundled_three_years_are_aligned_hourly_and_have_terrain()
 	{
 		// Embed only in the test executable, never in the app/WASM; C++ test-only binary fixture.
 		let d =
 			SiteData::parse(include_bytes!("../assets/data/example-89-45s-222-69e.json")).unwrap();
 		// Count inclusive interval endpoints; C++ assert equality.
-		assert_eq!(d.sun.t.len(), 8761);
+		assert_eq!(d.sun.t.len(), 26305);
 		// Keep the request below the published row limit; C++ assert comparison.
 		assert!(d.sun.t.len() < 90_000);
 		// Check UTC cadence, independently of sample count; C++ ranges::all_of adjacent pairs.
 		assert!(d.sun.t.windows(2).all(|t| t[1] - t[0] == 3600));
 		// Verify exact endpoint dates; C++ chrono time-point equality.
 		assert_eq!(d.sun.t[0], 1_798_761_600);
-		// Verify one non-leap year later; C++ assert equality.
-		assert_eq!(*d.sun.t.last().unwrap(), 1_830_297_600);
-		// No terrain decisions were introduced; C++ assert optional is empty.
-		assert!(d.horizon.is_none());
+		// Include the leap year 2028 through the 2030 endpoint; C++ assert equality.
+		assert_eq!(*d.sun.t.last().unwrap(), 1_893_456_000);
+		// Real terrain uses 1,440 geographic azimuths; C++ optional extraction and vector size assertion.
+		assert_eq!(d.horizon.as_ref().unwrap().h_deg.len(), 1440);
 	}
 
 	// Register a test; C++ testing framework macro.
@@ -397,9 +409,14 @@ mod tests
 		// Own an editable fixture; C++ JSON value.
 		let mut v = fixture();
 		// Parse the null fallback; C++ serialize then deserialize for schema coverage.
-		let flat = SiteData::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
+		let mut flat = SiteData::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
 		// Earth centers use strict elevation > horizon; C++ vector comparison.
 		assert_eq!(flat.earth_above, [true, false]);
+		// Raising the clearance to one degree rejects an Earth center exactly one degree high; C++ strict-threshold check.
+		flat.update_earth_margin(1.0);
+		assert_eq!(flat.earth_above, [false, false]);
+		// Restore the default before exercising the existing horizon checks; C++ cache update.
+		flat.update_earth_margin(EARTH_MARGIN_DEG);
 		// At the horizon half the solar disk is visible; C++ call the scientific function.
 		assert!((lunar_core::sun_fraction(0.0, flat.horizon_at(359.0)) - 0.5).abs() < 1e-6);
 		// Supply a synthetic cyclic profile, not a chosen DEM; C++ replace a JSON member.
@@ -410,6 +427,11 @@ mod tests
 		assert!((terrain.horizon_at(90.0) - 2.0).abs() < 1e-6);
 		// Both Earth samples are now below the supplied profile; C++ ranges::none_of.
 		assert!(terrain.earth_above.iter().all(|v| !v));
+		// Values straddling half a degree prove parsing uses the default clearance, not zero; C++ threshold fixture.
+		let mut close = fixture();
+		close["earth"]["el_deg"] = serde_json::json!([0.25, 0.75]);
+		let clearance = SiteData::parse(&serde_json::to_vec(&close).unwrap()).unwrap();
+		assert_eq!(clearance.earth_above, [false, true]);
 	}
 
 	// Register a test; C++ testing framework macro.
@@ -460,7 +482,7 @@ use eframe::egui::{self, Color32};
 // Import named plot items and explicit compass grid marks; C++ plotting library types.
 use egui_plot::{GridMark, HLine, Legend, Line, Plot, Points};
 // Import the track contract and solar disk visibility function; C++ project header declarations.
-use lunar_core::{Track, sun_fraction};
+use lunar_core::{EARTH_MARGIN_DEG, Track, sun_fraction};
 // Name half-open index intervals; C++ a pair of iterator offsets.
 use std::ops::Range;
 
@@ -477,6 +499,8 @@ pub(crate) struct Panorama
 	index: usize,
 	// Centered window length in hours; zero means the entire dataset; C++ int64_t.
 	hours: i64,
+	// User-selected angular clearance for a direct-to-Earth link; C++ float.
+	earth_margin_deg: f32,
 }
 
 // Define view-model member functions; C++ out-of-class member definitions.
@@ -492,6 +516,8 @@ impl Panorama
 			error: None,
 			index: 0,
 			hours: 720,
+			// Default to the user-selected half-degree communication margin; C++ scalar initializer.
+			earth_margin_deg: EARTH_MARGIN_DEG,
 		}
 	}
 
@@ -526,7 +552,7 @@ impl Panorama
 		// Announce the scientific view independently of the presentation globe; C++ submit a heading.
 		ui.heading("Sun and Earth panorama");
 		// Require validated data before building sliders or indexing arrays; C++ checked optional extraction.
-		let Some(data) = &self.data
+		let Some(data) = &mut self.data
 		else
 		{
 			// Preserve the asynchronous failure reason or pending state; C++ optional::value_or.
@@ -547,6 +573,18 @@ impl Panorama
 				"flat horizon (no DEM yet)"
 			},
 		);
+		// Add only the requested clearance control, retaining the existing layout; C++ immediate-mode float slider.
+		if ui
+			.add(
+				egui::Slider::new(&mut self.earth_margin_deg, 0.5..=1.0)
+					.suffix(" deg")
+					.text("Earth margin"),
+			)
+			.changed()
+		{
+			// Refresh the scientific cache once per edit, not every animation frame; C++ member call.
+			data.update_earth_margin(self.earth_margin_deg);
+		}
 		// Display the selected sample in UTC, not local browser time; C++ chrono formatting.
 		ui.strong(utc_label(data.sun.t[self.index]));
 		// Give the UTC slider the remaining row width; C++ set a local widget style dimension.
@@ -610,7 +648,7 @@ impl Panorama
 		);
 		// State that the percentage describes the solar disk, not time availability; C++ formatted label.
 		ui.label(format!(
-			"Sun {sun_status}; {:.1}% disk visible",
+			"Sun {sun_status}; {:.1}% disk area visible",
 			fraction * 100.0
 		));
 		// Borrow the aligned Earth direction; C++ two float locals.
@@ -630,7 +668,10 @@ impl Panorama
 			format!("Earth az {earth_az:.2}, el {earth_el:+.2} deg"),
 		);
 		// Clarify Earth is a center-above-horizon test, unlike the solar disk fraction; C++ string formatting.
-		ui.label(format!("Earth center {earth_status} horizon"));
+		ui.label(format!(
+			"Earth center {earth_status} horizon + {:.2} deg",
+			self.earth_margin_deg
+		));
 		// Select by UTC duration, allowing irregular future timestamps; C++ binary-search interval.
 		let range = window(&data.sun.t, self.index, self.hours);
 		// Explain endpoint clipping without crowding a phone with duplicate timestamps; C++ formatted count label.
