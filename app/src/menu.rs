@@ -98,7 +98,8 @@ fn section(
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.strong(title);
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, explanation);
+			if explanation.is_empty() { ui.set_min_height(ui.spacing().interact_size.y); }
+			else { question(ui, explanation); }
 		})
 		.body(body);
 }
@@ -349,19 +350,22 @@ impl MoonApp
 			"Choose an exact published observation point. Nearby points may overlap on the globe; the list always distinguishes them.",
 			|ui| {
 				// Submit this immediate-mode widget or explanation; C++ UI helper call.
-				ui.horizontal_wrapped(|ui| {
+				ui.horizontal(|ui| {
 					let width = (ui.available_width() - 54.0).max(100.0);
-					egui::ComboBox::from_id_salt("published-site")
-						.width(width)
-						.wrap_mode(egui::TextWrapMode::Truncate)
-						.selected_text(&self.catalog[self.selected].name)
-						.show_ui(ui, |ui| {
-							// Visit each explanatory item in order; C++ range-for loop.
-							for (id, entry) in self.catalog.iter().enumerate()
-							{
-								ui.selectable_value(&mut self.selected, id, &entry.name);
-							}
-						});
+					ui.scope(|ui| {
+						ui.set_max_width(width);
+						egui::ComboBox::from_id_salt("published-site")
+							.width(width)
+							.wrap_mode(egui::TextWrapMode::Truncate)
+							.selected_text(&self.catalog[self.selected].name)
+							.show_ui(ui, |ui| {
+								// Visit each explanatory item in order; C++ range-for loop.
+								for (id, entry) in self.catalog.iter().enumerate()
+								{
+									ui.selectable_value(&mut self.selected, id, &entry.name);
+								}
+							});
+					});
 					// Submit this immediate-mode widget or explanation; C++ UI helper call.
 					let text =
 						"Choose a published point. Nearby places can have very different hills.";
@@ -380,7 +384,7 @@ impl MoonApp
 			ui,
 			"Time",
 			true,
-			"Choose the shared UTC date, period and step. Statistics cover that period; coarse steps can miss short events.",
+			"",
 			|ui| {
 				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]

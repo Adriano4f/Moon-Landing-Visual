@@ -220,7 +220,6 @@ impl Panorama
 					}
 				});
 			// Preserve the original plot as an explicit alternative; C++ bool checkbox.
-			globe::help::question(ui, "Choose the faint path length around the current date. Paths stay inside your selected period; this setting does not change statistics.");
 		});
 	}
 	// Recalculate scientific clearance and summaries from one menu control; C++ member function.

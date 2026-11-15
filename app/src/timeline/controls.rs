@@ -10,7 +10,6 @@ impl Timeline
 		ui.horizontal(|ui| {
 			ui.add(egui::Slider::new(&mut seconds,self.options.period.start as f64..=self.options.period.end as f64)
 				.show_value(false).step_by(1.0).text("Time"));
-			globe::help::question(ui,"Slide through the selected period. Pictures interpolate between hourly directions; short events can still be missed.");
 		});
 		*cursor = seconds.round() as i64;
 		ui.horizontal(|ui| {
@@ -35,8 +34,7 @@ impl Timeline
 		let now = ui.input(|i| i.time);
 		ui.horizontal(|ui| {
 			for (i,direction) in [-1,1].into_iter().enumerate() {
-				let step=if self.options.step==Step::Month {"1 month"} else {self.options.step.label()};
-				let label=if direction<0 {format!("< {step}")} else {format!("{step} >")};
+				let label=if direction<0 {"<"} else {">"};
 				let response=ui.button(label);
 				let down=self.repeat[i].held(response.is_pointer_button_down_on(),ui.input(|i|i.pointer.primary_down()));
 				if self.repeat[i].tick(down,response.clicked(),now)
@@ -45,7 +43,7 @@ impl Timeline
 				}
 				if down { ui.ctx().request_repaint(); }
 			}
-			globe::help::question(ui,"Tap to move one step, or hold to repeat. Step also sets statistics sampling; coarse steps can miss light and dark periods.");
+			globe::help::question(ui,"UTC dates: 2027-01-01 to 2035-01-01. Hold arrows to repeat. Coarse steps may miss visibility windows.");
 		});
 	}
 
@@ -69,7 +67,6 @@ impl Timeline
 					Err(error)=>self.validation=Some(error),
 				}
 			}
-			globe::help::question(ui,"Enter UTC dates from 2027-01-01 through 2035-01-01. Start must precede end. Later dates download additional sky data only when needed.");
 		});
 		if let Some(error) = &self.validation
 		{
