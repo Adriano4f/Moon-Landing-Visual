@@ -124,17 +124,18 @@ impl View
 	{
 		let projection = self.projection();
 		let d = [ndc[0] / projection[0], ndc[1] / projection[5], -1.0];
-		// |o + t d|^2 = 1 with o = (0, 0, CAMERA_DISTANCE).
+		let distance = self.camera_distance();
+		// Stable nearest root of |o + t d|^2 = 1, matching the surface shader.
 		let a = d[0] * d[0] + d[1] * d[1] + 1.0;
-		let b = -2.0 * CAMERA_DISTANCE;
-		let c = CAMERA_DISTANCE * CAMERA_DISTANCE - 1.0;
+		let b = -2.0 * distance;
+		let c = (distance - 1.0) * (distance + 1.0);
 		let disc = b * b - 4.0 * a * c;
 		if disc < 0.0
 		{
 			return None;
 		}
-		let t = (-b - disc.sqrt()) / (2.0 * a);
-		let p = [t * d[0], t * d[1], CAMERA_DISTANCE - t];
+		let t = 2.0 * c / (-b + disc.sqrt());
+		let p = [t * d[0], t * d[1], distance - t];
 		// The model matrix is a rotation, so its transpose inverts it.
 		let m = self.model();
 		Some(std::array::from_fn(|j| {
