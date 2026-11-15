@@ -246,4 +246,43 @@ mod tests
 		);
 		assert!(view.unproject([0.99, 0.99]).is_none());
 	}
+
+	#[test]
+	fn picking_matches_surface_at_deep_zoom()
+	{
+		for utc in [
+			crate::orientation::INITIAL_UTC,
+			crate::orientation::INITIAL_UTC + 86400,
+			2051222400,
+		]
+		{
+			for zoom in [0.5, 1.0, 8.0, 64.0, 1024.0]
+			{
+				let view = View {
+					rotation: crate::orientation::at_utc(utc),
+					yaw: 0.7,
+					tilt: -1.56,
+					zoom,
+					aspect: 0.6,
+					pixels: [600.0, 1000.0],
+					scale: 1.0,
+				};
+				let ndc = if zoom >= 8.0
+				{
+					[0.7, -0.8]
+				}
+				else
+				{
+					[0.03, -0.04]
+				};
+				let point = view.unproject(ndc).unwrap();
+				assert!((point.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-5);
+				let back = view.project(point, true).unwrap();
+				assert!(
+					ndc.iter().zip(back).all(|(a, b)| (a - b).abs() < 4e-4),
+					"zoom {zoom}: {back:?}"
+				);
+			}
+		}
+	}
 }

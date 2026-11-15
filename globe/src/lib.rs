@@ -4,6 +4,7 @@
 // Compile a sibling Rust source module; C++ usually separates declarations and translation units.
 mod assets;
 mod camera;
+mod deep;
 mod phase;
 mod polar;
 mod renderer;
@@ -18,8 +19,8 @@ mod space;
 // Share accessible explanatory widgets without introducing an app dependency; C++ public utility namespace.
 pub mod help;
 
-// Bound enlargement by the available polar texture detail, not GPU capacity; C++ constexpr float.
-const MAX_ZOOM: f32 = 8.0;
+// Source pixels eventually overzoom; the camera remains above the illustrative sphere.
+const MAX_ZOOM: f32 = 1024.0;
 const MIN_ZOOM: f32 = 0.5;
 
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
@@ -104,6 +105,7 @@ pub struct Globe
 	// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 	loading: Arc<Mutex<assets::Loading>>,
 	polar: polar::Shared,
+	deep: deep::Shared,
 	// Selected size label 2/4/8, or zero for the private 512-pixel browser preview; C++ uint32_t.
 	tier: u32,
 	// Requested final detail is independent of the first visible preview; C++ unsigned members.
@@ -148,7 +150,7 @@ mod scene_tests
 	// Reuse the production state and aggregate definitions; C++ qualified test access.
 	use super::*;
 
-	fn unloaded() -> Globe
+	pub(super) fn unloaded() -> Globe
 	{
 		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
 		Globe {
@@ -158,6 +160,7 @@ mod scene_tests
 				error: None,
 			})),
 			polar: Arc::new(Mutex::new(polar::State::default())),
+			deep: Arc::new(Mutex::new(deep::State::default())),
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
@@ -305,6 +308,7 @@ impl Globe
 			surface_rays: false,
 			loading: assets::load(assets::first_tier(), None),
 			polar: Arc::new(Mutex::new(polar::State::default())),
+			deep: Arc::new(Mutex::new(deep::State::default())),
 			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(

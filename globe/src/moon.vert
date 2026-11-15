@@ -22,10 +22,22 @@ out vec3 v_position;
 out vec2 v_uv;
 // Pass unrotated object position so texture coordinates remain attached to the Moon.
 out vec3 v_object;
+out vec2 v_screen;
 
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
 void main()
 {
+	if (u_ray_mode == 0)
+	{
+		v_screen = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)) * 2.0 - 1.0;
+		v_position = vec3(0.0);
+		v_object = vec3(0.0, 0.0, 1.0);
+		v_uv = vec2(0.0);
+		v_coverage = vec2(0.0);
+		gl_Position = vec4(v_screen, 0.0, 1.0);
+		return;
+	}
+	v_screen = vec2(0.0);
 	// Apply dated lunar orientation followed by the inertial camera rotation.
 	vec3 p = u_model * a_position;
 	// Export the rotated world position for perspective view direction and geometric day/night masking.

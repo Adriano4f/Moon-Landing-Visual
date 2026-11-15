@@ -19,18 +19,37 @@ impl Globe
 	// Draw camera controls independently of the illustration; C++ member function.
 	pub fn camera_controls(&mut self, ui: &mut egui::Ui)
 	{
-		// Apply a texture-resolution limit instead of inventing polar detail; C++ bounded edits.
+		// Approach the surface while imagery refines asynchronously.
 		ui.horizontal(|ui| {
-			if ui.button("- Zoom").clicked() { self.zoom = (self.zoom / 1.8).max(MIN_ZOOM); self.focus = None; }
-			if ui.button("+ Zoom").clicked() { self.zoom = (self.zoom * 1.8).min(MAX_ZOOM); self.focus = None; }
-			help::question(ui, "Enlarge the Moon up to eight times to see south-polar detail.");
+			if ui.button("- Zoom").clicked()
+			{
+				self.zoom = (self.zoom / 1.8).max(MIN_ZOOM);
+				self.focus = None;
+			}
+			if ui.button("+ Zoom").clicked()
+			{
+				self.zoom = (self.zoom * 1.8).min(MAX_ZOOM);
+				self.focus = None;
+			}
+			help::question(
+				ui,
+				"Scroll or pinch to approach the surface with satellite imagery, up to 1,024x.",
+			);
 		});
 		self.site_camera(ui);
 		// Keep synthetic camera spin optional; C++ bool edit.
 		let mut spin = !self.paused;
 		ui.horizontal(|ui| {
-			if ui.checkbox(&mut spin, "Auto-rotate").changed() { self.paused = !spin; self.earth_view = false; self.focus = None; }
-			help::question(ui, "Slowly spin the camera around the Moon without changing the date.");
+			if ui.checkbox(&mut spin, "Auto-rotate").changed()
+			{
+				self.paused = !spin;
+				self.earth_view = false;
+				self.focus = None;
+			}
+			help::question(
+				ui,
+				"Slowly spin the camera around the Moon without changing the date.",
+			);
 		});
 		// Identify the mode and magnification without hidden controls; C++ label.
 		ui.label(format!(
@@ -46,6 +65,13 @@ impl Globe
 			}
 		));
 		self.texture_controls(ui);
+		if self.zoom > 1.0
+		{
+			ui.small(format!(
+				"Camera altitude: {:.1} km (illustrative sphere)",
+				(4.0 / self.zoom) * 1737.4
+			));
+		}
 	}
 
 	// Draw physical-light display aids separately from camera actions; C++ member function.
@@ -54,12 +80,18 @@ impl Globe
 		// Explain that increased exposure is not increased power; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");
-			help::question(ui, "Make sunlight reflected by Earth 1,000 times brighter in the picture only.");
+			help::question(
+				ui,
+				"Make sunlight reflected by Earth 1,000 times brighter in the picture only.",
+			);
 		});
 		// Keep the nonphysical aid explicitly labeled; C++ checkbox row.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.fill, "Far side fill light");
-			help::question(ui, "Add soft artificial light so the dark side stays visible.");
+			help::question(
+				ui,
+				"Add soft artificial light so the dark side stays visible.",
+			);
 		});
 	}
 
@@ -68,7 +100,10 @@ impl Globe
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.surface_rays, "Sun rays");
-			help::question(ui, "Show rays of sunlight falling on the lit half of the Moon.");
+			help::question(
+				ui,
+				"Show rays of sunlight falling on the lit half of the Moon.",
+			);
 		});
 	}
 }
@@ -78,11 +113,13 @@ impl Globe
 	fn site_camera(&mut self, ui: &mut egui::Ui)
 	{
 		// Request an eased transition at the real UI clock time; C++ event flag.
-		let go = ui.horizontal(|ui| {
-			let clicked = ui.button("Go to site").clicked();
-			help::question(ui, "Center the camera on the selected site and zoom in.");
-			clicked
-		}).inner;
+		let go = ui
+			.horizontal(|ui| {
+				let clicked = ui.button("Go to site").clicked();
+				help::question(ui, "Center the camera on the selected site and zoom in.");
+				clicked
+			})
+			.inner;
 		// Animation time is independent of the scientific date; C++ double local.
 		let time = ui.input(|i| i.time);
 		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
@@ -90,8 +127,12 @@ impl Globe
 			// Site-centered viewing is a free camera, not an Earth lock; C++ camera mode switch.
 			self.earth_view = false;
 			// Bind this intermediate value for the current operation; C++ local initialization.
-			let point = math::direction((site.lat_deg as f32).to_radians(),(site.lon_deg as f32).to_radians());
-			let [target, latitude] = math::camera_angles(math::transform(self.body_rotation,point));
+			let point = math::direction(
+				(site.lat_deg as f32).to_radians(),
+				(site.lon_deg as f32).to_radians(),
+			);
+			let [target, latitude] =
+				math::camera_angles(math::transform(self.body_rotation, point));
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let delta = (target - self.yaw + std::f32::consts::PI)
 				.rem_euclid(std::f32::consts::TAU)
@@ -100,11 +141,7 @@ impl Globe
 			self.focus = Some((
 				time,
 				[self.yaw, self.tilt, self.zoom],
-				[
-					self.yaw + delta,
-					latitude,
-					MAX_ZOOM,
-				],
+				[self.yaw + delta, latitude, 8.0],
 			));
 			// Update this persistent member explicitly; C++ member assignment.
 			self.paused = true;
@@ -116,16 +153,32 @@ impl Globe
 		// Let desktop and phone users explicitly trade download cost for map detail; C++ combo-box row.
 		ui.horizontal(|ui| {
 			ui.label("Texture detail");
-			egui::ComboBox::from_id_salt("moon-quality").width(62.0).selected_text(format!("{}k", self.target_tier)).show_ui(ui, |ui| {
-				for tier in [2,4,8].into_iter().filter(|t| *t <= self.max_tier) { ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k")); }
-			});
-			help::question(ui, "Higher detail makes the Moon sharper but downloads more and uses more memory.");
+			egui::ComboBox::from_id_salt("moon-quality")
+				.width(62.0)
+				.selected_text(format!("{}k", self.target_tier))
+				.show_ui(ui, |ui| {
+					for tier in [2, 4, 8].into_iter().filter(|t| *t <= self.max_tier)
+					{
+						ui.selectable_value(&mut self.target_tier, tier, format!("{tier}k"));
+					}
+				});
+			help::question(
+				ui,
+				"Higher detail makes the Moon sharper but downloads more and uses more memory.",
+			);
 		});
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
 		ui.horizontal(|ui| {
-			ui.small(format!("Showing {} | selected {}k",displayed.map_or("loading".into(), assets::label),self.target_tier));
-			help::question(ui,"Showing is the detail on screen now; the selected detail replaces it once downloaded.");
+			ui.small(format!(
+				"Showing {} | selected {}k",
+				displayed.map_or("loading".into(), assets::label),
+				self.target_tier
+			));
+			help::question(
+				ui,
+				"Showing is the detail on screen now; the selected detail replaces it once downloaded.",
+			);
 		});
 	}
 }

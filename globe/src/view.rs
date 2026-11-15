@@ -41,13 +41,57 @@ impl Globe
 		{
 			polar::advance(&self.polar, self.target_tier <= 2, ui.ctx());
 		}
+		if self.has_visible_moon() && self.zoom >= 2.0
+		{
+			deep::advance(&self.deep, view, ui.ctx());
+		}
 		self.queue_gl(ui, rect, view, lighting);
 		self.paint_grid(ui, rect, view);
 		self.paint_tiles(ui, rect, view);
 		let clicked = self.paint_markers(ui, &response, rect, view);
 		self.paint_tile(ui, rect, view);
 		self.surface_pick(&response, rect, view, clicked.is_some());
-		Self::legend(ui, rect, &self.polar.lock());
+		Self::legend(
+			ui,
+			rect,
+			&self.polar.lock(),
+			!self.deep.lock().resident.is_empty(),
+		);
+		if self.zoom >= 2.0
+		{
+			let deep = self.deep.lock();
+			let visible = deep
+				.wanted
+				.iter()
+				.filter(|tile| deep.resident.contains(tile))
+				.count();
+			let status = if deep.error.is_some()
+			{
+				"; some detail unavailable"
+			}
+			else
+			{
+				""
+			};
+			ui.painter_at(rect).rect_filled(
+				egui::Rect::from_min_size(
+					rect.left_bottom() + egui::vec2(5.0, -38.0),
+					egui::vec2((rect.width() - 10.0).min(340.0), 35.0),
+				),
+				3.0,
+				egui::Color32::from_black_alpha(225),
+			);
+			ui.painter_at(rect).text(
+				rect.left_bottom() + egui::vec2(8.0, -8.0),
+				egui::Align2::LEFT_BOTTOM,
+				format!(
+					"Satellite mosaic: {visible}/{} tiles{status}\nShadows are recorded; lighting follows date",
+					deep.wanted.len()
+				),
+				egui::FontId::proportional(11.0),
+				egui::Color32::WHITE,
+			);
+		}
 		if self.space_view { space::paint(ui,rect,self.body_rotation,lighting); }
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
@@ -71,7 +115,10 @@ impl Globe
 		// Keep direct manipulation discoverable when the settings group is closed; C++ explanatory heading row.
 		ui.horizontal(|ui| {
 			ui.small("Moon overview");
-			help::question(ui, "Drag to turn the Moon, scroll or pinch to zoom, and click a marker to select it.");
+			help::question(
+				ui,
+				"Drag to turn the Moon, scroll or pinch to zoom, and click a marker to select it.",
+			);
 		});
 		// Display the initial pair before starting an optional upgrade; keep the current Moon while waiting.
 		if self
@@ -211,11 +258,15 @@ impl Globe
 
 	fn orbit_input(&mut self, ui: &mut egui::Ui, response: &egui::Response)
 	{
-		// Wheel and touch pinch operate only inside the globe, not the panorama scroll area; C++ scoped event handling.
-		if response.hovered()
+		let (wheel, pinch, touch) =
+			ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta(), i.multi_touch()));
+		// Touch hover can be absent; use the gesture center and respect covering menus.
+		let touching = touch.is_some_and(|touch| {
+			response.interact_rect.contains(touch.center_pos)
+				&& ui.ctx().layer_id_at(touch.center_pos) == Some(response.layer_id)
+		});
+		if response.hovered() || response.dragged() || touching
 		{
-			// Bind this intermediate value for the current operation; C++ local initialization.
-			let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
 			// Check this state or input before acting; C++ conditional branch.
 			if wheel != 0.0 || pinch != 1.0
 			{
@@ -227,8 +278,8 @@ impl Globe
 				ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
 			}
 		}
-		// Check this state or input before acting; C++ conditional branch.
-		if response.dragged()
+		// Two fingers zoom; one finger rotates.
+		if response.dragged() && touch.is_none()
 		{
 			// Direct orbit manipulation exits Earth lock while preserving the current orientation; C++ mode switch.
 			self.earth_view = false;
@@ -259,6 +310,7 @@ impl Globe
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
 		let polar = Arc::clone(&self.polar);
+		let deep = Arc::clone(&self.deep);
 		let rays = self.scene_rays();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let surface_rays = self.surface_rays;
@@ -276,6 +328,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_mut()
 				{
 					renderer.update_polar(painter.gl(), &polar);
+					renderer.update_deep(painter.gl(), &deep);
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
 					renderer.paint(
 						painter.gl(),
@@ -356,7 +409,7 @@ impl Globe
 		clicked
 	}
 
-	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State)
+	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State, satellite: bool)
 	{
 		let painter = ui.painter_at(rect);
 		// Keep the legend readable when the optional field crosses it; C++ translucent overlay rectangle.
@@ -368,7 +421,11 @@ impl Globe
 			3.0,
 			egui::Color32::from_black_alpha(225),
 		);
-		let caption = if polar.ready
+		let caption = if satellite
+		{
+			"Satellite mosaic: shadows are recorded".into()
+		}
+		else if polar.ready
 		{
 			"Polar mosaic: shadows are recorded".into()
 		}
@@ -386,7 +443,7 @@ impl Globe
 		}
 		else
 		{
-			"Illustration only; polar cap schematic".into()
+			"Illustration; satellite detail loads on zoom".into()
 		};
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),
@@ -419,6 +476,54 @@ mod tests
 			output.textures_delta.clear();
 		}
 		assert!(ids.windows(2).all(|pair| pair[0] == pair[1]));
+	}
+
+	#[test]
+	fn pinch_uses_touch_center_without_pointer_hover()
+	{
+		let ctx = egui::Context::default();
+		let mut globe = crate::scene_tests::unloaded();
+		globe.zoom = 8.0;
+		let touches = |phase, distance: f32| {
+			[11, 22]
+				.into_iter()
+				.enumerate()
+				.map(|(index, id)| egui::Event::Touch {
+					device_id: egui::TouchDeviceId(0),
+					id: egui::TouchId(id),
+					phase,
+					pos: egui::pos2(206.0 + (index as f32 - 0.5) * distance, 250.0),
+					force: None,
+				})
+				.collect()
+		};
+		let mut frame = |events| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(412.0, 839.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|root| {
+					egui::CentralPanel::default().show(root, |ui| {
+						let (_, response) = Globe::paint_rectangle(ui);
+						globe.orbit_input(ui, &response);
+					});
+				},
+			);
+			output.textures_delta.clear();
+			globe.zoom
+		};
+		frame(vec![egui::Event::PointerMoved(egui::Pos2::ZERO)]);
+		frame(touches(egui::TouchPhase::Start, 40.0));
+		assert!((frame(touches(egui::TouchPhase::Move, 280.0)) - 56.0).abs() < 0.01);
+		assert!((frame(touches(egui::TouchPhase::Move, 40.0)) - 8.0).abs() < 0.01);
+		frame(touches(egui::TouchPhase::End, 40.0));
+		assert_eq!([globe.yaw, globe.tilt], [0.0, 0.0]);
+		assert!(globe.earth_view);
 	}
 
 	#[test]
