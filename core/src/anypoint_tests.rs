@@ -544,3 +544,278 @@ fn network_check()
 		}
 	}
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "Downloads C1 source DEMs with curl; C1_DIAGNOSTIC_DIR caches TIFFs and writes a profile"]
+fn network_c1_sources()
+{
+	use std::{fmt::Write, process::Command};
+	let directory = std::env::var_os("C1_DIAGNOSTIC_DIR").map(std::path::PathBuf::from);
+	let fetch = |name: &str, url: &str| {
+		println!("{name}: {url}");
+		let path = directory.as_ref().map(|d| d.join(format!("{name}.tif")));
+		if let Some(bytes) = path.as_ref().and_then(|p| std::fs::read(p).ok())
+		{
+			return bytes;
+		}
+		let result = Command::new("curl")
+			.args([
+				"--fail",
+				"--silent",
+				"--show-error",
+				"--location",
+				"--max-time",
+				"120",
+				url,
+			])
+			.output()
+			.unwrap();
+		assert!(
+			result.status.success(),
+			"{}",
+			String::from_utf8_lossy(&result.stderr)
+		);
+		if let Some(path) = path
+		{
+			std::fs::write(path, &result.stdout).unwrap();
+		}
+		result.stdout
+	};
+	let (lat, lon) = (-89.4398, 222.83);
+	let urls = terrain_requests(lat, lon);
+	let requested = windows(lat, lon);
+	let fine_bytes = fetch("trek5", &urls[0]);
+	let coarse_bytes = fetch("coarse", &urls[1]);
+	let fine = decode(&fine_bytes, requested[0]).unwrap();
+	let coarse = decode(&coarse_bytes, requested[1]).unwrap();
+	let (x, y) = to_xy(lat, lon);
+	let old_window = Window {
+		projection: Projection::South,
+		bbox: [x - 15_360.0, y - 15_360.0, x + 15_360.0, y + 15_360.0],
+		service: "LRO_LOLA_DEM_SPole75_30mp_v04",
+	};
+	let old_bbox = old_window.bbox.map(|v| v.to_string()).join("%2C");
+	let new_bbox = requested[0].bbox.map(|v| v.to_string()).join("%2C");
+	let old_url = urls[0]
+		.replace(requested[0].service, old_window.service)
+		.replace(&new_bbox, &old_bbox);
+	let old = decode(&fetch("trek30", &old_url), old_window).unwrap();
+	let pgda_url =
+		"https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/Site01/Site01_final_adj_5mpp_surf.tif";
+	let pgda = decode(
+		&fetch("pgda5", pgda_url),
+		Window {
+			projection: Projection::South,
+			bbox: [-19_000.0, -20_000.0, -3_000.0, -4_000.0],
+			service: "Site01_final_adj_5mpp_surf",
+		},
+	)
+	.unwrap();
+	assert_eq!((pgda.w, pgda.h), (3200, 3200));
+	let reference: serde_json::Value = serde_json::from_str(include_str!(
+		"../../app/assets/data/connecting-ridge-c1.json"
+	))
+	.unwrap();
+	let reference_h = Horizon {
+		h_deg: reference["horizon"]["h_deg"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|v| v.as_f64().unwrap() as f32)
+			.collect(),
+	};
+	assert!(
+		(pgda.sample(lat, lon).unwrap().z_m
+			- reference["terrain"]["surface_height_m"].as_f64().unwrap())
+		.abs()
+			< 1e-6
+	);
+	for (label, p, l) in [
+		("C1", lat, lon),
+		(
+			"north2km",
+			crate::destination(lat, lon, 0.0, 2000.0).0,
+			crate::destination(lat, lon, 0.0, 2000.0).1,
+		),
+		(
+			"east2km",
+			crate::destination(lat, lon, 90.0, 2000.0).0,
+			crate::destination(lat, lon, 90.0, 2000.0).1,
+		),
+	]
+	{
+		println!(
+			"{label}: lat={p:.9}, lon={l:.9}, xy={:?}, Trek5={:.6}, Trek30={:.6}, PGDA5={:.6}",
+			to_xy(p, l),
+			fine.sample(p, l).unwrap().z_m,
+			old.sample(p, l).unwrap().z_m,
+			pgda.sample(p, l).unwrap().z_m
+		);
+	}
+	let trace = |rasters: &[&Raster], az: f64, limit: f64, origin: Option<f64>| {
+		let (mut z0, near) = horizon_origin(lat, lon, 2.0, &mut |p, l| {
+			Ok(rasters.iter().find_map(|r| r.sample(p, l)))
+		})
+		.unwrap();
+		if let Some(z) = origin
+		{
+			z0 = z;
+		}
+		let ray = HorizonRay {
+			lat,
+			lon,
+			z0,
+			near,
+			limit,
+			angular: std::f64::consts::TAU / N_AZ as f64 / 4.0,
+		};
+		let mut peak = (-90.0_f64, 0.0, 0.0);
+		let h = crate::terrain_ray_samples(ray, az, &mut |s| {
+			let (p, l) = crate::destination(lat, lon, az, s);
+			let point = rasters.iter().find_map(|r| r.sample(p, l));
+			if let Some(ref point) = point
+			{
+				let e = crate::spherical_elevation(point.z_m, z0, s / MOON_RADIUS_M);
+				if e > peak.0
+				{
+					peak = (e, s, point.z_m);
+				}
+			}
+			Ok(point)
+		})
+		.unwrap();
+		(f64::from(h), peak.1, peak.2)
+	};
+	let mut job = HorizonJob::new(lat, lon, N_AZ, 2.0, &[fine_bytes, coarse_bytes]).unwrap();
+	let actual = job.step(N_AZ).unwrap().unwrap();
+	let mut csv = String::from(
+		"az,reference,trek5,trek30,pgda5_coarse,trek5_peak_m,trek30_peak_m,pgda5_peak_m\n",
+	);
+	let mut rows = Vec::new();
+	let mut bridge_change = 0.0_f64;
+	let mut limit_change = 0.0_f64;
+	for i in 0..N_AZ
+	{
+		let az = i as f64 * 360.0 / N_AZ as f64;
+		let new = trace(&[&fine, &coarse], az, LIMIT_M, None);
+		let old_h = trace(&[&old, &coarse], az, LIMIT_M, None);
+		let pgda_h = trace(&[&pgda, &coarse], az, LIMIT_M, None);
+		bridge_change =
+			bridge_change.max((trace(&[&fine, &old, &coarse], az, LIMIT_M, None).0 - new.0).abs());
+		limit_change = limit_change.max(
+			(trace(
+				&[&fine, &coarse],
+				az,
+				std::f64::consts::PI * MOON_RADIUS_M,
+				None,
+			)
+			.0 - new.0)
+				.abs(),
+		);
+		assert!((new.0 - f64::from(actual.h_deg[i])).abs() < 1e-4);
+		let reference = f64::from(reference_h.at(az as f32));
+		writeln!(
+			&mut csv,
+			"{az:.1},{reference:.6},{:.6},{:.6},{:.6},{:.3},{:.3},{:.3}",
+			new.0, old_h.0, pgda_h.0, new.1, old_h.1, pgda_h.1
+		)
+		.unwrap();
+		rows.push((az, reference, new, old_h, pgda_h));
+	}
+	if let Some(directory) = directory
+	{
+		std::fs::write(directory.join("profile.csv"), csv).unwrap();
+	}
+	println!(
+		"all-azimuth controls: bridge max change={bridge_change:.9} deg, no-distance-cap max change={limit_change:.9} deg"
+	);
+	let reference_resolution =
+		crate::horizon_from_terrain(lat, lon, 1440, 2.0, Some(LIMIT_M), |p, l| {
+			Ok([&pgda, &coarse].iter().find_map(|r| r.sample(p, l)))
+		})
+		.unwrap();
+	let sampling_change = rows
+		.iter()
+		.map(|r| (r.4.0 - f64::from(reference_resolution.at(r.0 as f32))).abs())
+		.fold(0.0, f64::max);
+	println!(
+		"PGDA5+coarse: 720 vs 1440 bins, max change={sampling_change:.9} deg at shared bearings"
+	);
+	for sector in 0..=8
+	{
+		let (start, stop) = if sector == 8
+		{
+			(0, 720)
+		}
+		else
+		{
+			(sector * 90, (sector + 1) * 90)
+		};
+		let slice = &rows[start..stop];
+		let error = |which: usize| {
+			let values: Vec<f64> = slice
+				.iter()
+				.map(|r| [r.2.0, r.3.0, r.4.0][which] - r.1)
+				.collect();
+			(
+				values.iter().copied().map(f64::abs).fold(0.0, f64::max),
+				(values.iter().map(|v| v * v).sum::<f64>() / values.len() as f64).sqrt(),
+			)
+		};
+		println!(
+			"sector {}..{}: Trek5 max/RMS={:?}, Trek30={:?}, PGDA5+coarse={:?}",
+			start as f64 / 2.0,
+			stop as f64 / 2.0,
+			error(0),
+			error(1),
+			error(2)
+		);
+	}
+	let worst = rows
+		.iter()
+		.max_by(|a, b| (a.2.0 - a.1).abs().total_cmp(&(b.2.0 - b.1).abs()))
+		.unwrap();
+	println!(
+		"worst: az={}, ref={}, Trek5(h,d,z)={:?}, Trek30={:?}, PGDA5={:?}",
+		worst.0, worst.1, worst.2, worst.3, worst.4
+	);
+	let (p, l) = crate::destination(lat, lon, worst.0, worst.2.1);
+	println!(
+		"worst sample heights: Trek5={:.9}, Trek30={:.9}, PGDA5={:.9}",
+		fine.sample(p, l).unwrap().z_m,
+		old.sample(p, l).unwrap().z_m,
+		pgda.sample(p, l).unwrap().z_m
+	);
+	for az in [0.0, 90.0, 180.0, 270.0, worst.0]
+	{
+		println!(
+			"controls az={az}: fine-only={:?}, with30m={:?}, reference-origin={:?}, unlimited={:?}",
+			trace(&[&fine], az, LIMIT_M, None),
+			trace(&[&fine, &old, &coarse], az, LIMIT_M, None),
+			trace(
+				&[&fine, &coarse],
+				az,
+				LIMIT_M,
+				Some(reference["terrain"]["surface_height_m"].as_f64().unwrap() + 2.0)
+			),
+			trace(
+				&[&fine, &coarse],
+				az,
+				std::f64::consts::PI * MOON_RADIUS_M,
+				None
+			)
+		);
+		for s in [2500.0, 2550.0, 2560.0, 2570.0, 2600.0, 3000.0, 4000.0]
+		{
+			let (p, l) = crate::destination(lat, lon, az, s);
+			println!(
+				"edge az={az}, d={s}: fine={:?}, coarse={:?}, old={:?}, pgda={:?}",
+				fine.sample(p, l).map(|p| p.z_m),
+				coarse.sample(p, l).map(|p| p.z_m),
+				old.sample(p, l).map(|p| p.z_m),
+				pgda.sample(p, l).map(|p| p.z_m)
+			);
+		}
+	}
+}
