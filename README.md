@@ -1,39 +1,55 @@
 # Moon Landing Visual
 
-Compare lunar south pole landing sites using Sun visibility for power and Earth visibility for direct communication.
+Compare lunar south-pole sites by sunlight for power and direct Earth visibility for communication.
 
-Read the standalone [technical reference](docs/13-technical-reference.md) for architecture, provenance, scientific algorithms, rendering, validation and limitations.
+**Live site:** https://adriano4f.github.io/Moon-Landing-Visual/
 
-The [portable ephemeris guide](docs/14-any-point-ephemeris.md) documents the 2,244,152-byte hourly Sun/Earth position file for 2027 through 2035 and arbitrary-location topocentric conversion. This is a scientific foundation; the current interface still selects the seven prepared sites and their original dates. The new binary is not fetched at startup.
+The app combines an interactive 3D Moon, published landing-site coordinates and a standing-at-site panorama with terrain horizons. Sun visible-disk percentage, Earth clearance, a timeline, summary statistics and a technical graph support site comparisons; custom points can compute terrain horizons in the browser. Globe lighting is illustrative, not a mission-design prediction.
 
-Start with [the skeleton guide for C++ programmers](docs/01-skeleton.md) for Rust basics, the math, every crate, and Windows/Linux setup. Continue with [the full code walkthrough](docs/02-code.md) for every source file and Rust API used.
+## Repository layout
 
-Read [the from-zero rendering guide](docs/03-moon.md) for vectors, coordinate spaces, matrices, the GPU pipeline, NASA assets, normals, Hapke photometry, and color. Continue with [Rust and the complete globe code](docs/04-globe-code.md) for C++ comparisons, statement-level comments, exact source quotations, and the API index. The first two guides describe the original scientific workspace and placeholder app; the renderer guide documents its replacement.
+- `core/`: I/O-free geometry, terrain horizons, visibility, statistics and ephemeris conversion.
+- `globe/`: independent OpenGL/WebGL2 Moon renderer, camera, markers, rays and streamed detail.
+- `app/`: native/browser eframe/egui interface, data loading, panorama and timeline.
+- `prep/`: offline Rust/Python tools for DEM downloads, Horizons tracks and prepared datasets.
 
-Continue with [the panorama teaching guide](docs/05-panorama.md) for immediate-mode egui, UTC sample selection, egui_plot, north-wrap handling, asynchronous data loading, visibility readouts, and the rotating site marker. The bundled example covers 2027-01-01 through 2030-01-01 at one-hour cadence with a real 1,440-bearing terrain horizon. [The terrain teaching guide](docs/06-terrain.md) explains PGDA GeoTIFFs, their verified projection, pure-Rust decoding, great-circle rays, exact spherical elevation, solar area fractions, provenance, and reproducibility.
+## Data sources
 
-Open the folder in Zed with `zed .` or File > Open. Zed's Rust support is built in and downloads rust-analyzer automatically. There is no extension to install.
+- **Offline:** [NASA JPL Horizons](https://ssd.jpl.nasa.gov/api/horizons.api) Sun/Earth ephemerides; NASA PGDA LOLA DEMs (`prep/dem-manifest.json`); [NASA SVS CGI Moon Kit](https://svs.gsfc.nasa.gov/4720/) textures and relief; LROC WAC 566 nm Hapke parameters.
+- **Runtime:** NASA Moon Trek imagery tiles and LOLA `ImageServer/exportImage` terrain requests for custom points.
+- **Site coordinates:** Glaser et al. (2017), with Mazarico et al. (2011) and Speyerer and Robinson (2013) coordinates verified secondarily through Glaser's tables. Citations and precision are recorded in [`sites.json`](sites.json).
 
-The default [standing-at-site view](docs/07-ui.md) shows finite Sun/Earth disks behind grey terrain, plain-language sunlight/radio statuses, whole-period summary cards and a question-mark help panel. Technical view retains the numerical plot. Vertical stretching is labeled, so the small angular disks are not silently enlarged. The [published-site catalog and globe controls](docs/09-sites-and-globe-controls.md) provide a site list, clickable outlined markers, drag rotation, zoom, go-to-site animation and lazy per-site loading. Connecting Ridge C1 remains the default. The [globe direction-ray guide](docs/08-rays.md) derives the local east/north/up frame used for thin, antialiased Sun/Earth ribbons and endpoint disks, with selected-only or all-sites display. An optional whole-Moon field shows incoming rays from the real Sun direction. Ray lengths are not distances; dim rays fail the same sunlight/radio tests as the panorama. The rounded baseline dataset is retained unchanged.
+Asset sources, credits and regeneration commands: [`globe/assets/README.md`](globe/assets/README.md). Rendering conventions: [`docs/03-moon.md`](docs/03-moon.md).
 
-- `core/` (`lunar_core`): pure geometry, terrain horizons, visibility, time-weighted statistics, Horizons text parsing, and portable finite-distance ephemeris conversion/encoding.
-- `prep/`: reads external LOLA PGDA 78/90 GeoTIFFs with the pure-Rust `tiff` crate, computes fixed-site terrain horizons through core's I/O-free sampler interface, downloads JPL Horizons observer tracks, and writes one JSON per site in `app/assets/data/`.
-- `globe/`: rotating Moon renderer with runtime-loaded 2k/4k/8k NASA color and offline LOLA-derived normal maps. It has no dependency on `lunar_core` and does not compute landing-site visibility.
-- `app/`: native and browser eframe shell displaying the globe against black beside a responsive Sun/Earth panorama. Narrow screens stack the globe above the plot. Native OpenGL or browser WebGL2 is required. Earth clearance is adjustable from 0.5 to 1.0 degrees, default 0.5. Raw DEMs are never loaded by the app.
+## Build and run
+
+Install Rust and [Trunk](https://trunkrs.dev/). Run from the repository root (native requires OpenGL; the browser requires WebGL2):
 
 ```sh
-cargo test -p lunar_core
-python3 prep/download_dem.py /home/ubuntu/data/lola
-cargo run -p prep --release -- sites.json 2027-01-01 2030-01-01 1h app/assets/data /home/ubuntu/data/lola 2
-cargo run -p prep --release -- --ephemeris app/assets/data/moon-ephemeris.bin /home/ubuntu/data/horizons-moon-cache app/assets/data
+cargo test --workspace
+cargo clippy --workspace
 cargo run -p app
 rustup target add wasm32-unknown-unknown
 cd app
 trunk serve
+# Or build the static site:
+trunk build --release
 ```
 
-Install [Trunk](https://trunkrs.dev/) for browser development. The prep arguments are the sites file, start date, stop date, step (`m`, `h`, or `d`), optional output directory, optional external DEM directory, and optional observer height in meters (default 2). Run prep from the workspace root. Omitting the DEM directory retains the explicitly flat legacy preparation path. Horizons times are UTC; azimuth is north clockwise toward east. Raw DEMs total 13,745,732,795 bytes and must stay outside the repository; the downloader verifies the versioned SHA-256 manifest.
+### Regenerate scientific data
 
-Statistics hold each boolean sample until the next timestamp, including gaps. The last sample contributes no duration. Percentages are duration-weighted, not sample counts. Prep reports any visible solar area separately from the time-weighted mean visible area. Its default observer is 2 m above the interpolated DEM surface, a modeling choice, not a measured mast height. The decoder validates the sphere, axes, true-scale pole, units, pixel registration, and false offsets against each file's GeoKeys.
+Run from the repository root. Keep raw DEMs outside the repository; the downloader checks the versioned SHA-256 manifest. The final terrain argument is observer height in metres (default 2); times are UTC. These commands download external data and may take substantial time and disk space.
 
-Reproduce the committed example with the terrain preparation command above. Native data loading checks `MOON_DATA_DIR`, then `assets/data` beside the executable, then the workspace app assets. The expected filename is `connecting-ridge-c1.json`. The browser requests `assets/data/connecting-ridge-c1.json` over HTTP; Trunk copies it with the other app assets. No JSON is embedded in the release app or WASM. The globe now uses the selected epoch's real Sun/Earth directions for lighting and its default Earth-following view. Drag for free orbit, or use Go to site; optional Auto-rotate is only a presentation spin. Earthshine is phase-scaled, with a clearly labeled boosted exposure option; far-side gray-blue fill is a separate visual aid. See [real lighting and camera](docs/10-real-lighting-and-orbit.md) for approximations and source parameters.
+```sh
+python3 prep/download_dem.py /home/ubuntu/data/lola
+cargo run -p prep --release -- sites.json 2027-01-01 2030-01-01 1h app/assets/data /home/ubuntu/data/lola 2
+cargo run -p prep --release -- --ephemeris app/assets/data/moon-ephemeris.bin /home/ubuntu/data/horizons-moon-cache app/assets/data
+```
+
+## Deployment and credits
+
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds `app/` with Trunk and deploys `app/dist` to GitHub Pages.
+
+Credits: NASA/JPL, PGDA/LOLA, NASA SVS (Ernie Wright), LROC/ASU and the cited site authors. No project-wide license file is currently provided; asset attribution and bundled font licenses remain in [`globe/assets/README.md`](globe/assets/README.md) and [`app/assets/fonts/`](app/assets/fonts/).
+
+Detailed tutorials and learning documentation are preserved on the [`learn` branch](https://github.com/Adriano4f/Moon-Landing-Visual/tree/learn).
