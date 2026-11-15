@@ -148,6 +148,7 @@ fn test_window() -> Window
 	Window {
 		projection: Projection::Geographic,
 		bbox: [-1.5, -1.5, 1.5, 1.5],
+		service: "LRO_LOLA_DEM_Global_256ppd_v06",
 	}
 }
 
@@ -202,6 +203,8 @@ fn requests_choose_projection_and_split_seams()
 	for lon in [-180.0, -179.9, 179.9, 180.0, 540.0]
 	{
 		for w in windows(79.0, lon)
+			.into_iter()
+			.filter(|w| matches!(w.projection, Projection::Geographic))
 		{
 			assert!(w.bbox[0] >= -180.0 && w.bbox[2] <= 180.0);
 			assert!(w.bbox[0] < w.bbox[2]);
@@ -211,6 +214,79 @@ fn requests_choose_projection_and_split_seams()
 	assert!(terrain_requests(f64::NAN, 0.0).is_empty());
 	assert!(terrain_requests(91.0, 0.0).is_empty());
 	assert!(terrain_requests(0.0, f64::INFINITY).is_empty());
+}
+
+#[test]
+fn finest_polar_service_respects_extent_and_keeps_coarse_window()
+{
+	for (lat, lon, fine, coarse, spacing) in [
+		(
+			-89.4398,
+			222.83,
+			"LRO_LOLA_DEM_SPole875_5mp_v04",
+			"LRO_LOLA_DEM_SPole75_30mp_v04",
+			5.0,
+		),
+		(
+			89.4398,
+			222.83,
+			"LRO_LOLA_DEM_NPole875_5mp_v04",
+			"LRO_LOLA_DEM_NPole75_30mp_v04",
+			5.0,
+		),
+		(
+			-86.0,
+			0.0,
+			"ldem_85s_10m_Spole_float_SP",
+			"LRO_LOLA_DEM_SPole75_30mp_v04",
+			10.0,
+		),
+		(
+			86.0,
+			0.0,
+			"LRO_LOLA_DEM_NPole75_30mp_v04",
+			"LRO_LOLA_DEM_NPole75_30mp_v04",
+			30.0,
+		),
+		(
+			-76.0,
+			45.0,
+			"LRO_LOLA_DEM_SPole75_30mp_v04",
+			"LRO_LOLA_DEM_Global_256ppd_v06",
+			30.0,
+		),
+		(
+			76.0,
+			45.0,
+			"LRO_LOLA_DEM_NPole75_30mp_v04",
+			"LRO_LOLA_DEM_Global_256ppd_v06",
+			30.0,
+		),
+	]
+	{
+		let w = windows(lat, lon);
+		assert_eq!(w.len(), 2);
+		assert_eq!(w[0].service, fine);
+		assert_eq!(w.last().unwrap().service, coarse);
+		assert!(((w[0].bbox[2] - w[0].bbox[0]) / SIZE as f64 - spacing).abs() < 1e-9);
+		let urls = terrain_requests(lat, lon);
+		assert!(urls[0].contains(fine));
+		assert!(urls.last().unwrap().contains(coarse));
+		if lat.abs() >= 80.0
+		{
+			let coarse = w.last().unwrap();
+			assert_eq!(coarse.bbox[2] - coarse.bbox[0], 600_000.0);
+		}
+	}
+	for (northing, expected) in [(73_270.0, "875_5mp"), (73_290.0, "10m_Spole")]
+	{
+		let lat = -90.0 + (2.0 * (northing / (2.0 * MOON_RADIUS_M)).atan()).to_degrees();
+		assert!(terrain_requests(lat, 0.0)[0].contains(expected));
+	}
+	let c1 = windows(-89.4398, 222.83)[0];
+	assert!(c1.bbox.iter().all(|v| v.abs() < 75_840.0));
+	assert!(terrain_requests(-74.0, 0.0)[0].contains("Global_256"));
+	assert!(terrain_requests(74.0, 0.0)[0].contains("Global_256"));
 }
 
 #[test]
@@ -347,9 +423,11 @@ fn polar_jobs_match_geographic_ray_sampler()
 		(90.0, 180.0),
 		(-80.0, 90.0),
 		(80.0, 270.0),
+		(-76.0, 45.0),
+		(76.0, 45.0),
 	]
 	{
-		let tiffs = [bytes.clone(), bytes.clone()];
+		let tiffs = vec![bytes.clone(); terrain_requests(lat, lon).len()];
 		let rasters = windows(lat, lon)
 			.into_iter()
 			.zip(&tiffs)

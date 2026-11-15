@@ -2,8 +2,8 @@
 //!
 //! Fetch every URL from `terrain_requests`, preserving order, then advance a
 //! `HorizonJob` a few bearings per frame. Heights are meters above 1737.4 km.
-//! Rays stop at 250 km or the first coverage gap. The 30 m polar and roughly
-//! 118 m global sources approximate, rather than replace, the prepared 5 m DEMs.
+//! Rays stop at 250 km or the first coverage gap. Polar fine coverage uses
+//! 5, 10 or 30 m LOLA grids; global fine coverage is roughly 118 m.
 
 use crate::{
 	GreatCircle, Horizon, HorizonRay, MOON_RADIUS_M, TerrainSample, horizon_origin, terrain_ray,
@@ -68,7 +68,7 @@ pub fn tile_count() -> u32
 	(0..90).map(cells).sum()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Projection
 {
 	Geographic,
@@ -98,6 +98,58 @@ struct Window
 {
 	projection: Projection,
 	bbox: [f64; 4],
+	service: &'static str,
+}
+
+fn polar_fine(lat: f64, lon: f64) -> Option<Window>
+{
+	let south = lat < 0.0;
+	let projection = if south
+	{
+		Projection::South
+	}
+	else
+	{
+		Projection::North
+	};
+	let (x, y) = projection.xy(lat, lon);
+	let five = if south
+	{
+		"LRO_LOLA_DEM_SPole875_5mp_v04"
+	}
+	else
+	{
+		"LRO_LOLA_DEM_NPole875_5mp_v04"
+	};
+	let thirty = if south
+	{
+		"LRO_LOLA_DEM_SPole75_30mp_v04"
+	}
+	else
+	{
+		"LRO_LOLA_DEM_NPole75_30mp_v04"
+	};
+	let (service, radius) = if x.abs().max(y.abs()) + 2_560.0 <= 75_840.0
+	{
+		(five, 2_560.0)
+	}
+	else if south && x.abs().max(y.abs()) + 5_120.0 <= 151_680.0
+	{
+		("ldem_85s_10m_Spole_float_SP", 5_120.0)
+	}
+	else if x.abs().max(y.abs()) <= 457_440.0
+	{
+		(thirty, 15_360.0)
+	}
+	else
+	{
+		return None;
+	};
+	Some(Window {
+		projection,
+		bbox: [x - radius, y - radius, x + radius, y + radius],
+		service,
+	})
 }
 
 fn windows(lat: f64, lon: f64) -> Vec<Window>
@@ -120,8 +172,21 @@ fn windows(lat: f64, lon: f64) -> Vec<Window>
 	};
 	let (x, y) = projection.xy(lat, lon);
 	let mut result = Vec::new();
-	for radius in [15_360.0_f64, 300_000.0]
+	for (level, radius) in [15_360.0_f64, 300_000.0].into_iter().enumerate()
 	{
+		if level == 0
+			&& lat.abs() >= 75.0
+			&& let Some(fine) = polar_fine(lat, lon)
+		{
+			result.push(fine);
+			continue;
+		}
+		let service = match projection
+		{
+			Projection::Geographic => "LRO_LOLA_DEM_Global_256ppd_v06",
+			Projection::South => "LRO_LOLA_DEM_SPole75_30mp_v04",
+			Projection::North => "LRO_LOLA_DEM_NPole75_30mp_v04",
+		};
 		if matches!(projection, Projection::Geographic)
 		{
 			// The global source has 118 m north/south pixels; avoid oversampling it.
@@ -134,12 +199,14 @@ fn windows(lat: f64, lon: f64) -> Vec<Window>
 			result.push(Window {
 				projection,
 				bbox: [left.max(-180.0), lo, right.min(180.0), hi],
+				service,
 			});
 			if left < -180.0
 			{
 				result.push(Window {
 					projection,
 					bbox: [left + 360.0, lo, 180.0, hi],
+					service,
 				});
 			}
 			if right > 180.0
@@ -147,6 +214,7 @@ fn windows(lat: f64, lon: f64) -> Vec<Window>
 				result.push(Window {
 					projection,
 					bbox: [-180.0, lo, right - 360.0, hi],
+					service,
 				});
 			}
 		}
@@ -155,6 +223,7 @@ fn windows(lat: f64, lon: f64) -> Vec<Window>
 			result.push(Window {
 				projection,
 				bbox: [x - radius, y - radius, x + radius, y + radius],
+				service,
 			});
 		}
 	}
@@ -166,12 +235,7 @@ fn windows(lat: f64, lon: f64) -> Vec<Window>
 pub fn terrain_requests(lat_deg: f64, lon_deg: f64) -> Vec<String>
 {
 	windows(lat_deg, lon_deg).iter().map(|w| {
-		let name = match w.projection
-		{
-			Projection::Geographic => "LRO_LOLA_DEM_Global_256ppd_v06",
-			Projection::South => "LRO_LOLA_DEM_SPole75_30mp_v04",
-			Projection::North => "LRO_LOLA_DEM_NPole75_30mp_v04",
-		};
+		let name = w.service;
 		let [a, b, c, d] = w.bbox;
 		format!("{SERVICE}/{name}/ImageServer/exportImage?f=image&bbox={a}%2C{b}%2C{c}%2C{d}&size={SIZE}%2C{SIZE}&adjustAspectRatio=false&format=tiff&pixelType=F32&compression=none&renderingRule=%7B%22rasterFunction%22%3A%22None%22%7D&interpolation=RSP_BilinearInterpolation")
 	}).collect()
@@ -314,13 +378,18 @@ impl HorizonJob
 		while self.next < end
 		{
 			let az = self.next as f64 * 360.0 / self.h_deg.len() as f64;
-			self.h_deg[self.next] = match self.rasters[0].window.projection
+			let projection = self.rasters[0].window.projection;
+			let uniform = self
+				.rasters
+				.iter()
+				.all(|r| r.window.projection == projection);
+			self.h_deg[self.next] = match (projection, uniform)
 			{
-				Projection::Geographic =>
+				(Projection::Geographic, _) | (_, false) =>
 				{
 					terrain_ray(self.ray, az, &mut |p, l| sample(&self.rasters, p, l))?
 				}
-				projection =>
+				(projection, true) =>
 				{
 					let path = GreatCircle::new(self.ray.lat, self.ray.lon, az);
 					let sign = if matches!(projection, Projection::South)

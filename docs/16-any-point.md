@@ -29,12 +29,16 @@ The resulting site data feeds the existing panorama, visibility calculations and
 ## Terrain sources and sampling
 
 NASA Moon Trek ImageServer `exportImage` requests return uncompressed F32 TIFFs.
-At absolute latitude at least 80 degrees, the source is polar stereographic:
-`LRO_LOLA_DEM_SPole75_30mp_v04` or `LRO_LOLA_DEM_NPole75_30mp_v04`.
-Elsewhere it is the geographic `LRO_LOLA_DEM_Global_256ppd_v06` service.
-Polar fine windows extend 15,360 m from the center, giving 30 m pixels.
+At absolute latitude at least 75 degrees, fine coverage tries polar LOLA DEMs.
+`LRO_LOLA_DEM_SPole875_5mp_v04` and `LRO_LOLA_DEM_NPole875_5mp_v04`
+provide 5 m pixels in windows extending 2,560 m from the center, including C1.
+Outside their full-window extent, the south tries `ldem_85s_10m_Spole_float_SP`
+at 10 m with a 5,120 m half-window. Both poles then try the corresponding
+`LRO_LOLA_DEM_SPole75_30mp_v04` or `LRO_LOLA_DEM_NPole75_30mp_v04` at 30 m over 15,360 m.
+Otherwise fine coverage uses geographic `LRO_LOLA_DEM_Global_256ppd_v06`.
 Global fine windows extend about 60,000 m, giving about 118 m north-south pixels.
-Coarse windows extend about 300,000 m. Each request is 1,024 by 1,024 pixels.
+Coarse windows remain unchanged: 300,000 m, polar at 80 degrees, global elsewhere.
+Each request is 1,024 by 1,024 pixels, about 4.2 MB; normally two are needed.
 Global longitude windows split at the -180/180 seam, so there can be up to four URLs.
 The sampler tries fine terrain before coarse terrain and handles NoData.
 Great-circle rays stop at 250 km or when neither raster covers the next sample.
@@ -44,13 +48,12 @@ Heights are meters above the 1,737.4 km lunar reference sphere.
 
 | Check | Result |
 |:--|:--|
-| C1, -89.4398 latitude, 222.83 east longitude, 2 m observer | Max difference 0.716 degrees; RMS difference 0.254 degrees versus the 1,440-bin 5 m reference |
-| C1 surface height | 1,958.148 m; reference 1,958.503 m |
+| C1, -89.4398 latitude, 222.83 east longitude, 2 m observer | Max difference 1.005 degrees; RMS difference 0.338 degrees versus the 1,440-bin 5 m reference |
+| C1 surface height | 1,958.289 m; reference 1,958.503 m |
 | Equator, 0.0 latitude, 23.5 east longitude | Horizon minimum -0.502 degrees; maximum 1.152 degrees |
-| Native release, 720 bins | C1 0.242 s; equator 0.209 s |
-| Native release, worst 20-bin batch | C1 15.909 ms; equator 6.052 ms |
-| Optimized wasm in Node/V8, 720 bins | C1 0.141 to 0.149 s; equator 0.262 to 0.264 s |
-| Optimized wasm, worst 20-bin batch across three trials | C1 9.389 ms; equator 8.809 ms |
+| Native release, 720 bins | C1 0.226 s; equator 0.261 s |
+| Native release, worst 20-bin batch | C1 6.414 ms; equator 20.991 ms |
+| Prior 30 m version, optimized wasm in Node/V8 | C1 0.141 to 0.149 s, worst 20 bins 9.389 ms; equator 0.262 to 0.264 s, worst 20 bins 8.809 ms |
 
 Timings exclude downloads and are machine-specific, not browser frame guarantees.
 To rerun the network check from the repository root, with `curl` available:
@@ -61,7 +64,7 @@ cargo test -p lunar_core --release network_check -- --ignored --nocapture
 
 ## Limitations
 
-The 30 m polar and roughly 118 m global sources cannot reproduce all 5 m terrain detail.
+The finer source does not improve C1 agreement: the prior max/RMS was 0.716/0.254 degrees.
 Downloads depend on `trek.nasa.gov` availability and its CORS policy in the browser.
 The result applies to the tile center, not the exact clicked position or every point in the tile.
 There is no application-managed caching across reloads. Network failures are reported to the UI.
