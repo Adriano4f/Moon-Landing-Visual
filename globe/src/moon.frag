@@ -163,6 +163,7 @@ void main()
 	// Apply the same continuous derivative to vertical screen variation for texture footprint estimation.
 	vec2 gy = vec2((p.z * dy.x - p.x * dy.z) / (2.0 * PI * horizontal), -dy.y / (PI * sqrt(horizontal)));
 	// Decode the RGB8 object-space normal and normalize after filtering.
+	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
 	// Compute cosine of the current model rotation.
 	float c = cos(u_angle);

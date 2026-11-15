@@ -417,20 +417,8 @@ impl Renderer
 			gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::REPEAT as i32);
 			// Build all lower-resolution levels from level zero; C++ glGenerateMipmap.
 			gl.generate_mipmap(glow::TEXTURE_2D);
-			// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
-			if gl
-				// Inspect advertised optional GL features before using anisotropy; C++ enumerates extension strings.
-				.supported_extensions()
-				// Borrow elements without moving them; C++ cbegin/cend or a const range.
-				.iter()
-				// Return true at the first matching heuristic/extension; C++ ranges::any_of short-circuits.
-				.any(|name| name.ends_with("texture_filter_anisotropic"))
-			{
-				// Read the maximum supported anisotropy; C++ glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT).
-				let max = gl.get_parameter_f32(0x84FF);
-				// Cap anisotropic sampling at an anisotropy ratio of eight; C++ glTexParameterf.
-				gl.tex_parameter_f32(glow::TEXTURE_2D, 0x84FE, max.min(8.0));
-			}
+			// Keep the texture's default anisotropy ratio of one: textureGrad with anisotropy made dotted limb arcs on llvmpipe.
+			// Trilinear mipmaps and MSAA remain enabled; C++ likewise leaves GL_TEXTURE_MAX_ANISOTROPY_EXT at its default.
 			// Set integer sampling/wrapping state; C++ glTexParameteri.
 			gl.tex_parameter_i32(
 				glow::TEXTURE_2D,

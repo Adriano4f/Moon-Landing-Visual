@@ -1,6 +1,7 @@
 """Regression checks for the display-normal correction and exposure choice."""
 import math
 from pathlib import Path
+import re
 import unittest
 
 import numpy as np
@@ -9,6 +10,15 @@ from photometry import front_facing_normal, reflectance
 
 
 class ShadingTests(unittest.TestCase):
+    def test_trilinear_sampling_without_anisotropic_override(self):
+        root = Path(__file__).resolve().parents[2]
+        renderer = re.sub(r"//[^\n]*", "", (root/"globe/src/lib.rs").read_text())
+        self.assertIn("gl.generate_mipmap(glow::TEXTURE_2D)",renderer)
+        self.assertIn("glow::LINEAR_MIPMAP_LINEAR as i32",renderer)
+        self.assertNotIn("0X84FE",renderer.upper())
+        self.assertNotIn("TEXTURE_MAX_ANISOTROPY",renderer)
+        self.assertIn("multisampling: 4,",(root/"app/src/main.rs").read_text())
+
     def test_front_facing_unchanged_and_grazing_grid(self):
         view = np.array([0.,0.,1.])
         front = np.array([0.5,0.,math.sqrt(0.75)])

@@ -86,7 +86,7 @@ GL creation methods return Result<Handle,String>, while later GL commands mostly
 
 Albedo uses opaque SRGB8_ALPHA8 storage with RGBA input so WebGL2 permits generate_mipmap. Bare SRGB8 permits sampling but is not a WebGL2 color-renderable mip-generation format. Normal storage remains RGB8. The temporary RGBA conversion adds up to 4*width*height CPU bytes during upload; it is released afterward. UNPACK_ALIGNMENT is set to 1 for RGB rows and restored to 4. REPEAT applies to longitude, CLAMP_TO_EDGE to latitude. LINEAR_MIPMAP_LINEAR uses the full generated chain; magnification uses LINEAR.
 
-supported_extensions returns a set of extension names. ends_with tests the anisotropy suffix so desktop/ES naming prefixes can differ. get_parameter_f32(0x84FF) reads its supported ratio; tex_parameter_f32 sets 0x84FE to min(8,max). No anisotropy calls occur without the extension. get_error clears one pending driver error; texture upload returns a readable diagnostic if nonzero. The callbacks disable blending, enable depth writes/test and back-face culling, bind their program/VAO/textures, and unbind/disable those states afterward. egui restores its own paint state for later UI shapes.
+New textures retain the default anisotropy ratio one. We do not query or enable the optional anisotropic path: controlled 8k tests isolated it as a trigger for the dotted arc on Mesa llvmpipe. Trilinear mipmaps remain active. This trades some grazing-angle sharpness for reliable filtering without guessing a driver-name blacklist. get_error clears one pending driver error; texture upload returns a readable diagnostic if nonzero. The callbacks disable blending, enable depth writes/test and back-face culling, bind their program/VAO/textures, and unbind/disable those states afterward. egui restores its own paint state for later UI shapes.
 
 ### 2.3 GLSL APIs
 
@@ -95,6 +95,8 @@ smoothstep(edge0,edge1,x) returns t*t*(3-2*t), where t=clamp((x-edge0)/(edge1-ed
 vec2/vec3/vec4 construct float vectors; mat4 is a four-column matrix. Arithmetic on vectors is componentwise except matrix multiplication. normalize divides by length; dot sums component products. acos maps a cosine in [-1,1] to [0,pi]; clamp enforces that interval against roundoff. atan(y,x) returns the quadrant-aware angle. exp and log are natural exponential/logarithm; log requires a positive argument. pow raises a positive base to an exponent. sqrt receives max(...,0) in roundoff-sensitive expressions. inversesqrt(x) computes 1/sqrt(x) for positive x; our roughness normalization argument is at least one.
 
 max/min bound values; abs removes sign; tan has poles, so azimuth pi is handled by its limiting branch. mix(a,b,t)=a*(1-t)+b*t; step(edge,x) returns 0 below edge, 1 otherwise. Together they choose the piecewise sRGB branch per channel. dFdx/dFdy estimate local screen-space changes across fragment quads. textureGrad samples an explicitly supplied footprint, returning four channels; unlike an ordinary texture call it does not derive the wrapped longitude's discontinuity. All those functions use GLSL scalar/vector overloads, not Rust methods.
+
+Default floating-point in/out interpolation is smooth and perspective-correct, commonly at the pixel center but more generally at an implementation-selected location within the pixel. With MSAA, coverage can include sample locations even if that interpolation location is outside the triangle. The optional centroid auxiliary qualifier instead requests an inside-primitive location within the pixel when possible. It does not enable per-sample shading. Coverage-dependent locations can differ between adjacent pixels, complicating dFdx/dFdy. Our fixed-pose centroid trial worsened the texture pattern, so the production declarations do not use it. Rendering-guide sections 5 and 6 explain coverage, the trial matrix, and why disabling optional anisotropy was selected instead. The shaders retain their acos argument clamp and bounded polar denominator.
 
 ## 3. File and function walkthrough
 
@@ -106,7 +108,7 @@ math.rs defines direction, the trigonometric convention. sphere asserts dimensio
 
 lib.rs exposes Globe. new queries the GPU limit while eframe's context is current, selects/logs one tier, and starts loading; it does not decode all tiers. show submits a loading/error label if needed, reserves the viewport, computes rotation, captures shared state, and queues CallbackFn. That callback consumes completed images, constructs Renderer on the current GL context, stores errors, and paints when ready. Zero-area viewports are skipped. destroy takes the optional renderer and frees it once.
 
-Renderer::new validates the shader dialect, records resource handles, compiles and links both stages, checks diagnostics, deletes successfully linked stage objects, uploads the production mesh and both images, and logs readiness. Its local Result closure centralizes cleanup of partial initialization. upload_texture validates device dimensions, makes opaque RGBA only for sRGB albedo, uploads, generates mipmaps, configures optional anisotropy, and reports GL failure. paint clears depth, binds projection/rotation/samplers, draws indexed triangles, and releases its bindings. Renderer::destroy drains textures/buffers/shaders and takes optional VAO/program handles before deleting them; repeated calls do nothing.
+Renderer::new validates the shader dialect, records resource handles, compiles and links both stages, checks diagnostics, deletes successfully linked stage objects, uploads the production mesh and both images, and logs readiness. Its local Result closure centralizes cleanup of partial initialization. upload_texture validates device dimensions, makes opaque RGBA only for sRGB albedo, uploads, generates mipmaps, retains default isotropic filtering, and reports GL failure. paint clears depth, binds projection/rotation/samplers, draws indexed triangles, and releases its bindings. Renderer::destroy drains textures/buffers/shaders and takes optional VAO/program handles before deleting them; repeated calls do nothing.
 
 moon.vert computes rotation, passes both world and object coordinates, subtracts the camera, and projects. moon.frag's h_function implements the logarithmic multiple-scattering approximation. hapke returns zero for locally hidden facets, evaluates the signed HG lobes, SHOE, both roughness branches and H-functions, then multiplies their radiance-factor expression. linear_to_srgb encodes display light. main reconstructs seam-safe UV/gradients, samples and rotates normals, forms light/view geometry, masks the geometric night side, samples relative linear color, exposes/tone-maps it, and writes opaque output.
 
@@ -1020,20 +1022,8 @@ impl Renderer
 			gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::REPEAT as i32);
 			// Build all lower-resolution levels from level zero; C++ glGenerateMipmap.
 			gl.generate_mipmap(glow::TEXTURE_2D);
-			// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
-			if gl
-				// Inspect advertised optional GL features before using anisotropy; C++ enumerates extension strings.
-				.supported_extensions()
-				// Borrow elements without moving them; C++ cbegin/cend or a const range.
-				.iter()
-				// Return true at the first matching heuristic/extension; C++ ranges::any_of short-circuits.
-				.any(|name| name.ends_with("texture_filter_anisotropic"))
-			{
-				// Read the maximum supported anisotropy; C++ glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT).
-				let max = gl.get_parameter_f32(0x84FF);
-				// Cap anisotropic sampling at an anisotropy ratio of eight; C++ glTexParameterf.
-				gl.tex_parameter_f32(glow::TEXTURE_2D, 0x84FE, max.min(8.0));
-			}
+			// Keep the texture's default anisotropy ratio of one: textureGrad with anisotropy made dotted limb arcs on llvmpipe.
+			// Trilinear mipmaps and MSAA remain enabled; C++ likewise leaves GL_TEXTURE_MAX_ANISOTROPY_EXT at its default.
 			// Set integer sampling/wrapping state; C++ glTexParameteri.
 			gl.tex_parameter_i32(
 				glow::TEXTURE_2D,
@@ -1193,6 +1183,7 @@ uniform mat4 u_projection;
 // Receive model rotation in radians from egui time.
 uniform float u_angle;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
+// Keep default smooth interpolation: derivatives of coverage-dependent centroid values worsened the filtering artifact.
 out vec3 v_position;
 // Pass mesh UV for the vertex interface; direction-based fragment sampling does not depend on it.
 out vec2 v_uv;
@@ -1388,6 +1379,7 @@ void main()
 	// Apply the same continuous derivative to vertical screen variation for texture footprint estimation.
 	vec2 gy = vec2((p.z * dy.x - p.x * dy.z) / (2.0 * PI * horizontal), -dy.y / (PI * sqrt(horizontal)));
 	// Decode the RGB8 object-space normal and normalize after filtering.
+	// Texture state retains trilinear mipmaps but not the anisotropic path that produced dotted arcs in fixed-pose tests.
 	vec3 n = normalize(textureGrad(u_normal, uv, gx, gy).rgb * 2.0 - 1.0);
 	// Compute cosine of the current model rotation.
 	float c = cos(u_angle);
@@ -1642,7 +1634,6 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `ehttp::Request::get`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `enable`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `enable_vertex_attrib_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
-- `ends_with`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `enumerate`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `env_logger::init`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `env!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -1662,7 +1653,6 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `get_element_by_id`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `get_error`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `get_or_insert`: [annotated globe/src/lib.rs](#44-globesrclibrs)
-- `get_parameter_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `get_parameter_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `get_program_info_log`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `get_program_link_status`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -1724,11 +1714,9 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `std::fs::read`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::path::Path::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `std::thread::spawn`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
-- `supported_extensions`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `take`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `tan`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `tex_image_2d`: [annotated globe/src/lib.rs](#44-globesrclibrs)
-- `tex_parameter_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `tex_parameter_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `then`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `to_lowercase`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)

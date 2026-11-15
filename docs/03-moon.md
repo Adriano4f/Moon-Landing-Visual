@@ -12,7 +12,7 @@ A pixel is one addressable image location. RGB assigns it red, green, and blue c
 
 A three-component vector is an ordered triple. Addition and scalar multiplication act componentwise. Its Euclidean length is sqrt(x*x+y*y+z*z). A unit vector has length one; normalization divides by length and requires a nonzero vector. A point is a location, while subtracting two points gives a displacement vector. Our units for rendering positions are lunar reference radii.
 
-The dot product a dot b = ax*bx+ay*by+az*bz equals length(a)*length(b)*cos(angle). For unit directions it directly gives a cosine. For example, (0,0,1) dot (1,0,0) = 0 means a right angle; (0,0,1) dotted with itself is 1. The shader uses dot products to ask whether a surface faces the Sun and camera. Implementation: [globe/src/moon.frag:185](../globe/src/moon.frag#L185).
+The dot product a dot b = ax*bx+ay*by+az*bz equals length(a)*length(b)*cos(angle). For unit directions it directly gives a cosine. For example, (0,0,1) dot (1,0,0) = 0 means a right angle; (0,0,1) dotted with itself is 1. The shader uses dot products to ask whether a surface faces the Sun and camera. Implementation: [globe/src/moon.frag:186](../globe/src/moon.frag#L186).
 
 The cross product a cross b = (ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx) is perpendicular to both vectors. Its sign distinguishes triangle orientations. For a=(1,0,0) and b=(0,1,0), a cross b=(0,0,1). The mesh test uses the z component of the cross product of two triangle edges to check outward winding. Implementation: [globe/src/math.rs:112](../globe/src/math.rs#L112).
 
@@ -32,7 +32,7 @@ The sphere has 256 longitude cells and 128 latitude cells. Its duplicated bounda
 
 The graphics processing unit, or GPU, transforms and shades many vertices/fragments in parallel. OpenGL is the command API that supplies data and configures this pipeline. `glow` exposes that API in Rust and also maps it to browser WebGL2. GLSL is the language of the small GPU programs called shaders. The vertex shader processes one vertex. Rasterization converts projected triangles into covered sample locations. A fragment shader computes a color for a covered location before depth testing decides whether it survives.
 
-A uniform is a value held constant for one draw, such as the rotation angle or projection matrix. A vertex attribute varies per vertex. Shader `in`/`out` declarations connect these values between stages. `gl_Position` is the vertex shader's special homogeneous clip-coordinate output. Implementation: [globe/src/moon.vert:19](../globe/src/moon.vert#L19) and [globe/src/moon.frag:148](../globe/src/moon.frag#L148).
+A uniform is a value held constant for one draw, such as the rotation angle or projection matrix. A vertex attribute varies per vertex. Shader `in`/`out` declarations connect these values between stages. `gl_Position` is the vertex shader's special homogeneous clip-coordinate output. Implementation: [globe/src/moon.vert:20](../globe/src/moon.vert#L20) and [globe/src/moon.frag:148](../globe/src/moon.frag#L148).
 
 ## 4. Matrices and coordinate spaces
 
@@ -49,11 +49,11 @@ T * (1,0,0,1) = (1,0,-3.3,1).
 T * (1,0,0,0) = (1,0,0,0).
 ```
 
-Multiplication order matters: P*T*p translates first, then projects. OpenGL accepts our matrices in column-major memory order: consecutive groups of four floats are columns, not rows. The upload passes transpose=false. Implementation: [globe/src/lib.rs:494](../globe/src/lib.rs#L494).
+Multiplication order matters: P*T*p translates first, then projects. OpenGL accepts our matrices in column-major memory order: consecutive groups of four floats are columns, not rows. The upload passes transpose=false. Implementation: [globe/src/lib.rs:482](../globe/src/lib.rs#L482).
 
 Object space is the unrotated Moon's coordinate system. World space is object space after the model rotation. For angle theta around +y, world x=cos(theta)*x+sin(theta)*z, world y=y, and world z=-sin(theta)*x+cos(theta)*z. At theta=90 degrees, (0,0,1) becomes (1,0,0). A rigid rotation transforms normals by this same matrix. General nonuniform scaling would require an inverse-transpose normal matrix, which we do not need.
 
-View space measures positions relative to the camera. Here the camera is C=(0,0,3.3), looking along -z without any camera rotation, so view position is world position minus C. The vertex shader computes this translation directly. Implementation of object, world, and view transformations: [globe/src/moon.vert:26](../globe/src/moon.vert#L26).
+View space measures positions relative to the camera. Here the camera is C=(0,0,3.3), looking along -z without any camera rotation, so view position is world position minus C. The vertex shader computes this translation directly. Implementation of object, world, and view transformations: [globe/src/moon.vert:27](../globe/src/moon.vert#L27).
 
 Clip space is the homogeneous output of the projection matrix. Let a be viewport width/height, n=0.1 the near distance, F=10 the far distance, and f=min(a,1)/tan(pi/8). Then
 
@@ -80,9 +80,13 @@ a_fragment = sum(weight_j * a_j / w_j) / sum(weight_j / w_j).
 
 This is perspective-correct interpolation. GLSL uses it by default for our floating-point outputs. Interpolated positions and normals must be normalized again where a unit direction is required. The shader reconstructs texture UV from interpolated object direction instead of interpolating a wrapped longitude directly. Implementation: [globe/src/moon.frag:151](../globe/src/moon.frag#L151).
 
-A depth buffer stores the closest surviving depth at each sample. Without it, draw order could put a rear triangle in front. The callback enables depth testing with LESS, permits writes, and clears depth to 1. A fragment with a smaller depth replaces the stored value. Counterclockwise triangles are front faces; back-face culling discards the rear surfaces of this closed opaque sphere. Blending is disabled because alpha is always one. Implementation: [globe/src/lib.rs:474](../globe/src/lib.rs#L474).
+A depth buffer stores the closest surviving depth at each sample. Without it, draw order could put a rear triangle in front. The callback enables depth testing with LESS, permits writes, and clears depth to 1. A fragment with a smaller depth replaces the stored value. Counterclockwise triangles are front faces; back-face culling discards the rear surfaces of this closed opaque sphere. Blending is disabled because alpha is always one. Implementation: [globe/src/lib.rs:462](../globe/src/lib.rs#L462).
 
 Multisample anti-aliasing, or MSAA, tests multiple coverage locations per pixel and resolves them into a final color. Four samples soften the geometric silhouette; this does not mean four independent texture or lighting evaluations everywhere, and it does not replace mipmaps. Native `NativeOptions.multisampling=4` remains enabled. The browser uses its context's available antialiasing behavior rather than claiming native's exact sample count. Implementation: [app/src/main.rs:11](../app/src/main.rs#L11).
+
+Coverage and interpolation are separate operations. A pixel can contain four sample locations but have only one or two inside a triangle. A fragment shader normally runs once for that pixel's covered samples. The pixel center is a common interpolation location, but the specification permits an implementation-selected location within the pixel without requiring it to lie inside the triangle. The inputs can therefore be extrapolated even though some coverage samples are inside. This is a legitimate concern for functions with restricted domains, such as acos. Our shader clamps its argument to [-1,1] before evaluation and bounds the polar derivative denominator.
+
+The GLSL qualifier `centroid` asks for an interpolation location inside both the primitive and the pixel when possible, instead of allowing an extrapolated value outside the primitive. It is an auxiliary storage qualifier controlling interpolation, not a request to run the shader separately at every sample and not necessarily the mathematical center of the covered area. In C++ OpenGL, it is written in the shader source, not enabled by a glEnable call. Matching vertex output and fragment input declarations can use `centroid out vec3` and `centroid in vec3`. The qualifier is available in desktop GLSL 3.30 and GLSL ES 3.00. However, neighboring pixels can choose different subpixel offsets, which complicates derivatives computed across a fragment quad. The [GLSL specification's interpolation qualifiers](https://github.com/KhronosGroup/GLSL/blob/main/chapters/variables.adoc#interpolation-qualifiers) define this behavior and explicitly warn about less accurate centroid derivatives. We tested centroid interpolation, but do not enable it: it did not remove the arc and made the texture pattern worse with anisotropy enabled. The production inputs retain default smooth perspective-correct interpolation.
 
 ## 6. Textures, filtering, and a continuous longitude seam
 
@@ -90,13 +94,26 @@ A texture is an image addressed by normalized coordinates u,v. Our equirectangul
 
 Bilinear filtering blends four neighboring texels at one resolution. A mipmap is a sequence of smaller images, each approximately half as wide and high. When many texels fit under one screen pixel, sampling an appropriate smaller level suppresses shimmering. LINEAR_MIPMAP_LINEAR also blends between two levels, often called trilinear filtering. The level chain costs about one third beyond the base image because 1+1/4+1/16+...=4/3. Implementation: [globe/src/lib.rs:419](../globe/src/lib.rs#L419).
 
-At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. We enable it only when an extension name ends in `texture_filter_anisotropic`, query enum 0x84FF (MAX_TEXTURE_MAX_ANISOTROPY_EXT), and set 0x84FE (TEXTURE_MAX_ANISOTROPY_EXT) to min(8,max). Eight is an anisotropy ratio, not a promise of exactly eight texture reads. Without the extension, mipmapped trilinear filtering remains the fallback. Implementation: [globe/src/lib.rs:430](../globe/src/lib.rs#L430).
+At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. The earlier renderer requested a ratio up to eight through the optional anisotropic-filtering extension. The current renderer deliberately leaves every new texture at its default anisotropy ratio of one, retaining isotropic trilinear mipmapping. This is a portable conservative choice rather than a GPU-vendor-name workaround. It can blur grazing detail more than a correctly functioning anisotropic path, but removes the observed dotted arc without removing mipmaps or 4x MSAA. Implementation: [globe/src/lib.rs:419](../globe/src/lib.rs#L419).
 
 Ordinary automatic UV derivatives see u jump from almost 1 to almost 0 at the longitude boundary. They can incorrectly select a very small mip level and produce a visible seam. The shader instead differentiates the continuous unit direction p. For a differential dp, du=(pz*dpx-px*dpz)/(2*pi*(px*px+pz*pz)), and dv=-dpy/(pi*sqrt(px*px+pz*pz)). It obtains dp with dFdx and dFdy, bounds the polar denominator, and passes these explicit gradients to textureGrad for both maps. The texture still repeats, but the footprint never differentiates the wrapped u value. Implementation: [globe/src/moon.frag:162](../globe/src/moon.frag#L162).
 
+The filtering decision comes from controlled native 8k renders at rotation zero, with the same viewport, assets, exposure, and Mesa llvmpipe renderer. Each trial changed only the listed setting relative to the previous production configuration, except the explicitly combined trial. Gradient sanitization replaced non-finite values with zero and limited each gradient's length to 0.25 normalized UV units per pixel. The existing acos clamp remained active in every trial.
+
+| Fixed-pose trial | Result at the lower lit limb |
+|:--|:--|
+| 4x MSAA, default interpolation, anisotropy up to 8 | Dotted arc present |
+| MSAA off, otherwise unchanged | Dotted arc present; silhouette more jagged |
+| Centroid world/object inputs, otherwise unchanged | Worse, grid-like texture pattern |
+| Finite and length-limited gradients, otherwise unchanged | Dotted arc unchanged |
+| Centroid inputs plus gradient sanitization | Worse, grid-like texture pattern |
+| Anisotropy ratio 1, 4x MSAA and mipmaps retained | Dotted arc absent |
+
+This disproves MSAA as a necessary condition for this observed arc. Albedo-only and geometric-normal-only diagnostics also retained the dots, while an explicit base-level texture lookup removed them. The anisotropy on/off trial isolates the optional anisotropic textureGrad path as a trigger on the tested renderer. It does not identify an exact driver instruction at fault or establish that other GPUs have the same problem. Centroid interpolation and additional gradient clamps are therefore not presented as a successful remedy. The fix removes the optional anisotropic path for both albedo and normal textures; the latitude clamp, polar bound, seam-safe gradients, mipmaps, and native MSAA remain.
+
 ## 7. Relief and normal maps
 
-A normal is a unit vector perpendicular to the surface. A smooth sphere has radial normal r. A normal map stores perturbed directions that change illumination without moving the silhouette. These are object-space normals, not tangent-space normals: RGB directly encodes directions in the unrotated Moon coordinates. The shader rotates them with the geometry and renormalizes after filtering. Implementation: [globe/src/moon.frag:166](../globe/src/moon.frag#L166).
+A normal is a unit vector perpendicular to the surface. A smooth sphere has radial normal r. A normal map stores perturbed directions that change illumination without moving the silhouette. These are object-space normals, not tangent-space normals: RGB directly encodes directions in the unrotated Moon coordinates. The shader rotates them with the geometry and renormalizes after filtering. Implementation: [globe/src/moon.frag:167](../globe/src/moon.frag#L167).
 
 LOLA is the Lunar Orbiter Laser Altimeter. The offline script uses NASA's 16-pixels-per-degree unsigned displacement product. If q is an unsigned sample, height h=0.5*q-10,000 meters relative to reference radius R=1,737,400 m. This iteration uses exaggeration 1.0. Height is relief, not an already normalized display value. The source is 5,760 by 2,880: an 8k normal texture resamples this source and does not invent 8k scientific relief measurements. Implementation: [globe/assets/prepare.py:49](../globe/assets/prepare.py#L49).
 
@@ -112,7 +129,7 @@ A normal map does not change sphere visibility. To avoid treating a geometricall
 
 Projection alone did not eliminate the native 8k artifacts. The renderer additionally cross-fades the normal-map sunlight response into the geometric-sphere sunlight response under strong foreshortening. For radial normal N and m=max(dot(N,V),0), let t=clamp((m-0.35)/0.30,0,1) and a=t*t*(3-2*t). The final radiance factor is (1-a)*Hapke(N)+a*Hapke(n_corrected). Below cosine 0.35, approximately 69.5 degrees emission, only geometric-normal lighting remains. Above cosine 0.65, approximately 49.5 degrees, mapped relief is unchanged. The transition and its first derivative are continuous.
 
-Cross-fading the evaluated responses, rather than just normal vectors, preserves a positive geometric contribution throughout the transition even if a mapped response vanishes. Both terms use the same measured parameters and sunlight. No ambient term is introduced, and the geometric night-side mask still applies. This level-of-detail choice suppresses unresolved terrain-visibility artifacts; its thresholds are presentation settings, not WAC measurements. Implementation: [globe/src/moon.frag:178](../globe/src/moon.frag#L178).
+Cross-fading the evaluated responses, rather than just normal vectors, preserves a positive geometric contribution throughout the transition even if a mapped response vanishes. Both terms use the same measured parameters and sunlight. No ambient term is introduced, and the geometric night-side mask still applies. This level-of-detail choice suppresses unresolved terrain-visibility artifacts; its thresholds are presentation settings, not WAC measurements. Implementation: [globe/src/moon.frag:179](../globe/src/moon.frag#L179).
 
 ## 8. Radiometry and the Hapke model
 
@@ -211,7 +228,7 @@ sRGB is a nonlinear encoding of display RGB. A stored channel c decodes to c/12.
 
 The NASA map is aesthetic RGB imagery, not a per-pixel inversion of 566 nm Hapke parameters. Our explicit modeling choice is to multiply the common photometric response by each linear RGB channel divided by 0.4832, a rounded common area-weighted color-map luminance reference. Individual tier pre-JPEG means are recorded in manifest.json and are approximately 0.483. This preserves relative spatial brightness and color but does not convert RGB to measured spectral single-scattering albedo. It applies the mapped-band average outside its original 70-degree latitude coverage too, including the poles, solely for presentation.
 
-Exposure multiplies this relative radiance by 8.0. For exposed x>=0, the simple per-channel Reinhard tone map y=x/(1+x) compresses values smoothly below one. For example, x=0.5 gives 1/3 and x=2 gives 2/3. This is the global compression associated with Reinhard et al. (2002), "Photographic Tone Reproduction for Digital Images", DOI [10.1145/566654.566575](https://doi.org/10.1145/566654.566575), not the complete local adaptation method. Per-channel compression can alter hue. Implementation: [globe/src/moon.frag:202](../globe/src/moon.frag#L202).
+Exposure multiplies this relative radiance by 8.0. For exposed x>=0, the simple per-channel Reinhard tone map y=x/(1+x) compresses values smoothly below one. For example, x=0.5 gives 1/3 and x=2 gives 2/3. This is the global compression associated with Reinhard et al. (2002), "Photographic Tone Reproduction for Digital Images", DOI [10.1145/566654.566575](https://doi.org/10.1145/566654.566575), not the complete local adaptation method. Per-channel compression can alter hue. Implementation: [globe/src/moon.frag:203](../globe/src/moon.frag#L203).
 
 Finally, linear y encodes to 12.92*y for y<=0.0031308, otherwise 1.055*y^(1/2.4)-0.055. The shader writes sRGB with alpha one. egui_glow disables automatic framebuffer sRGB conversion for custom callbacks, so this explicit encoding is required and not applied twice. The [Khronos sRGB specification](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_sRGB.txt) defines these transfers. Implementation: [globe/src/moon.frag:141](../globe/src/moon.frag#L141).
 

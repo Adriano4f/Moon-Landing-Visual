@@ -9,6 +9,7 @@ uniform mat4 u_projection;
 // Receive model rotation in radians from egui time.
 uniform float u_angle;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
+// Keep default smooth interpolation: derivatives of coverage-dependent centroid values worsened the filtering artifact.
 out vec3 v_position;
 // Pass mesh UV for the vertex interface; direction-based fragment sampling does not depend on it.
 out vec2 v_uv;
