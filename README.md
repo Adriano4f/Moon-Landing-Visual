@@ -2,6 +2,8 @@
 
 Compare lunar south pole landing sites using Sun visibility for power and Earth visibility for direct communication.
 
+Read the standalone [technical reference](docs/13-technical-reference.md) for architecture, provenance, scientific algorithms, rendering, validation and limitations.
+
 Start with [the skeleton guide for C++ programmers](docs/01-skeleton.md) for Rust basics, the math, every crate, and Windows/Linux setup. Continue with [the full code walkthrough](docs/02-code.md) for every source file and Rust API used.
 
 Read [the from-zero rendering guide](docs/03-moon.md) for vectors, coordinate spaces, matrices, the GPU pipeline, NASA assets, normals, Hapke photometry, and color. Continue with [Rust and the complete globe code](docs/04-globe-code.md) for C++ comparisons, statement-level comments, exact source quotations, and the API index. The first two guides describe the original scientific workspace and placeholder app; the renderer guide documents its replacement.
@@ -10,7 +12,7 @@ Continue with [the panorama teaching guide](docs/05-panorama.md) for immediate-m
 
 Open the folder in Zed with `zed .` or File > Open. Zed's Rust support is built in and downloads rust-analyzer automatically. There is no extension to install.
 
-The default [standing-at-site view](docs/07-ui.md) shows finite Sun/Earth disks behind grey terrain, plain-language sunlight/radio statuses, whole-period summary cards and a question-mark help panel. Technical view retains the numerical plot. Vertical stretching is labeled, so the small angular disks are not silently enlarged. The [published-site catalog and globe controls](docs/09-sites-and-globe-controls.md) provide a site list, clickable outlined markers, drag rotation, zoom, go-to-site animation and lazy per-site loading. Connecting Ridge C1 remains the default. The [globe direction-ray guide](docs/08-rays.md) derives the local east/north/up frame used for thick Sun/Earth ribbons and endpoint disks, with selected-only or all-sites display. Ray lengths are not distances; dim rays fail the same sunlight/radio tests as the panorama. The rounded baseline dataset is retained unchanged.
+The default [standing-at-site view](docs/07-ui.md) shows finite Sun/Earth disks behind grey terrain, plain-language sunlight/radio statuses, whole-period summary cards and a question-mark help panel. Technical view retains the numerical plot. Vertical stretching is labeled, so the small angular disks are not silently enlarged. The [published-site catalog and globe controls](docs/09-sites-and-globe-controls.md) provide a site list, clickable outlined markers, drag rotation, zoom, go-to-site animation and lazy per-site loading. Connecting Ridge C1 remains the default. The [globe direction-ray guide](docs/08-rays.md) derives the local east/north/up frame used for thin, antialiased Sun/Earth ribbons and endpoint disks, with selected-only or all-sites display. An optional whole-Moon field shows incoming rays from the real Sun direction. Ray lengths are not distances; dim rays fail the same sunlight/radio tests as the panorama. The rounded baseline dataset is retained unchanged.
 
 - `core/` (`lunar_core`): pure geometry, terrain horizons, visibility, time-weighted statistics, and Horizons text parsing.
 - `prep/`: reads external LOLA PGDA 78/90 GeoTIFFs with the pure-Rust `tiff` crate, computes fixed-site terrain horizons through core's I/O-free sampler interface, downloads JPL Horizons observer tracks, and writes one JSON per site in `app/assets/data/`.
