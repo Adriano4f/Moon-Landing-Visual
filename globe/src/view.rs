@@ -256,7 +256,7 @@ impl Globe
 	fn orbit_input(&mut self, ui: &mut egui::Ui, response: &egui::Response)
 	{
 		// Wheel and touch pinch operate only inside the globe, not the panorama scroll area; C++ scoped event handling.
-		if response.hovered()
+		if response.hovered() || response.dragged()
 		{
 			// Bind this intermediate value for the current operation; C++ local initialization.
 			let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -271,8 +271,8 @@ impl Globe
 				ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
 			}
 		}
-		// Check this state or input before acting; C++ conditional branch.
-		if response.dragged()
+		// Two fingers zoom; one finger rotates.
+		if response.dragged() && ui.input(|i| i.multi_touch().is_none())
 		{
 			// Direct orbit manipulation exits Earth lock while preserving the current orientation; C++ mode switch.
 			self.earth_view = false;
