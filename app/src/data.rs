@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 // Keep one filename for native disk and web HTTP paths; C++ constexpr string_view.
-const FILE: &str = "connecting-ridge-c1.json";
+pub(crate) const FILE: &str = "connecting-ridge-c1.json";
 
 // Generate JSON deserialization for the prep schema; C++ supplies field adapters manually.
 #[derive(Deserialize)]
@@ -122,7 +122,7 @@ impl SiteData
 pub(crate) type Pending = Arc<Mutex<Option<Result<SiteData, String>>>>;
 
 // Start one asynchronous load and wake egui when it finishes; C++ factory returning shared completion state.
-pub(crate) fn load(ctx: egui::Context) -> Pending
+pub(crate) fn load(ctx: egui::Context, file: String) -> Pending
 {
 	// None means pending, distinct from success and failure; C++ optional starts disengaged.
 	let pending = Arc::new(Mutex::new(None));
@@ -154,7 +154,7 @@ pub(crate) fn load(ctx: egui::Context) -> Pending
 					})
 			});
 		// Include the failing path in the error instead of silently switching files; C++ filesystem read with expected.
-		let path = directory.join(FILE);
+		let path = directory.join(&file);
 		// Publish exactly one disk result; C++ invokes the captured completion.
 		done(std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display())));
 	});
@@ -162,7 +162,7 @@ pub(crate) fn load(ctx: egui::Context) -> Pending
 	#[cfg(target_arch = "wasm32")]
 	// Fetch the same relative resource copied by Trunk, without embedding it in WASM; C++ asynchronous HTTP request.
 	ehttp::fetch(
-		ehttp::Request::get(format!("assets/data/{FILE}")),
+		ehttp::Request::get(format!("assets/data/{file}")),
 		move |response| {
 			// Reject HTTP errors even if their bodies happen to resemble JSON; C++ expected::and_then.
 			done(response.and_then(|r| {
@@ -172,7 +172,7 @@ pub(crate) fn load(ctx: egui::Context) -> Pending
 				}
 				else
 				{
-					Err(format!("HTTP {} loading {FILE}", r.status))
+					Err(format!("HTTP {} loading {file}", r.status))
 				}
 			}));
 		},
@@ -234,6 +234,7 @@ mod tests
 		assert_eq!(flat.earth_above, [true, false]);
 		// Raising the clearance to one degree rejects an Earth center exactly one degree high; C++ strict-threshold check.
 		flat.update_earth_margin(1.0);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(flat.earth_above, [false, false]);
 		// Restore the default before exercising the existing horizon checks; C++ cache update.
 		flat.update_earth_margin(EARTH_MARGIN_DEG);
@@ -250,7 +251,9 @@ mod tests
 		// Values straddling half a degree prove parsing uses the default clearance, not zero; C++ threshold fixture.
 		let mut close = fixture();
 		close["earth"]["el_deg"] = serde_json::json!([0.25, 0.75]);
+		// Bind this intermediate value for the current operation; C++ local initialization.
 		let clearance = SiteData::parse(&serde_json::to_vec(&close).unwrap()).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(clearance.earth_above, [false, true]);
 	}
 

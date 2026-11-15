@@ -35,6 +35,22 @@ struct Ray
 	visible: bool,
 }
 
+// Lightweight catalog metadata plus optional current scientific sample; C++ value struct.
+#[derive(Clone)]
+pub struct Marker
+{
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub id: usize,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub name: String,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub lat_deg: f64,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub lon_deg: f64,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub directions: Option<[BodyDirection; 2]>,
+}
+
 /// Owns the callback's shared renderer. Call destroy from eframe's on_exit with a current context.
 // Declare named fields; Rust methods live in a separate impl, unlike inline C++ class definitions.
 pub struct Globe
@@ -45,14 +61,73 @@ pub struct Globe
 	loading: Arc<Mutex<assets::Loading>>,
 	// Selected size label 2/4/8, with width equal to 1,024 times the label; C++ uint32_t.
 	tier: u32,
-	// Optional animation epoch in seconds; C++ optional<double>.
-	started: Option<f64>,
-	// Optional unit object-space site direction; C++ optional<array<float,3>> without a core dependency.
-	site: Option<[f32; 3]>,
-	// Geographic radians define north/east even at a pole; C++ optional<pair<float,float>>.
-	coordinates: Option<(f32, f32)>,
-	// Sun and Earth in fixed color order, absent until a valid time sample arrives; C++ optional<array<Ray,2>>.
-	rays: Option<[Ray; 2]>,
+	// Interactive presentation state is independent of ephemeris time; C++ value members.
+	scene: Vec<Marker>,
+	selected: usize,
+	yaw: f32,
+	tilt: f32,
+	zoom: f32,
+	paused: bool,
+	last_time: Option<f64>,
+	focus: Option<(f64, [f32; 3], [f32; 3])>,
+}
+
+// Exercise scene validation without opening an OpenGL context; C++ isolated test namespace.
+#[cfg(test)]
+mod scene_tests
+{
+	// Reuse the production state and aggregate definitions; C++ qualified test access.
+	use super::*;
+
+	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
+	#[test]
+	fn scene_identity_empty_and_invalid()
+	{
+		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
+		let mut globe = Globe {
+			renderer: Arc::new(Mutex::new(None)),
+			loading: Arc::new(Mutex::new(assets::Loading {
+				images: [None, None],
+				error: None,
+			})),
+			tier: 2,
+			scene: vec![],
+			selected: 0,
+			yaw: 0.0,
+			tilt: 0.0,
+			zoom: 1.0,
+			paused: true,
+			last_time: None,
+			focus: Some((0.0, [0.0; 3], [1.0; 3])),
+		};
+		// Keep the valid identifier deliberately different from its vector index; C++ aggregate fixture.
+		let valid = Marker {
+			id: 17,
+			name: "Published".into(),
+			lat_deg: -89.0,
+			lon_deg: 220.0,
+			directions: None,
+		};
+		// Represent malformed external metadata without corrupting the valid entry; C++ aggregate copy override.
+		let invalid = Marker {
+			id: 8,
+			lat_deg: f64::NAN,
+			..valid.clone()
+		};
+		// Apply the same filtering path used on every application redraw; C++ scene setter.
+		globe.set_scene(vec![invalid, valid], 17);
+		// Filtering must not renumber the published marker identifier; C++ collection assertion.
+		assert_eq!(
+			globe.scene.iter().map(|s| s.id).collect::<Vec<_>>(),
+			vec![17]
+		);
+		// A changed selection cancels the previous site's camera animation; C++ optional-state assertion.
+		assert!(globe.focus.is_none());
+		// Empty data clears markers and rays instead of retaining old state; C++ empty-container setter.
+		globe.set_scene(vec![], 17);
+		// No stale scientific direction survives scene replacement; C++ collection assertion.
+		assert!(globe.scene.is_empty());
+	}
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -89,61 +164,125 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			loading: assets::load(tier),
 			tier,
-			// Optional animation epoch in seconds; C++ optional<double>.
-			started: None,
-			// No marker until valid geographic coordinates arrive; C++ nullopt.
-			site: None,
-			// No local basis or scientific rays until the app supplies a site/sample; C++ nullopt initialization.
-			coordinates: None,
-			rays: None,
+			// Start with an unobstructed overview and automatic rotation; C++ scalar initialization.
+			scene: Vec::new(),
+			selected: 0,
+			yaw: -0.5,
+			tilt: -std::f32::consts::PI / 6.0,
+			zoom: 1.0,
+			paused: false,
+			last_time: None,
+			focus: None,
 		})
 	}
 
-	// Accept only finite geographic coordinates; absent/invalid input clears the marker; C++ optional setter.
-	pub fn set_site(&mut self, site: Option<(f64, f64)>)
+	// Copy metadata for every marker and scientific directions only for requested sites; C++ scene value transfer.
+	pub fn set_scene(&mut self, scene: Vec<Marker>, selected: usize)
 	{
-		// Convert degrees to the renderer's object-space convention, independent of scientific data types; C++ optional transform.
-		self.coordinates = site
-			.filter(|&(lat, lon)| {
-				lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
-			})
-			.map(|(lat, lon)| {
-				(
-					lat.to_radians() as f32,
-					lon.rem_euclid(360.0).to_radians() as f32,
-				)
-			});
-		// Keep the marker and local basis tied to exactly the same site; C++ optional transform.
-		self.site = self.coordinates.map(|(lat, lon)| math::direction(lat, lon));
-		// Never retain rays belonging to a previous location; C++ optional reset.
-		self.rays = None;
-	}
-
-	// Accept current Sun/Earth angles in that order; invalid or missing data clears both rays; C++ optional value setter.
-	pub fn set_directions(&mut self, bodies: Option<[BodyDirection; 2]>)
-	{
-		// No stale geometry may survive an absent time sample; C++ reset.
-		self.rays = None;
-		// Both the site's basis and the time sample are required; C++ two optional guards.
-		if let (Some((lat, lon)), Some([sun, earth])) = (self.coordinates, bodies)
+		// Cancel an in-flight transition if another site is chosen; C++ identity guard.
+		if self.selected != selected
 		{
-			// Convert each value with the same geographic basis; C++ checked lambda returning optional<Ray>.
-			let convert = |body: BodyDirection| {
-				math::local_direction(lat, lon, body.az_deg.to_radians(), body.el_deg.to_radians())
-					.map(|direction| Ray {
-						direction,
-						visible: body.visible,
-					})
-			};
-			// Submit a complete pair only when both directions are valid; C++ zip/transform of two optionals.
-			self.rays = convert(sun).zip(convert(earth)).map(|(s, e)| [s, e]);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = None;
 		}
+		// Update this persistent member explicitly; C++ member assignment.
+		self.scene = scene
+			.into_iter()
+			.filter(|m| {
+				m.lat_deg.is_finite()
+					&& m.lon_deg.is_finite()
+					&& (-90.0..=90.0).contains(&m.lat_deg)
+			})
+			.collect();
+		// Update this persistent member explicitly; C++ member assignment.
+		self.selected = selected;
 	}
 
-	/// Fill the available UI rectangle and rotate once per 60 seconds of egui time.
+	/// Fill the available UI rectangle with interactive controls and optional one-minute rotation.
 	// Queue a paint callback for this frame and request the next; C++ an immediate-mode UI calls this each frame.
-	pub fn show(&mut self, ui: &mut egui::Ui)
+	pub fn show(&mut self, ui: &mut egui::Ui) -> Option<usize>
 	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let time = ui.input(|i| i.time);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut go = false;
+		// Submit the current interaction or display value; C++ immediate-mode API call.
+		ui.horizontal_wrapped(|ui| {
+			if ui.button("− Zoom").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom / 1.8).max(1.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			if ui.button("+ Zoom").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom * 1.8).min(1024.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			if ui.button("Go to site").clicked()
+			{
+				go = true;
+			}
+			// Check this state or input before acting; C++ conditional branch.
+			if self.paused && ui.button("Resume rotation").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.paused = false;
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label(format!("{:.0}×", self.zoom));
+		});
+		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let target = -(site.lon_deg as f32).to_radians();
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = (target - self.yaw + std::f32::consts::PI)
+				.rem_euclid(std::f32::consts::TAU)
+				- std::f32::consts::PI;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = Some((
+				time,
+				[self.yaw, self.tilt, self.zoom],
+				[self.yaw + delta, (site.lat_deg as f32).to_radians(), 128.0],
+			));
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if let Some((start, from, to)) = self.focus
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let t = ((time - start) / 0.8).clamp(0.0, 1.0) as f32;
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let blend = t * t * (3.0 - 2.0 * t);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw = from[0] + (to[0] - from[0]) * blend;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.tilt = from[1] + (to[1] - from[1]) * blend;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.zoom = (from[2].ln() + (to[2].ln() - from[2].ln()) * blend).exp();
+			// Check this state or input before acting; C++ conditional branch.
+			if t >= 1.0
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+		}
+		else if !self.paused
+		{
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw += dt * std::f32::consts::TAU / 60.0;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut clicked = None;
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if self.renderer.lock().is_none()
 		{
@@ -161,25 +300,88 @@ impl Globe
 			ui.label(label);
 		}
 		// Reserve the available paint rectangle; C++ would receive a rectangle/response pair.
-		let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+		let (rect, response) =
+			ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if !rect.is_positive()
 		{
 			// Stop this frame's work without a value; C++ return exits a void function.
-			return;
+			return None;
 		}
-		// Read monotonic egui time in seconds; C++ uses the frame clock.
-		let time = ui.input(|input| input.time);
-		// Initialize the first-frame epoch once, then copy it; C++ optional::emplace and dereference.
-		let start = *self.started.get_or_insert(time);
-		// Wrap time to one turn per 60 seconds and offset the initial longitude; C++ fmod plus a float cast.
-		let angle = ((time - start).rem_euclid(60.0) / 60.0) as f32 * std::f32::consts::TAU - 0.5;
+		// Wheel and touch pinch operate only inside the globe, not the panorama scroll area; C++ scoped event handling.
+		if response.hovered()
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
+			// Check this state or input before acting; C++ conditional branch.
+			if wheel != 0.0 || pinch != 1.0
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, 1024.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
+				ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+			}
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if response.dragged()
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = ui.input(|i| i.pointer.delta());
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw += delta.x * 0.006 / self.zoom;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.tilt = (self.tilt + delta.y * 0.006 / self.zoom)
+				.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = None;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let scale = ui.ctx().pixels_per_point();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let view = math::View {
+			yaw: self.yaw,
+			tilt: self.tilt,
+			zoom: self.zoom,
+			aspect: rect.aspect_ratio(),
+			pixels: [rect.width() * scale, rect.height() * scale],
+			scale,
+		};
 		// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
 		// Snapshot the selected sample for the deferred GL callback; C++ copy small optional values into a lambda.
-		let rays = self.site.zip(self.rays);
+		let rays: Vec<_> = self
+			.scene
+			.iter()
+			.filter_map(|site| {
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let origin = math::direction(
+					(site.lat_deg as f32).to_radians(),
+					(site.lon_deg as f32).to_radians(),
+				);
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let bodies = site.directions?;
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let convert = |body: BodyDirection| {
+					math::local_direction(
+						(site.lat_deg as f32).to_radians(),
+						(site.lon_deg as f32).to_radians(),
+						body.az_deg.to_radians(),
+						body.el_deg.to_radians(),
+					)
+					.map(|direction| Ray {
+						direction,
+						visible: body.visible,
+					})
+				};
+				Some((origin, [convert(bodies[0])?, convert(bodies[1])?]))
+			})
+			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -216,12 +418,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_ref()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(
-						painter.gl(),
-						viewport.width_px as f32 / viewport.height_px as f32,
-						angle,
-						rays,
-					);
+					renderer.paint(painter.gl(), view, &rays);
 				}
 			}
 		});
@@ -230,40 +427,84 @@ impl Globe
 			rect,
 			callback: Arc::new(callback),
 		});
-		// Draw the marker only after the Moon is available and the site faces the camera; C++ checked optional projection.
-		if self.renderer.lock().is_some()
-			&& let Some(ndc) = self
-				.site
-				.and_then(|p| math::marker(p, angle, rect.aspect_ratio()))
+		// Selected markers are larger; every marker has a contrasting outline and nearest-hit selection; C++ projected hit testing.
+		let painter = ui.painter_at(rect);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let pointer = response.interact_pointer_pos();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut nearest: f32 = f32::INFINITY;
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for site in self
+			.scene
+			.iter()
+			.filter(|s| s.id != self.selected)
+			.chain(self.scene.iter().filter(|s| s.id == self.selected))
 		{
-			// Convert NDC to top-left-origin logical UI coordinates, reversing vertical sign; C++ viewport transform.
-			let position = rect.center()
-				+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
-			// Keep marker radius constant on screen, independent of texture tier; C++ draw a filled overlay circle.
-			ui.painter()
-				.circle_filled(position, 4.5, egui::Color32::LIGHT_RED);
-			// Add an outline for contrast against either highlands or a dark terminator; C++ stroked-circle overlay.
-			ui.painter()
-				.circle_stroke(position, 4.5, egui::Stroke::new(1.0, egui::Color32::WHITE));
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let point = math::direction(
+				(site.lat_deg as f32).to_radians(),
+				(site.lon_deg as f32).to_radians(),
+			);
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(ndc) = view.project(point, true)
+			{
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let position = rect.center()
+					+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
+				if !rect.expand(15.0).contains(position)
+				{
+					continue;
+				}
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let selected = site.id == self.selected;
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let radius = if selected { 9.0 } else { 6.0 };
+				painter.circle_filled(
+					position,
+					radius,
+					if selected
+					{
+						egui::Color32::LIGHT_RED
+					}
+					else
+					{
+						egui::Color32::from_rgb(70, 230, 160)
+					},
+				);
+				painter.circle_stroke(
+					position,
+					radius,
+					egui::Stroke::new(2.0, egui::Color32::WHITE),
+				);
+				if selected
+				{
+					painter.text(
+						position + egui::vec2(12.0, -12.0),
+						egui::Align2::LEFT_BOTTOM,
+						&site.name,
+						egui::FontId::proportional(13.0),
+						egui::Color32::WHITE,
+					);
+				}
+				// Check this state or input before acting; C++ conditional branch.
+				if response.clicked()
+					&& let Some(p) = pointer
+				{
+					// Bind this intermediate value for the current operation; C++ local initialization.
+					let distance = p.distance_sq(position);
+					// Check this state or input before acting; C++ conditional branch.
+					if distance < 14.0_f32.powi(2) && distance < nearest
+					{
+						nearest = distance;
+						clicked = Some(site.id);
+					}
+				}
+			}
 		}
-		// Distinguish the presentation camera/light from scientific ephemerides in the adjacent plot; C++ overlay text.
-		ui.painter().text(
-			rect.left_top() + egui::vec2(8.0, 8.0),
-			egui::Align2::LEFT_TOP,
-			"Site marker: red | illustrative south view",
-			egui::FontId::proportional(12.0),
-			egui::Color32::LIGHT_RED,
-		);
-		// Explain ray colors, dimming and the non-distance scale without changing the phone layout; C++ multiline overlay label.
-		ui.painter().text(
-			rect.left_top() + egui::vec2(8.0, 25.0),
-			egui::Align2::LEFT_TOP,
-			"Yellow: Sun | blue: Earth | dim: blocked\nRays use selected time; length not to scale",
-			egui::FontId::proportional(11.0),
-			egui::Color32::LIGHT_GRAY,
-		);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to rotate; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nIllustrative globe; ray lengths not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
+		clicked
 	}
 
 	// Release registered GPU objects using the current context; C++ explicit teardown avoids a late invalid-context destructor.
@@ -437,7 +678,9 @@ impl Renderer
 				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
 				gl.enable_vertex_attrib_array(0);
 				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
-				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 12, 0);
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+				gl.enable_vertex_attrib_array(1);
+				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -575,7 +818,7 @@ impl Renderer
 	}
 
 	// Draw one opaque sphere inside egui's already configured viewport; C++ issues the equivalent GL commands.
-	fn paint(&self, gl: &glow::Context, aspect: f32, angle: f32, rays: Option<([f32; 3], [Ray; 2])>)
+	fn paint(&self, gl: &glow::Context, view: math::View, rays: &[([f32; 3], [Ray; 2])])
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
 		let Some(program) = self.program
@@ -617,13 +860,13 @@ impl Renderer
 				// Look up an active uniform, returning None if absent; C++ glGetUniformLocation returns -1.
 				gl.get_uniform_location(program, "u_projection").as_ref(),
 				false,
-				&math::perspective(aspect),
+				&view.projection(),
 			);
 			// Share one column-major rigid model matrix with geometry, normals, and CPU marker projection; C++ glUniformMatrix3fv.
 			gl.uniform_matrix_3_f32_slice(
 				gl.get_uniform_location(program, "u_model").as_ref(),
 				false,
-				&math::rotation(angle),
+				&view.model(),
 			);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 			for (unit, name) in ["u_albedo", "u_normal"].iter().enumerate()
@@ -639,9 +882,16 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// These are direction diagrams, not physical beams: retain blocked rays on the visible surface; C++ depth-state change.
+			gl.disable(glow::DEPTH_TEST);
 			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
-			if let Some((origin, bodies)) = rays
+			for &(origin, bodies) in rays
 			{
+				// Never expose diagrams from the back of the Moon; C++ visibility guard.
+				if view.project(origin, true).is_none()
+				{
+					continue;
+				}
 				// Reuse the exact model/projection uniforms, but skip all texture/photometry work; C++ material switch.
 				gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
 				// Select the independent, position-only line layout; C++ glBindVertexArray.
@@ -655,16 +905,16 @@ impl Renderer
 				{
 					// Direction rays are 0.6 lunar radii, not body distances; C++ endpoint vector arithmetic.
 					let end: [f32; 3] =
-						std::array::from_fn(|i| origin[i] + 0.6 * body.direction[i]);
-					// The first vertex equals the marker's surface point exactly; C++ contiguous two-vertex array.
-					let vertices = [origin, end];
-					// Twelve floats at most per frame need no persistent mapping; C++ glBufferData with GL_STREAM_DRAW.
+						std::array::from_fn(|i| origin[i] + 0.6 / view.zoom * body.direction[i]);
+					// Build screen-width triangle ribbons and a circular tip; C++ dynamic interleaved vertex array.
+					let vertices = view.ribbon(origin, end);
+					// Stream the ribbon and endpoint triangles without persistent mapping; C++ glBufferData.
 					gl.buffer_data_u8_slice(
 						glow::ARRAY_BUFFER,
 						bytemuck::cast_slice(&vertices),
 						glow::STREAM_DRAW,
 					);
-					// Dim failed terrain/radio predicates without disabling physical sphere occlusion; C++ conditional scalar.
+					// Dim failed terrain/radio predicates on the visible-side direction diagram; C++ conditional scalar.
 					let strength = if body.visible { 1.0 } else { 0.35 };
 					// Send an unlit display color rather than illuminating rays with the globe's illustration light; C++ glUniform3f.
 					gl.uniform_3_f32(
@@ -673,8 +923,9 @@ impl Renderer
 						color[1] * strength,
 						color[2] * strength,
 					);
-					// Use the portable one-pixel GL line rasterizer on desktop and WebGL2; C++ glDrawArrays(GL_LINES,0,2).
-					gl.draw_arrays(glow::LINES, 0, 2);
+					// Draw both ribbon faces and the endpoint fan as portable triangles; C++ glDrawArrays(GL_TRIANGLES).
+					gl.disable(glow::CULL_FACE);
+					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 5) as i32);
 				}
 				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);

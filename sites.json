@@ -4,5 +4,41 @@
     "lat_deg": -89.4398,
     "lon_deg": 222.83,
     "source": "Glaser et al. (2017), Table 2, 2 m observer; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  },
+  {
+    "name": "Connecting Ridge C2",
+    "lat_deg": -89.313,
+    "lon_deg": 245.98,
+    "source": "Glaser et al. (2017), Table 2, 2 m; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  },
+  {
+    "name": "Shackleton S1",
+    "lat_deg": -89.6866,
+    "lon_deg": 197.19,
+    "source": "Glaser et al. (2017), Table 2 first Shackleton row, 2 m; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  },
+  {
+    "name": "Shackleton S2",
+    "lat_deg": -89.7815,
+    "lon_deg": 204.7,
+    "source": "Glaser et al. (2017), Table 2 second Shackleton row, 2 m; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  },
+  {
+    "name": "Shackleton Mazarico",
+    "lat_deg": -89.78,
+    "lon_deg": 204.27,
+    "source": "Mazarico et al. (2011), coordinates and results reproduced in peer-reviewed Glaser et al. (2017), Table 1; secondary verification, not primary-paper recovery; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  },
+  {
+    "name": "Connecting Ridge Speyerer",
+    "lat_deg": -89.418,
+    "lon_deg": 221.3,
+    "source": "Speyerer and Robinson (2013), coordinates and results reproduced in peer-reviewed Glaser et al. (2017), Table 1; secondary verification; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
+  },
+  {
+    "name": "Shackleton Speyerer",
+    "lat_deg": -89.74,
+    "lon_deg": 201.2,
+    "source": "Speyerer and Robinson (2013), coordinates and results reproduced in peer-reviewed Glaser et al. (2017), Table 1; secondary verification; https://ntrs.nasa.gov/api/citations/20170007365/downloads/20170007365.pdf"
   }
 ]

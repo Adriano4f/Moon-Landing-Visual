@@ -43,7 +43,7 @@ A stable widget identity lets egui associate this frame's description with its p
 
 CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
 
-Implementation: [app/src/lib.rs:44](../app/src/lib.rs#L44), [app/src/panorama.rs:129](../app/src/panorama.rs#L129).
+Implementation: [app/src/lib.rs:191](../app/src/lib.rs#L191), [app/src/panorama.rs:193](../app/src/panorama.rs#L193).
 
 ## 4. Asynchronous loading and ownership
 
@@ -71,7 +71,7 @@ The first displayed index is the first timestamp at least $t_{\min}$; the exclus
 
 For example, on hourly timestamps [0,3600,7200], a 1-hour centered window around 3600 covers [1800,5400] seconds and contains only index 1. A 2-hour centered window covers [0,7200] and includes all three. Tests also use a deliberately irregular time grid to distinguish true duration selection from a sample-count approximation.
 
-Implementation: [app/src/panorama.rs:504](../app/src/panorama.rs#L504), [app/src/panorama.rs:481](../app/src/panorama.rs#L481).
+Implementation: [app/src/panorama.rs:571](../app/src/panorama.rs#L571), [app/src/panorama.rs:548](../app/src/panorama.rs#L548).
 
 ## 6. Plot construction and north-wrap handling
 
@@ -85,7 +85,7 @@ An empty selection yields no lines. A one-point piece remains safe; the separate
 
 For a supplied Horizon with $m$ uniform bins, the renderer samples at $\max(m,360)$ intervals including both endpoints. Each point calls Horizon::at; all original bin boundaries are included, and the 360-degree endpoint interpolates back to north. It does not read a DEM or recompute terrain rays. The terrain line remains distinct from the zero reference.
 
-Implementation: [app/src/panorama.rs:396](../app/src/panorama.rs#L396), [app/src/panorama.rs:519](../app/src/panorama.rs#L519).
+Implementation: [app/src/panorama.rs:463](../app/src/panorama.rs#L463), [app/src/panorama.rs:586](../app/src/panorama.rs#L586).
 
 ## 7. Visibility and the rotating site marker
 
@@ -121,7 +121,7 @@ $$
 
 The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
 
-Implementation: [globe/src/math.rs:125](../globe/src/math.rs#L125), [globe/src/math.rs:136](../globe/src/math.rs#L136), [globe/src/lib.rs:103](../globe/src/lib.rs#L103).
+Implementation: [globe/src/math.rs:242](../globe/src/math.rs#L242), [globe/src/math.rs:254](../globe/src/math.rs#L254), [globe/src/lib.rs:180](../globe/src/lib.rs#L180).
 
 ## 8. Panorama API index and C++ equivalents
 
@@ -193,7 +193,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 // Keep one filename for native disk and web HTTP paths; C++ constexpr string_view.
-const FILE: &str = "connecting-ridge-c1.json";
+pub(crate) const FILE: &str = "connecting-ridge-c1.json";
 
 // Generate JSON deserialization for the prep schema; C++ supplies field adapters manually.
 #[derive(Deserialize)]
@@ -303,7 +303,7 @@ impl SiteData
 pub(crate) type Pending = Arc<Mutex<Option<Result<SiteData, String>>>>;
 
 // Start one asynchronous load and wake egui when it finishes; C++ factory returning shared completion state.
-pub(crate) fn load(ctx: egui::Context) -> Pending
+pub(crate) fn load(ctx: egui::Context, file: String) -> Pending
 {
 	// None means pending, distinct from success and failure; C++ optional starts disengaged.
 	let pending = Arc::new(Mutex::new(None));
@@ -335,7 +335,7 @@ pub(crate) fn load(ctx: egui::Context) -> Pending
 					})
 			});
 		// Include the failing path in the error instead of silently switching files; C++ filesystem read with expected.
-		let path = directory.join(FILE);
+		let path = directory.join(&file);
 		// Publish exactly one disk result; C++ invokes the captured completion.
 		done(std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display())));
 	});
@@ -343,7 +343,7 @@ pub(crate) fn load(ctx: egui::Context) -> Pending
 	#[cfg(target_arch = "wasm32")]
 	// Fetch the same relative resource copied by Trunk, without embedding it in WASM; C++ asynchronous HTTP request.
 	ehttp::fetch(
-		ehttp::Request::get(format!("assets/data/{FILE}")),
+		ehttp::Request::get(format!("assets/data/{file}")),
 		move |response| {
 			// Reject HTTP errors even if their bodies happen to resemble JSON; C++ expected::and_then.
 			done(response.and_then(|r| {
@@ -353,7 +353,7 @@ pub(crate) fn load(ctx: egui::Context) -> Pending
 				}
 				else
 				{
-					Err(format!("HTTP {} loading {FILE}", r.status))
+					Err(format!("HTTP {} loading {file}", r.status))
 				}
 			}));
 		},
@@ -415,6 +415,7 @@ mod tests
 		assert_eq!(flat.earth_above, [true, false]);
 		// Raising the clearance to one degree rejects an Earth center exactly one degree high; C++ strict-threshold check.
 		flat.update_earth_margin(1.0);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(flat.earth_above, [false, false]);
 		// Restore the default before exercising the existing horizon checks; C++ cache update.
 		flat.update_earth_margin(EARTH_MARGIN_DEG);
@@ -431,7 +432,9 @@ mod tests
 		// Values straddling half a degree prove parsing uses the default clearance, not zero; C++ threshold fixture.
 		let mut close = fixture();
 		close["earth"]["el_deg"] = serde_json::json!([0.25, 0.75]);
+		// Bind this intermediate value for the current operation; C++ local initialization.
 		let clearance = SiteData::parse(&serde_json::to_vec(&close).unwrap()).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(clearance.earth_above, [false, true]);
 	}
 
@@ -514,7 +517,7 @@ pub(crate) struct Panorama
 impl Panorama
 {
 	// Start loading once during application construction; C++ a constructor with an asynchronous operation.
-	pub fn new(ctx: egui::Context) -> Self
+	pub fn new(ctx: egui::Context, file: String) -> Self
 	{
 		// Native launchers can select a reproducible starting sample; C++ environment parsing with fallback.
 		#[cfg(not(target_arch = "wasm32"))]
@@ -527,7 +530,7 @@ impl Panorama
 		let index = 0;
 		// Keep the chosen starting sample and a centered 30-day window; C++ aggregate initialization.
 		Self {
-			pending: data::load(ctx),
+			pending: data::load(ctx, file),
 			data: None,
 			error: None,
 			index,
@@ -550,8 +553,10 @@ impl Panorama
 		match result
 		{
 			// Move valid data into UI ownership; C++ move assignment.
-			Some(Ok(data)) =>
+			Some(Ok(mut data)) =>
 			{
+				// Pending nonselected loads may already have a nondefault radio setting; C++ cache restoration.
+				data.update_earth_margin(self.earth_margin_deg);
 				// A requested initial index must fit the data that actually arrived; C++ clamped index.
 				self.index = self.index.min(data.sun.t.len() - 1);
 				// Compute only after validation; C++ cached statistics.
@@ -572,6 +577,68 @@ impl Panorama
 	{
 		// Borrow the model and copy two scalars; C++ optional transform of a const reference.
 		self.data.as_ref().map(|d| (d.site.lat_deg, d.site.lon_deg))
+	}
+
+	// Export one UTC epoch for every site's own track lookup; C++ optional<int64_t>.
+	pub fn time(&self) -> Option<i64>
+	{
+		self.data.as_ref().map(|d| d.sun.t[self.index])
+	}
+
+	// Restore shared time when switching cached site views; C++ checked binary search.
+	pub fn set_time(&mut self, time: i64)
+	{
+		// Loaded tracks have strictly ordered epochs; C++ optional guard.
+		if let Some(data) = &self.data
+		{
+			// Update this persistent member explicitly; C++ member assignment.
+			self.index = data
+				.sun
+				.t
+				.partition_point(|&t| t <= time)
+				.saturating_sub(1)
+				.min(data.sun.t.len() - 1);
+		}
+	}
+
+	// Evaluate another site's own current sample, never reuse the selected site's angles; C++ optional array.
+	pub fn directions_at(&mut self, time: i64, margin: f32) -> Option<[globe::BodyDirection; 2]>
+	{
+		// All-sites radio styling must use the currently selected safety clearance; C++ cache update on change.
+		if self.earth_margin_deg != margin
+		{
+			// Update this persistent member explicitly; C++ member assignment.
+			self.earth_margin_deg = margin;
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(data) = &mut self.data
+			{
+				data.update_earth_margin(margin);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.summary = availability(data);
+			}
+		}
+		// Do not silently extrapolate beyond a site's coverage; C++ range guard.
+		let d = self.data.as_ref()?;
+		// Check this state or input before acting; C++ conditional branch.
+		if time < d.sun.t[0] || time > *d.sun.t.last()?
+		{
+			return None;
+		}
+		// Resolve a real sample at or immediately before the requested epoch; C++ member call.
+		self.set_time(time);
+		self.directions()
+	}
+
+	// Share the radio setting without exposing arrays to the renderer; C++ const scalar getter.
+	pub fn margin(&self) -> f32
+	{
+		self.earth_margin_deg
+	}
+
+	// Surface background load failures even when another site's panorama is selected; C++ optional const string view.
+	pub fn load_error(&self) -> Option<&str>
+	{
+		self.error.as_deref()
 	}
 
 	// Copy only the current scientific directions/availability into the independent renderer; C++ optional<array<BodyDirection,2>>.
@@ -614,6 +681,7 @@ impl Panorama
 				.on_hover_text("What am I looking at?")
 				.clicked()
 			{
+				// Update this persistent member explicitly; C++ member assignment.
 				self.help = !self.help;
 			}
 		});
@@ -723,11 +791,13 @@ impl Panorama
 			// Saturating subtraction keeps the first sample safe; C++ clamped decrement.
 			if ui.button("< 1 hour").clicked()
 			{
+				// Update this persistent member explicitly; C++ member assignment.
 				self.index = self.index.saturating_sub(1);
 			}
 			// Clamp at the inclusive final epoch; C++ clamped increment.
 			if ui.button("1 hour >").clicked()
 			{
+				// Update this persistent member explicitly; C++ member assignment.
 				self.index = (self.index + 1).min(data.sun.t.len() - 1);
 			}
 			// Explain that the window controls faint paths, not summary percentages; C++ combo box.
@@ -1081,13 +1151,19 @@ mod tests
 		let mut data = SiteData::parse(&bytes).unwrap();
 		// The last endpoint contributes no invented duration; C++ weighted percentage checks.
 		let summary = availability(&data);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert!((summary.pct_sun - 100.0 * 23.0 / 24.0).abs() < 1e-9);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(summary.longest_night_h, 1.0);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(summary.pct_earth, 100.0);
 		// Recalculation honors the edited margin for the entire period; C++ cache mutation.
 		data.update_earth_margin(1.0);
+		// Bind this intermediate value for the current operation; C++ local initialization.
 		let blocked = availability(&data);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(blocked.pct_earth, 0.0);
+		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(blocked.pct_both, 0.0);
 		// Build a view model without starting asynchronous I/O or an OpenGL context; C++ test aggregate.
 		let mut panorama = Panorama {
@@ -1115,6 +1191,16 @@ mod tests
 		assert_eq!(next[0].el_deg, 1.0);
 		// Visibility changes with the same selected index; C++ boolean assertion.
 		assert!(next[0].visible && !next[1].visible);
+		// Each background site's own track is sampled at shared UTC, with no extrapolation; C++ temporal regression.
+		assert!(panorama.directions_at(-1, 0.5).is_none());
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(panorama.directions_at(0, 0.5).unwrap()[1].visible);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(panorama.time(), Some(0));
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(panorama.directions_at(i64::MAX, 0.5).is_none());
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(panorama.directions_at(3600, 1.0).unwrap()[0].visible);
 		// Failed or missing loading state must not export stale scientific geometry; C++ optional reset.
 		panorama.data = None;
 		// Preserve an explicit loading error without inventing a sample; C++ error assignment.

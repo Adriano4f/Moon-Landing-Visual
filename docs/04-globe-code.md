@@ -100,7 +100,7 @@ Default floating-point in/out interpolation is smooth and perspective-correct, c
 
 ## 3. File and function walkthrough
 
-globe/Cargo.toml makes this an independent library depending only on egui, egui_glow, bytemuck, and JPEG/PNG image decoding. WASM-only dependencies add ehttp and browser bindings. No lunar_core dependency is introduced. app depends on globe by path. index.html copies the six static assets for Trunk, leaves the title Karaya Explore unchanged, and sets a black page background.
+globe/Cargo.toml makes this an independent library depending only on egui, egui_glow, bytemuck, and JPEG/PNG image decoding. WASM-only dependencies add ehttp and browser bindings. No lunar_core dependency is introduced. app depends on globe by path. index.html copies the six static assets for Trunk, sets the browser title to Karaya Explorer, and sets a black page background.
 
 assets.rs defines Loading with two optional results and a terminal diagnostic. select parses a requested label, chooses a default from mobile status, then searches descending supported widths under both limits. preferences obtains runtime platform hints. load starts two disk workers or two HTTP completions, decodes each image, and writes its fixed slot under the mutex. Loading::take first returns any existing error; only when both slots exist does it move both out. Otherwise it returns Ok(None). tiers_and_loading covers default/forced/clamped quality, invalid quality/GPU size, incomplete data, a failed slot, successful transfer, and the emptied state.
 
@@ -432,6 +432,122 @@ mod tests
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+// Keep all CPU/GPU camera parameters in one copyable value; C++ plain value struct.
+#[derive(Clone, Copy)]
+pub(crate) struct View
+{
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub yaw: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub tilt: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub zoom: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub aspect: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub pixels: [f32; 2],
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub scale: f32,
+}
+
+// Reuse identical rigid/perspective transforms for markers and triangle ribbons; C++ member definitions.
+impl View
+{
+	// Latitude tilt after longitude rotation; C++ matrix composition.
+	pub fn model(self) -> [f32; 9]
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (s, c) = self.yaw.sin_cos();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (st, ct) = self.tilt.sin_cos();
+		[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c]
+	}
+	// Zoom narrows the field of view without entering the sphere; C++ matrix scale.
+	pub fn projection(self) -> [f32; 16]
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut p = perspective(self.aspect);
+		p[0] *= self.zoom;
+		p[5] *= self.zoom;
+		p
+	}
+	// Optionally reject sphere-occluded surface markers, but project off-sphere ray tips; C++ checked projection.
+	pub fn project(self, point: [f32; 3], surface: bool) -> Option<[f32; 2]>
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let m = self.model();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let p: [f32; 3] =
+			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
+		if (surface && 3.3 * p[2] <= 1.0) || p[2] >= 3.2
+		{
+			return None;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let projection = self.projection();
+		Some([
+			projection[0] * p[0] / (3.3 - p[2]),
+			projection[5] * p[1] / (3.3 - p[2]),
+		])
+	}
+	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
+	pub fn ribbon(self, origin: [f32; 3], end: [f32; 3]) -> Vec<f32>
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (Some(a), Some(b)) = (self.project(origin, false), self.project(end, false))
+		else
+		{
+			return vec![];
+		};
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dx = (b[0] - a[0]) * self.pixels[0];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dy = (b[1] - a[1]) * self.pixels[1];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let length = dx.hypot(dy).max(1e-6);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let offset = [
+			-dy / length * 2.8 * self.scale / self.pixels[0],
+			dx / length * 2.8 * self.scale / self.pixels[1],
+		];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut vertices = Vec::with_capacity(330);
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for (p, sign) in [
+			(origin, -1.0),
+			(end, -1.0),
+			(end, 1.0),
+			(origin, -1.0),
+			(end, 1.0),
+			(origin, 1.0),
+		]
+		{
+			vertices.extend_from_slice(&[p[0], p[1], p[2], offset[0] * sign, offset[1] * sign]);
+		}
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for i in 0..20
+		{
+			// Visit each value without transferring the owner's resources; C++ range-for loop.
+			for angle in [
+				None,
+				Some(i as f32 * TAU / 20.0),
+				Some((i + 1) as f32 * TAU / 20.0),
+			]
+			{
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let uv = angle.map_or([0.0, 0.0], |a| {
+					[
+						a.cos() * 11.0 * self.scale / self.pixels[0],
+						a.sin() * 11.0 * self.scale / self.pixels[1],
+					]
+				});
+				vertices.extend_from_slice(&[end[0], end[1], end[2], uv[0], uv[1]]);
+			}
+		}
+		vertices
+	}
+}
+
 // Convert latitude/longitude in radians to a unit object-space direction; C++ returns array<float,3>.
 pub(crate) fn direction(lat: f32, lon: f32) -> [f32; 3]
 {
@@ -553,6 +669,7 @@ pub(crate) fn perspective(aspect: f32) -> [f32; 16]
 }
 
 // Compose a 30-degree south presentation tilt after geographic-north rotation; C++ returns a column-major array<float,9>.
+#[cfg(test)]
 pub(crate) fn rotation(angle: f32) -> [f32; 9]
 {
 	// Compute the animated longitude rotation; C++ separate std::sin/std::cos calls.
@@ -564,6 +681,7 @@ pub(crate) fn rotation(angle: f32) -> [f32; 9]
 }
 
 // Project a unit object-space site only when visible on the sphere; C++ optional<array<float,2>>.
+#[cfg(test)]
 pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2]>
 {
 	// Do not let invalid external coordinates or an empty viewport create NaN UI positions; C++ finite-value guard.
@@ -603,6 +721,53 @@ mod tests
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
 
+	// Camera centering and billboards must agree with the GPU at high zoom; C++ regression registration.
+	#[test]
+	fn centered_site_and_billboard_width()
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let lat = (-89.4398_f32).to_radians();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let lon = 222.83_f32.to_radians();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let view = View {
+			yaw: -lon,
+			tilt: lat,
+			zoom: 128.0,
+			aspect: 1.0,
+			pixels: [800.0, 800.0],
+			scale: 2.0,
+		};
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let point = direction(lat, lon);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let center = view.project(point, true).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(center[0].abs() < 1e-4 && center[1].abs() < 1e-4);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(vertices.len(), 330);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(vertices.iter().all(|v| v.is_finite()));
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let width = (vertices[3].powi(2) + vertices[4].powi(2)).sqrt() * 800.0;
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!((width - 5.6).abs() < 1e-4);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let aligned = view.ribbon(point, point);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(aligned.iter().all(|v| v.is_finite()));
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(view.project([0.0, 0.0, -4.0], true).is_none());
+		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
+		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
+		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
+		assert_eq!(aligned.len(), 330);
+		// The first outer disk vertex is 5.5 logical points from its center; C++ screen-space radius check.
+		assert!((aligned[38].hypot(aligned[39]) * 400.0 - 11.0).abs() < 1e-4);
+	}
+
 	// Register an independent local-frame regression; C++ test registration.
 	#[test]
 	fn local_sky_frame()
@@ -630,6 +795,7 @@ mod tests
 		// All components must agree independently of the pole fixture; C++ counted assertions.
 		for i in 0..3
 		{
+			// Enforce the independent regression expectation; C++ test assertion.
 			assert!((actual[i] - expected[i]).abs() < 1e-6);
 		}
 		// Invalid data must not become a GPU coordinate; C++ error-case assertion.
@@ -665,6 +831,12 @@ mod tests
 		assert!(include_str!("moon.vert").contains("uniform mat3 u_model;"));
 		// Both stages must use the same matrix; C++ source contract assertion.
 		assert!(include_str!("moon.frag").contains("uniform mat3 u_model;"));
+		// WebGL rejects shared uniforms whose integer precisions differ between stages; C++ shader-contract assertion.
+		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
+		{
+			// Require the explicit matching qualifier instead of different stage defaults; C++ substring assertion.
+			assert!(shader.contains("uniform highp int u_ray_mode;"));
+		}
 	}
 
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
@@ -770,6 +942,22 @@ struct Ray
 	visible: bool,
 }
 
+// Lightweight catalog metadata plus optional current scientific sample; C++ value struct.
+#[derive(Clone)]
+pub struct Marker
+{
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub id: usize,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub name: String,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub lat_deg: f64,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub lon_deg: f64,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub directions: Option<[BodyDirection; 2]>,
+}
+
 /// Owns the callback's shared renderer. Call destroy from eframe's on_exit with a current context.
 // Declare named fields; Rust methods live in a separate impl, unlike inline C++ class definitions.
 pub struct Globe
@@ -780,14 +968,73 @@ pub struct Globe
 	loading: Arc<Mutex<assets::Loading>>,
 	// Selected size label 2/4/8, with width equal to 1,024 times the label; C++ uint32_t.
 	tier: u32,
-	// Optional animation epoch in seconds; C++ optional<double>.
-	started: Option<f64>,
-	// Optional unit object-space site direction; C++ optional<array<float,3>> without a core dependency.
-	site: Option<[f32; 3]>,
-	// Geographic radians define north/east even at a pole; C++ optional<pair<float,float>>.
-	coordinates: Option<(f32, f32)>,
-	// Sun and Earth in fixed color order, absent until a valid time sample arrives; C++ optional<array<Ray,2>>.
-	rays: Option<[Ray; 2]>,
+	// Interactive presentation state is independent of ephemeris time; C++ value members.
+	scene: Vec<Marker>,
+	selected: usize,
+	yaw: f32,
+	tilt: f32,
+	zoom: f32,
+	paused: bool,
+	last_time: Option<f64>,
+	focus: Option<(f64, [f32; 3], [f32; 3])>,
+}
+
+// Exercise scene validation without opening an OpenGL context; C++ isolated test namespace.
+#[cfg(test)]
+mod scene_tests
+{
+	// Reuse the production state and aggregate definitions; C++ qualified test access.
+	use super::*;
+
+	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
+	#[test]
+	fn scene_identity_empty_and_invalid()
+	{
+		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
+		let mut globe = Globe {
+			renderer: Arc::new(Mutex::new(None)),
+			loading: Arc::new(Mutex::new(assets::Loading {
+				images: [None, None],
+				error: None,
+			})),
+			tier: 2,
+			scene: vec![],
+			selected: 0,
+			yaw: 0.0,
+			tilt: 0.0,
+			zoom: 1.0,
+			paused: true,
+			last_time: None,
+			focus: Some((0.0, [0.0; 3], [1.0; 3])),
+		};
+		// Keep the valid identifier deliberately different from its vector index; C++ aggregate fixture.
+		let valid = Marker {
+			id: 17,
+			name: "Published".into(),
+			lat_deg: -89.0,
+			lon_deg: 220.0,
+			directions: None,
+		};
+		// Represent malformed external metadata without corrupting the valid entry; C++ aggregate copy override.
+		let invalid = Marker {
+			id: 8,
+			lat_deg: f64::NAN,
+			..valid.clone()
+		};
+		// Apply the same filtering path used on every application redraw; C++ scene setter.
+		globe.set_scene(vec![invalid, valid], 17);
+		// Filtering must not renumber the published marker identifier; C++ collection assertion.
+		assert_eq!(
+			globe.scene.iter().map(|s| s.id).collect::<Vec<_>>(),
+			vec![17]
+		);
+		// A changed selection cancels the previous site's camera animation; C++ optional-state assertion.
+		assert!(globe.focus.is_none());
+		// Empty data clears markers and rays instead of retaining old state; C++ empty-container setter.
+		globe.set_scene(vec![], 17);
+		// No stale scientific direction survives scene replacement; C++ collection assertion.
+		assert!(globe.scene.is_empty());
+	}
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -824,61 +1071,125 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			loading: assets::load(tier),
 			tier,
-			// Optional animation epoch in seconds; C++ optional<double>.
-			started: None,
-			// No marker until valid geographic coordinates arrive; C++ nullopt.
-			site: None,
-			// No local basis or scientific rays until the app supplies a site/sample; C++ nullopt initialization.
-			coordinates: None,
-			rays: None,
+			// Start with an unobstructed overview and automatic rotation; C++ scalar initialization.
+			scene: Vec::new(),
+			selected: 0,
+			yaw: -0.5,
+			tilt: -std::f32::consts::PI / 6.0,
+			zoom: 1.0,
+			paused: false,
+			last_time: None,
+			focus: None,
 		})
 	}
 
-	// Accept only finite geographic coordinates; absent/invalid input clears the marker; C++ optional setter.
-	pub fn set_site(&mut self, site: Option<(f64, f64)>)
+	// Copy metadata for every marker and scientific directions only for requested sites; C++ scene value transfer.
+	pub fn set_scene(&mut self, scene: Vec<Marker>, selected: usize)
 	{
-		// Convert degrees to the renderer's object-space convention, independent of scientific data types; C++ optional transform.
-		self.coordinates = site
-			.filter(|&(lat, lon)| {
-				lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
-			})
-			.map(|(lat, lon)| {
-				(
-					lat.to_radians() as f32,
-					lon.rem_euclid(360.0).to_radians() as f32,
-				)
-			});
-		// Keep the marker and local basis tied to exactly the same site; C++ optional transform.
-		self.site = self.coordinates.map(|(lat, lon)| math::direction(lat, lon));
-		// Never retain rays belonging to a previous location; C++ optional reset.
-		self.rays = None;
-	}
-
-	// Accept current Sun/Earth angles in that order; invalid or missing data clears both rays; C++ optional value setter.
-	pub fn set_directions(&mut self, bodies: Option<[BodyDirection; 2]>)
-	{
-		// No stale geometry may survive an absent time sample; C++ reset.
-		self.rays = None;
-		// Both the site's basis and the time sample are required; C++ two optional guards.
-		if let (Some((lat, lon)), Some([sun, earth])) = (self.coordinates, bodies)
+		// Cancel an in-flight transition if another site is chosen; C++ identity guard.
+		if self.selected != selected
 		{
-			// Convert each value with the same geographic basis; C++ checked lambda returning optional<Ray>.
-			let convert = |body: BodyDirection| {
-				math::local_direction(lat, lon, body.az_deg.to_radians(), body.el_deg.to_radians())
-					.map(|direction| Ray {
-						direction,
-						visible: body.visible,
-					})
-			};
-			// Submit a complete pair only when both directions are valid; C++ zip/transform of two optionals.
-			self.rays = convert(sun).zip(convert(earth)).map(|(s, e)| [s, e]);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = None;
 		}
+		// Update this persistent member explicitly; C++ member assignment.
+		self.scene = scene
+			.into_iter()
+			.filter(|m| {
+				m.lat_deg.is_finite()
+					&& m.lon_deg.is_finite()
+					&& (-90.0..=90.0).contains(&m.lat_deg)
+			})
+			.collect();
+		// Update this persistent member explicitly; C++ member assignment.
+		self.selected = selected;
 	}
 
-	/// Fill the available UI rectangle and rotate once per 60 seconds of egui time.
+	/// Fill the available UI rectangle with interactive controls and optional one-minute rotation.
 	// Queue a paint callback for this frame and request the next; C++ an immediate-mode UI calls this each frame.
-	pub fn show(&mut self, ui: &mut egui::Ui)
+	pub fn show(&mut self, ui: &mut egui::Ui) -> Option<usize>
 	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let time = ui.input(|i| i.time);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut go = false;
+		// Submit the current interaction or display value; C++ immediate-mode API call.
+		ui.horizontal_wrapped(|ui| {
+			if ui.button("− Zoom").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom / 1.8).max(1.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			if ui.button("+ Zoom").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom * 1.8).min(1024.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			if ui.button("Go to site").clicked()
+			{
+				go = true;
+			}
+			// Check this state or input before acting; C++ conditional branch.
+			if self.paused && ui.button("Resume rotation").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.paused = false;
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label(format!("{:.0}×", self.zoom));
+		});
+		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let target = -(site.lon_deg as f32).to_radians();
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = (target - self.yaw + std::f32::consts::PI)
+				.rem_euclid(std::f32::consts::TAU)
+				- std::f32::consts::PI;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = Some((
+				time,
+				[self.yaw, self.tilt, self.zoom],
+				[self.yaw + delta, (site.lat_deg as f32).to_radians(), 128.0],
+			));
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if let Some((start, from, to)) = self.focus
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let t = ((time - start) / 0.8).clamp(0.0, 1.0) as f32;
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let blend = t * t * (3.0 - 2.0 * t);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw = from[0] + (to[0] - from[0]) * blend;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.tilt = from[1] + (to[1] - from[1]) * blend;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.zoom = (from[2].ln() + (to[2].ln() - from[2].ln()) * blend).exp();
+			// Check this state or input before acting; C++ conditional branch.
+			if t >= 1.0
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+		}
+		else if !self.paused
+		{
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw += dt * std::f32::consts::TAU / 60.0;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut clicked = None;
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if self.renderer.lock().is_none()
 		{
@@ -896,25 +1207,88 @@ impl Globe
 			ui.label(label);
 		}
 		// Reserve the available paint rectangle; C++ would receive a rectangle/response pair.
-		let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+		let (rect, response) =
+			ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if !rect.is_positive()
 		{
 			// Stop this frame's work without a value; C++ return exits a void function.
-			return;
+			return None;
 		}
-		// Read monotonic egui time in seconds; C++ uses the frame clock.
-		let time = ui.input(|input| input.time);
-		// Initialize the first-frame epoch once, then copy it; C++ optional::emplace and dereference.
-		let start = *self.started.get_or_insert(time);
-		// Wrap time to one turn per 60 seconds and offset the initial longitude; C++ fmod plus a float cast.
-		let angle = ((time - start).rem_euclid(60.0) / 60.0) as f32 * std::f32::consts::TAU - 0.5;
+		// Wheel and touch pinch operate only inside the globe, not the panorama scroll area; C++ scoped event handling.
+		if response.hovered()
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
+			// Check this state or input before acting; C++ conditional branch.
+			if wheel != 0.0 || pinch != 1.0
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, 1024.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
+				ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+			}
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if response.dragged()
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = ui.input(|i| i.pointer.delta());
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw += delta.x * 0.006 / self.zoom;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.tilt = (self.tilt + delta.y * 0.006 / self.zoom)
+				.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = None;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let scale = ui.ctx().pixels_per_point();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let view = math::View {
+			yaw: self.yaw,
+			tilt: self.tilt,
+			zoom: self.zoom,
+			aspect: rect.aspect_ratio(),
+			pixels: [rect.width() * scale, rect.height() * scale],
+			scale,
+		};
 		// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
 		// Snapshot the selected sample for the deferred GL callback; C++ copy small optional values into a lambda.
-		let rays = self.site.zip(self.rays);
+		let rays: Vec<_> = self
+			.scene
+			.iter()
+			.filter_map(|site| {
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let origin = math::direction(
+					(site.lat_deg as f32).to_radians(),
+					(site.lon_deg as f32).to_radians(),
+				);
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let bodies = site.directions?;
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let convert = |body: BodyDirection| {
+					math::local_direction(
+						(site.lat_deg as f32).to_radians(),
+						(site.lon_deg as f32).to_radians(),
+						body.az_deg.to_radians(),
+						body.el_deg.to_radians(),
+					)
+					.map(|direction| Ray {
+						direction,
+						visible: body.visible,
+					})
+				};
+				Some((origin, [convert(bodies[0])?, convert(bodies[1])?]))
+			})
+			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -951,12 +1325,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_ref()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(
-						painter.gl(),
-						viewport.width_px as f32 / viewport.height_px as f32,
-						angle,
-						rays,
-					);
+					renderer.paint(painter.gl(), view, &rays);
 				}
 			}
 		});
@@ -965,40 +1334,84 @@ impl Globe
 			rect,
 			callback: Arc::new(callback),
 		});
-		// Draw the marker only after the Moon is available and the site faces the camera; C++ checked optional projection.
-		if self.renderer.lock().is_some()
-			&& let Some(ndc) = self
-				.site
-				.and_then(|p| math::marker(p, angle, rect.aspect_ratio()))
+		// Selected markers are larger; every marker has a contrasting outline and nearest-hit selection; C++ projected hit testing.
+		let painter = ui.painter_at(rect);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let pointer = response.interact_pointer_pos();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut nearest: f32 = f32::INFINITY;
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for site in self
+			.scene
+			.iter()
+			.filter(|s| s.id != self.selected)
+			.chain(self.scene.iter().filter(|s| s.id == self.selected))
 		{
-			// Convert NDC to top-left-origin logical UI coordinates, reversing vertical sign; C++ viewport transform.
-			let position = rect.center()
-				+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
-			// Keep marker radius constant on screen, independent of texture tier; C++ draw a filled overlay circle.
-			ui.painter()
-				.circle_filled(position, 4.5, egui::Color32::LIGHT_RED);
-			// Add an outline for contrast against either highlands or a dark terminator; C++ stroked-circle overlay.
-			ui.painter()
-				.circle_stroke(position, 4.5, egui::Stroke::new(1.0, egui::Color32::WHITE));
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let point = math::direction(
+				(site.lat_deg as f32).to_radians(),
+				(site.lon_deg as f32).to_radians(),
+			);
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(ndc) = view.project(point, true)
+			{
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let position = rect.center()
+					+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
+				if !rect.expand(15.0).contains(position)
+				{
+					continue;
+				}
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let selected = site.id == self.selected;
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let radius = if selected { 9.0 } else { 6.0 };
+				painter.circle_filled(
+					position,
+					radius,
+					if selected
+					{
+						egui::Color32::LIGHT_RED
+					}
+					else
+					{
+						egui::Color32::from_rgb(70, 230, 160)
+					},
+				);
+				painter.circle_stroke(
+					position,
+					radius,
+					egui::Stroke::new(2.0, egui::Color32::WHITE),
+				);
+				if selected
+				{
+					painter.text(
+						position + egui::vec2(12.0, -12.0),
+						egui::Align2::LEFT_BOTTOM,
+						&site.name,
+						egui::FontId::proportional(13.0),
+						egui::Color32::WHITE,
+					);
+				}
+				// Check this state or input before acting; C++ conditional branch.
+				if response.clicked()
+					&& let Some(p) = pointer
+				{
+					// Bind this intermediate value for the current operation; C++ local initialization.
+					let distance = p.distance_sq(position);
+					// Check this state or input before acting; C++ conditional branch.
+					if distance < 14.0_f32.powi(2) && distance < nearest
+					{
+						nearest = distance;
+						clicked = Some(site.id);
+					}
+				}
+			}
 		}
-		// Distinguish the presentation camera/light from scientific ephemerides in the adjacent plot; C++ overlay text.
-		ui.painter().text(
-			rect.left_top() + egui::vec2(8.0, 8.0),
-			egui::Align2::LEFT_TOP,
-			"Site marker: red | illustrative south view",
-			egui::FontId::proportional(12.0),
-			egui::Color32::LIGHT_RED,
-		);
-		// Explain ray colors, dimming and the non-distance scale without changing the phone layout; C++ multiline overlay label.
-		ui.painter().text(
-			rect.left_top() + egui::vec2(8.0, 25.0),
-			egui::Align2::LEFT_TOP,
-			"Yellow: Sun | blue: Earth | dim: blocked\nRays use selected time; length not to scale",
-			egui::FontId::proportional(11.0),
-			egui::Color32::LIGHT_GRAY,
-		);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to rotate; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nIllustrative globe; ray lengths not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
+		clicked
 	}
 
 	// Release registered GPU objects using the current context; C++ explicit teardown avoids a late invalid-context destructor.
@@ -1172,7 +1585,9 @@ impl Renderer
 				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
 				gl.enable_vertex_attrib_array(0);
 				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
-				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 12, 0);
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+				gl.enable_vertex_attrib_array(1);
+				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -1310,7 +1725,7 @@ impl Renderer
 	}
 
 	// Draw one opaque sphere inside egui's already configured viewport; C++ issues the equivalent GL commands.
-	fn paint(&self, gl: &glow::Context, aspect: f32, angle: f32, rays: Option<([f32; 3], [Ray; 2])>)
+	fn paint(&self, gl: &glow::Context, view: math::View, rays: &[([f32; 3], [Ray; 2])])
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
 		let Some(program) = self.program
@@ -1352,13 +1767,13 @@ impl Renderer
 				// Look up an active uniform, returning None if absent; C++ glGetUniformLocation returns -1.
 				gl.get_uniform_location(program, "u_projection").as_ref(),
 				false,
-				&math::perspective(aspect),
+				&view.projection(),
 			);
 			// Share one column-major rigid model matrix with geometry, normals, and CPU marker projection; C++ glUniformMatrix3fv.
 			gl.uniform_matrix_3_f32_slice(
 				gl.get_uniform_location(program, "u_model").as_ref(),
 				false,
-				&math::rotation(angle),
+				&view.model(),
 			);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 			for (unit, name) in ["u_albedo", "u_normal"].iter().enumerate()
@@ -1374,9 +1789,16 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// These are direction diagrams, not physical beams: retain blocked rays on the visible surface; C++ depth-state change.
+			gl.disable(glow::DEPTH_TEST);
 			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
-			if let Some((origin, bodies)) = rays
+			for &(origin, bodies) in rays
 			{
+				// Never expose diagrams from the back of the Moon; C++ visibility guard.
+				if view.project(origin, true).is_none()
+				{
+					continue;
+				}
 				// Reuse the exact model/projection uniforms, but skip all texture/photometry work; C++ material switch.
 				gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
 				// Select the independent, position-only line layout; C++ glBindVertexArray.
@@ -1390,16 +1812,16 @@ impl Renderer
 				{
 					// Direction rays are 0.6 lunar radii, not body distances; C++ endpoint vector arithmetic.
 					let end: [f32; 3] =
-						std::array::from_fn(|i| origin[i] + 0.6 * body.direction[i]);
-					// The first vertex equals the marker's surface point exactly; C++ contiguous two-vertex array.
-					let vertices = [origin, end];
-					// Twelve floats at most per frame need no persistent mapping; C++ glBufferData with GL_STREAM_DRAW.
+						std::array::from_fn(|i| origin[i] + 0.6 / view.zoom * body.direction[i]);
+					// Build screen-width triangle ribbons and a circular tip; C++ dynamic interleaved vertex array.
+					let vertices = view.ribbon(origin, end);
+					// Stream the ribbon and endpoint triangles without persistent mapping; C++ glBufferData.
 					gl.buffer_data_u8_slice(
 						glow::ARRAY_BUFFER,
 						bytemuck::cast_slice(&vertices),
 						glow::STREAM_DRAW,
 					);
-					// Dim failed terrain/radio predicates without disabling physical sphere occlusion; C++ conditional scalar.
+					// Dim failed terrain/radio predicates on the visible-side direction diagram; C++ conditional scalar.
 					let strength = if body.visible { 1.0 } else { 0.35 };
 					// Send an unlit display color rather than illuminating rays with the globe's illustration light; C++ glUniform3f.
 					gl.uniform_3_f32(
@@ -1408,8 +1830,9 @@ impl Renderer
 						color[1] * strength,
 						color[2] * strength,
 					);
-					// Use the portable one-pixel GL line rasterizer on desktop and WebGL2; C++ glDrawArrays(GL_LINES,0,2).
-					gl.draw_arrays(glow::LINES, 0, 2);
+					// Draw both ribbon faces and the endpoint fan as portable triangles; C++ glDrawArrays(GL_TRIANGLES).
+					gl.disable(glow::CULL_FACE);
+					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 5) as i32);
 				}
 				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -1496,8 +1919,10 @@ in vec3 a_position;
 in vec2 a_uv;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
-// Receive Rx(-30 degrees)*Ry(animation), shared with normals and the CPU site marker; C++ glUniformMatrix3fv.
+// Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Match integer precision in both stages, required by WebGL's uniform linker; C++ glUniform1i.
+uniform highp int u_ray_mode;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
 // Keep default smooth interpolation: derivatives of coverage-dependent centroid values worsened the filtering artifact.
 out vec3 v_position;
@@ -1519,6 +1944,8 @@ void main()
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.
 	gl_Position = u_projection * vec4(p - vec3(0.0, 0.0, 3.3), 1.0);
+	// Multiplication by homogeneous w preserves constant screen width after perspective division.
+	if (u_ray_mode != 0) gl_Position.xy += a_uv * gl_Position.w;
 }
 ```
 
@@ -1540,7 +1967,7 @@ uniform mat3 u_model;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
-uniform int u_ray_mode;
+uniform highp int u_ray_mode;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
 // Define pi once so all angular expressions use radians consistently.
@@ -1681,7 +2108,7 @@ void main()
 	// All fragments in this draw take the same branch, before texture derivatives or Hapke evaluation; C++ uniform material switch.
 	if (u_ray_mode != 0)
 	{
-		// Preserve opaque depth-tested lines; dimming is encoded in RGB, not an altered depth or lighting model.
+		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
 		out_color = vec4(u_ray_color, 1.0);
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;
@@ -1753,13 +2180,43 @@ mod panorama;
 // Compile the angular sky-strip painter; C++ project drawing module.
 mod sky;
 
+// Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
+#[derive(serde::Deserialize)]
+struct Entry
+{
+	name: String,
+	lat_deg: f64,
+	lon_deg: f64,
+	source: String,
+}
+// Derive the same ASCII filename convention used by prep; C++ string transform.
+fn filename(name: &str) -> String
+{
+	format!(
+		"{}.json",
+		name.split(|c: char| !c.is_ascii_alphanumeric())
+			.filter(|s| !s.is_empty())
+			.map(str::to_ascii_lowercase)
+			.collect::<Vec<_>>()
+			.join("-")
+	)
+}
+
 // Own persistent renderer and scientific-view state; C++ application class members.
 pub struct MoonApp
 {
 	// Keep presentation independent of the scientific core; C++ renderer value member.
 	globe: globe::Globe,
-	// Own data, selected sample and plot window; C++ view-model value member.
-	panorama: panorama::Panorama,
+	// Embed only published metadata; C++ vector of catalog value records.
+	catalog: Vec<Entry>,
+	// Cache one optional asynchronous view model per stable catalog identifier; C++ vector<optional<View>>.
+	panoramas: Vec<Option<panorama::Panorama>>,
+	// Share the selected catalog identifier with globe picking; C++ array index.
+	selected: usize,
+	// Default to the selected site's pair rather than launching all requests; C++ bool option.
+	all_rays: bool,
+	// Preserve a UTC epoch independently of each view's sample index; C++ optional<int64_t>.
+	time: Option<i64>,
 }
 
 // Define application member functions; C++ out-of-class member definitions.
@@ -1775,13 +2232,130 @@ impl MoonApp
 			.ok_or("The Moon requires the glow renderer")?;
 		// Use readable light text on dark panels consistently across platforms; C++ UI theme setter.
 		cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark);
+		// Parse exact published metadata before initializing any lazy track loads; C++ checked JSON decode.
+		let catalog: Vec<Entry> =
+			serde_json::from_str(include_str!("../../sites.json")).map_err(|e| e.to_string())?;
+		// Check this state or input before acting; C++ conditional branch.
+		if catalog.is_empty()
+		{
+			return Err("Empty site catalog".into());
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
+		panoramas[0] = Some(panorama::Panorama::new(
+			cc.egui_ctx.clone(),
+			data::FILE.into(),
+		));
 		// Move independently owned models into the app; C++ aggregate initialization.
 		Ok(Self {
 			// Propagate renderer initialization errors; C++ expected error forwarding.
 			globe: globe::Globe::new(gl)?,
 			// Start one asynchronous data request, not one per frame; C++ copy the shared UI context handle.
-			panorama: panorama::Panorama::new(cc.egui_ctx.clone()),
+			catalog,
+			panoramas,
+			selected: 0,
+			all_rays: false,
+			time: None,
 		})
+	}
+	// Offer a list without mixing the later menu/help/logo redesign into these controls; C++ immediate-mode member.
+	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
+	{
+		eframe::egui::ComboBox::from_id_salt("published-site")
+			.selected_text(&self.catalog[self.selected].name)
+			.show_ui(ui, |ui| {
+				// Visit each value without transferring the owner's resources; C++ range-for loop.
+				for (id, entry) in self.catalog.iter().enumerate()
+				{
+					// Submit the current interaction or display value; C++ immediate-mode API call.
+					ui.selectable_value(&mut self.selected, id, &entry.name)
+						.on_hover_text(&entry.source);
+				}
+			});
+		// Submit the current interaction or display value; C++ immediate-mode API call.
+		ui.horizontal_wrapped(|ui| {
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label("Rays:");
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.radio_value(&mut self.all_rays, false, "Selected site only");
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.radio_value(&mut self.all_rays, true, "All sites");
+		});
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let ready = self
+			.panoramas
+			.iter()
+			.flatten()
+			.filter(|p| p.site().is_some())
+			.count();
+		// Check this state or input before acting; C++ conditional branch.
+		if self.all_rays
+		{
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.small(format!("Site tracks ready: {ready}/{}", self.catalog.len()));
+			// A missing track must be an explicit error, not silently absent geometry; C++ indexed cache iteration.
+			for (id, p) in self.panoramas.iter().enumerate()
+			{
+				// Check this state or input before acting; C++ conditional branch.
+				if let Some(error) = p.as_ref().and_then(|p| p.load_error())
+				{
+					// Submit the current interaction or display value; C++ immediate-mode API call.
+					ui.colored_label(
+						eframe::egui::Color32::LIGHT_RED,
+						format!("{}: {error}", self.catalog[id].name),
+					);
+				}
+			}
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if let Some(p) = &mut self.panoramas[self.selected]
+		{
+			// A cached view must inherit the shared epoch before any widget edits; C++ optional restoration.
+			if let Some(time) = self.time
+			{
+				p.set_time(time);
+			}
+			p.show(ui);
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(time) = p.time()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.time = Some(time);
+			}
+		}
+		else
+		{
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label("Loading selected site...");
+		}
+	}
+}
+
+// Check catalog/filename invariants without GPU initialization or ephemeris I/O; C++ test namespace.
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+	#[test]
+	fn catalog_and_lazy_filenames()
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let catalog: Vec<Entry> = serde_json::from_str(include_str!("../../sites.json")).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(catalog.len(), 7);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(catalog[0].name, "Connecting Ridge C1");
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let files: std::collections::HashSet<_> =
+			catalog.iter().map(|s| filename(&s.name)).collect();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(files.len(), catalog.len());
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(catalog.iter().all(|s| s.source.contains("https://")
+			&& (-90.0..=-85.0).contains(&s.lat_deg)
+			&& s.lon_deg.is_finite()));
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(filename("Shackleton  S1"), "shackleton-s1.json");
 	}
 }
 
@@ -1791,12 +2365,64 @@ impl eframe::App for MoonApp
 	// Rebuild responsive UI each frame; C++ virtual draw callback.
 	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
 	{
-		// Take completed data before deriving the globe marker; C++ poll an optional completion.
-		self.panorama.update();
-		// Share only geographic coordinates with the renderer; C++ optional<pair<double,double>> setter.
-		self.globe.set_site(self.panorama.site());
-		// Share the selected time sample after its site, without coupling globe to lunar_core; C++ small optional value transfer.
-		self.globe.set_directions(self.panorama.directions());
+		// Load only the selected site, or the remaining sites when all-rays is explicitly requested; C++ lazy cache initialization.
+		for i in 0..self.catalog.len()
+		{
+			if (i == self.selected || self.all_rays) && self.panoramas[i].is_none()
+			{
+				self.panoramas[i] = Some(panorama::Panorama::new(
+					ui.ctx().clone(),
+					filename(&self.catalog[i].name),
+				));
+			}
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(p) = &mut self.panoramas[i]
+			{
+				p.update();
+			}
+		}
+		// Keep one UTC epoch across switches and all-site rays; C++ optional epoch restoration.
+		if let (Some(t), Some(p)) = (self.time, &mut self.panoramas[self.selected])
+		{
+			p.set_time(t);
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let margin = self.panoramas[self.selected]
+			.as_ref()
+			.map_or(0.5, |p| p.margin());
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let epoch = self.time.or_else(|| {
+			self.panoramas[self.selected]
+				.as_ref()
+				.and_then(|p| p.time())
+		});
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let scene = self
+			.catalog
+			.iter()
+			.enumerate()
+			.map(|(i, s)| {
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let directions = if i == self.selected || self.all_rays
+				{
+					self.panoramas[i]
+						.as_mut()
+						.and_then(|p| epoch.and_then(|t| p.directions_at(t, margin)))
+				}
+				else
+				{
+					None
+				};
+				globe::Marker {
+					id: i,
+					name: s.name.clone(),
+					lat_deg: s.lat_deg,
+					lon_deg: s.lon_deg,
+					directions,
+				}
+			})
+			.collect();
+		self.globe.set_scene(scene, self.selected);
 		// Preserve black behind the Moon in both layouts; C++ immediate-mode central container.
 		eframe::egui::CentralPanel::default()
 			.frame(eframe::egui::Frame::NONE.fill(eframe::egui::Color32::BLACK))
@@ -1814,14 +2440,21 @@ impl eframe::App for MoonApp
 							(available.y * 0.24).clamp(140.0, 220.0),
 						);
 						// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
-						ui.allocate_ui(size, |ui| self.globe.show(ui));
+						ui.allocate_ui(size, |ui| {
+							// Check this state or input before acting; C++ conditional branch.
+							if let Some(id) = self.globe.show(ui)
+							{
+								// Update this persistent member explicitly; C++ member assignment.
+								self.selected = id;
+							}
+						});
 						// Draw the scientific view below it; C++ member draw call.
 						ui.allocate_ui(
 							eframe::egui::vec2(
 								available.x,
 								(available.y - size.y - 8.0).max(460.0),
 							),
-							|ui| self.panorama.show(ui),
+							|ui| self.show_panorama(ui),
 						);
 					}
 					// Use equal-width columns on larger windows; C++ else with two child containers.
@@ -1832,11 +2465,15 @@ impl eframe::App for MoonApp
 							// Divide only the bounded native/desktop viewport, not the unbounded scroll axis; C++ column container.
 							ui.columns(2, |columns| {
 								// Keep the rotating Moon on black at left; C++ first child draw.
-								self.globe.show(&mut columns[0]);
+								if let Some(id) = self.globe.show(&mut columns[0])
+								{
+									// Update this persistent member explicitly; C++ member assignment.
+									self.selected = id;
+								}
 								// Disable columns' cross-axis justification so the plot can reserve tick-label space; C++ child layout override.
 								columns[1].with_layout(
 									eframe::egui::Layout::top_down(eframe::egui::Align::Min),
-									|ui| self.panorama.show(ui),
+									|ui| self.show_panorama(ui),
 								);
 							})
 						});
@@ -1955,7 +2592,7 @@ fn main()
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Karaya Explore</title>
+	<title>Karaya Explorer</title>
 	<link data-trunk rel="rust">
 	<link data-trunk rel="copy-dir" href="assets">
 	<link data-trunk rel="copy-file" href="../globe/assets/albedo_2k.jpg" data-target-path="assets/globe">
@@ -2032,6 +2669,8 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `button`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `bytemuck::cast_slice`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `center`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `centered_site_and_billboard_width`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `chain`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `changed`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `checkbox`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `circle_filled`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2069,16 +2708,20 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `delete_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `delete_texture`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `delete_vertex_array`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `delta`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `depth_func`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `depth_mask`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `destroy`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `detach_shader`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `direction`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `directions`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `directions_at`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `disable`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `disk`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `display`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `distance_sq`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `document`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `dragged`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `drain`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `draw_arrays`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `draw_elements`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2090,6 +2733,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `eframe::egui::vec2`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `eframe::run_native`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eframe::WebRunner::new`: [annotated app/src/main.rs](#48-appsrcmainrs)
+- `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Frame::group`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -2097,6 +2741,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `egui::Mesh::default`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `egui::pos2`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `egui::RichText::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `egui::Sense::click_and_drag`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Sense::hover`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `egui::Shape::convex_polygon`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `egui::Shape::line`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
@@ -2116,11 +2761,14 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `env!`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `env_logger::init`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `eprintln!`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `exp`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `expand`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `expect`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `fill`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `filter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `filter_map`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `find`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `fixed_decimals`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `fixture`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
@@ -2153,12 +2801,16 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `horizon_at`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `horizontal`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `horizontal_wrapped`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `hovered`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `hypot`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `image::load_from_memory`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `include_bytes!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `include_str!`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `include_y`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `inner_width`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `input`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `input_mut`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `interact_pointer_pos`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `into`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `into_iter`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `is_dir`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -2185,7 +2837,9 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `Line::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `line_segment`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `link_program`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `ln`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `load`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
+- `load_error`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `local_direction`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `local_sky_frame`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `location`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -2197,7 +2851,9 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `map_err`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `map_or`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `map_or_else`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `margin`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `marker`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `Marker`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::direction`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::local_direction`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `math::marker`: [annotated globe/src/lib.rs](#44-globesrclibrs)
@@ -2207,6 +2863,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `max`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `mesh_orientation_and_seam`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `min`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `model`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `Mutex::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `navigator`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -2217,6 +2874,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `open`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `paint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `painter_at`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `panic!`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `panorama::Panorama::new`: [annotated app/src/lib.rs](#47-appsrclibrs)
 - `parent`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -2225,11 +2883,14 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `Pending::default`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `perspective`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `pixel_store_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `pixels_per_point`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `Plot::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `pointer_mut`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `points`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `Points::new`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `powi`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `project`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
+- `projection`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `projection_depth_and_aspect`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `push`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `radius`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -2239,23 +2900,26 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `rem_euclid`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `remove`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `Renderer::new`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `replace`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `request_repaint`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `RgbImage::new`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
+- `ribbon`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `right`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `rotation`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `saturating_sub`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `scene_identity_empty_and_invalid`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `search`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `segments`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `selectable_value`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `selected_text`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `serde_json::from_slice`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `serde_json::to_vec`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
-- `set_directions`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `set_margin_fraction`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `set_max_width`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
-- `set_site`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `set_scene`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `set_text_content`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `set_theme`: [annotated app/src/lib.rs](#47-appsrclibrs)
+- `set_time`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `set_width`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `shader_source`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `show`: [annotated app/src/lib.rs](#47-appsrclibrs)
@@ -2271,6 +2935,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `spacing`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `spacing_mut`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `sphere`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `sqrt`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `start`: [annotated app/src/main.rs](#48-appsrcmainrs)
 - `std::array::from_fn`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `std::env::current_exe`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
@@ -2293,6 +2958,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `tex_parameter_i32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `text`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `then`: [annotated globe/src/lib.rs](#44-globesrclibrs)
+- `time`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `to_degrees`: [annotated app/src/sky.rs](07-ui.md#81-appsrcskyrs)
 - `to_lowercase`: [annotated globe/src/assets.rs](#42-globesrcassetsrs)
 - `to_radians`: [annotated globe/src/math.rs](#43-globesrcmathrs)
@@ -2317,6 +2983,7 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `utc_label`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `vec!`: [annotated app/src/data.rs](05-panorama.md#91-appsrcdatars)
 - `Vec::new`: [annotated globe/src/math.rs](#43-globesrcmathrs)
+- `Vec::with_capacity`: [annotated globe/src/math.rs](#43-globesrcmathrs)
 - `version_declaration`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `vertex_attrib_pointer_f32`: [annotated globe/src/lib.rs](#44-globesrclibrs)
 - `vertical`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
@@ -2339,3 +3006,4 @@ Each entry points to the complete annotated quotation. Sections 1 and 2 define t
 - `x_grid_spacer`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `y_axis_label`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
 - `zip`: [annotated app/src/panorama.rs](05-panorama.md#92-appsrcpanoramars)
+- `zoom_delta`: [annotated globe/src/lib.rs](#44-globesrclibrs)

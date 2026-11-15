@@ -5,13 +5,43 @@ mod panorama;
 // Compile the angular sky-strip painter; C++ project drawing module.
 mod sky;
 
+// Deserialize the small metadata catalog only, never embed the per-site ephemerides; C++ aggregate schema.
+#[derive(serde::Deserialize)]
+struct Entry
+{
+	name: String,
+	lat_deg: f64,
+	lon_deg: f64,
+	source: String,
+}
+// Derive the same ASCII filename convention used by prep; C++ string transform.
+fn filename(name: &str) -> String
+{
+	format!(
+		"{}.json",
+		name.split(|c: char| !c.is_ascii_alphanumeric())
+			.filter(|s| !s.is_empty())
+			.map(str::to_ascii_lowercase)
+			.collect::<Vec<_>>()
+			.join("-")
+	)
+}
+
 // Own persistent renderer and scientific-view state; C++ application class members.
 pub struct MoonApp
 {
 	// Keep presentation independent of the scientific core; C++ renderer value member.
 	globe: globe::Globe,
-	// Own data, selected sample and plot window; C++ view-model value member.
-	panorama: panorama::Panorama,
+	// Embed only published metadata; C++ vector of catalog value records.
+	catalog: Vec<Entry>,
+	// Cache one optional asynchronous view model per stable catalog identifier; C++ vector<optional<View>>.
+	panoramas: Vec<Option<panorama::Panorama>>,
+	// Share the selected catalog identifier with globe picking; C++ array index.
+	selected: usize,
+	// Default to the selected site's pair rather than launching all requests; C++ bool option.
+	all_rays: bool,
+	// Preserve a UTC epoch independently of each view's sample index; C++ optional<int64_t>.
+	time: Option<i64>,
 }
 
 // Define application member functions; C++ out-of-class member definitions.
@@ -27,13 +57,130 @@ impl MoonApp
 			.ok_or("The Moon requires the glow renderer")?;
 		// Use readable light text on dark panels consistently across platforms; C++ UI theme setter.
 		cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark);
+		// Parse exact published metadata before initializing any lazy track loads; C++ checked JSON decode.
+		let catalog: Vec<Entry> =
+			serde_json::from_str(include_str!("../../sites.json")).map_err(|e| e.to_string())?;
+		// Check this state or input before acting; C++ conditional branch.
+		if catalog.is_empty()
+		{
+			return Err("Empty site catalog".into());
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
+		panoramas[0] = Some(panorama::Panorama::new(
+			cc.egui_ctx.clone(),
+			data::FILE.into(),
+		));
 		// Move independently owned models into the app; C++ aggregate initialization.
 		Ok(Self {
 			// Propagate renderer initialization errors; C++ expected error forwarding.
 			globe: globe::Globe::new(gl)?,
 			// Start one asynchronous data request, not one per frame; C++ copy the shared UI context handle.
-			panorama: panorama::Panorama::new(cc.egui_ctx.clone()),
+			catalog,
+			panoramas,
+			selected: 0,
+			all_rays: false,
+			time: None,
 		})
+	}
+	// Offer a list without mixing the later menu/help/logo redesign into these controls; C++ immediate-mode member.
+	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
+	{
+		eframe::egui::ComboBox::from_id_salt("published-site")
+			.selected_text(&self.catalog[self.selected].name)
+			.show_ui(ui, |ui| {
+				// Visit each value without transferring the owner's resources; C++ range-for loop.
+				for (id, entry) in self.catalog.iter().enumerate()
+				{
+					// Submit the current interaction or display value; C++ immediate-mode API call.
+					ui.selectable_value(&mut self.selected, id, &entry.name)
+						.on_hover_text(&entry.source);
+				}
+			});
+		// Submit the current interaction or display value; C++ immediate-mode API call.
+		ui.horizontal_wrapped(|ui| {
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label("Rays:");
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.radio_value(&mut self.all_rays, false, "Selected site only");
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.radio_value(&mut self.all_rays, true, "All sites");
+		});
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let ready = self
+			.panoramas
+			.iter()
+			.flatten()
+			.filter(|p| p.site().is_some())
+			.count();
+		// Check this state or input before acting; C++ conditional branch.
+		if self.all_rays
+		{
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.small(format!("Site tracks ready: {ready}/{}", self.catalog.len()));
+			// A missing track must be an explicit error, not silently absent geometry; C++ indexed cache iteration.
+			for (id, p) in self.panoramas.iter().enumerate()
+			{
+				// Check this state or input before acting; C++ conditional branch.
+				if let Some(error) = p.as_ref().and_then(|p| p.load_error())
+				{
+					// Submit the current interaction or display value; C++ immediate-mode API call.
+					ui.colored_label(
+						eframe::egui::Color32::LIGHT_RED,
+						format!("{}: {error}", self.catalog[id].name),
+					);
+				}
+			}
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if let Some(p) = &mut self.panoramas[self.selected]
+		{
+			// A cached view must inherit the shared epoch before any widget edits; C++ optional restoration.
+			if let Some(time) = self.time
+			{
+				p.set_time(time);
+			}
+			p.show(ui);
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(time) = p.time()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.time = Some(time);
+			}
+		}
+		else
+		{
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label("Loading selected site...");
+		}
+	}
+}
+
+// Check catalog/filename invariants without GPU initialization or ephemeris I/O; C++ test namespace.
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+	#[test]
+	fn catalog_and_lazy_filenames()
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let catalog: Vec<Entry> = serde_json::from_str(include_str!("../../sites.json")).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(catalog.len(), 7);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(catalog[0].name, "Connecting Ridge C1");
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let files: std::collections::HashSet<_> =
+			catalog.iter().map(|s| filename(&s.name)).collect();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(files.len(), catalog.len());
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(catalog.iter().all(|s| s.source.contains("https://")
+			&& (-90.0..=-85.0).contains(&s.lat_deg)
+			&& s.lon_deg.is_finite()));
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(filename("Shackleton  S1"), "shackleton-s1.json");
 	}
 }
 
@@ -43,12 +190,64 @@ impl eframe::App for MoonApp
 	// Rebuild responsive UI each frame; C++ virtual draw callback.
 	fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame)
 	{
-		// Take completed data before deriving the globe marker; C++ poll an optional completion.
-		self.panorama.update();
-		// Share only geographic coordinates with the renderer; C++ optional<pair<double,double>> setter.
-		self.globe.set_site(self.panorama.site());
-		// Share the selected time sample after its site, without coupling globe to lunar_core; C++ small optional value transfer.
-		self.globe.set_directions(self.panorama.directions());
+		// Load only the selected site, or the remaining sites when all-rays is explicitly requested; C++ lazy cache initialization.
+		for i in 0..self.catalog.len()
+		{
+			if (i == self.selected || self.all_rays) && self.panoramas[i].is_none()
+			{
+				self.panoramas[i] = Some(panorama::Panorama::new(
+					ui.ctx().clone(),
+					filename(&self.catalog[i].name),
+				));
+			}
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(p) = &mut self.panoramas[i]
+			{
+				p.update();
+			}
+		}
+		// Keep one UTC epoch across switches and all-site rays; C++ optional epoch restoration.
+		if let (Some(t), Some(p)) = (self.time, &mut self.panoramas[self.selected])
+		{
+			p.set_time(t);
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let margin = self.panoramas[self.selected]
+			.as_ref()
+			.map_or(0.5, |p| p.margin());
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let epoch = self.time.or_else(|| {
+			self.panoramas[self.selected]
+				.as_ref()
+				.and_then(|p| p.time())
+		});
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let scene = self
+			.catalog
+			.iter()
+			.enumerate()
+			.map(|(i, s)| {
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let directions = if i == self.selected || self.all_rays
+				{
+					self.panoramas[i]
+						.as_mut()
+						.and_then(|p| epoch.and_then(|t| p.directions_at(t, margin)))
+				}
+				else
+				{
+					None
+				};
+				globe::Marker {
+					id: i,
+					name: s.name.clone(),
+					lat_deg: s.lat_deg,
+					lon_deg: s.lon_deg,
+					directions,
+				}
+			})
+			.collect();
+		self.globe.set_scene(scene, self.selected);
 		// Preserve black behind the Moon in both layouts; C++ immediate-mode central container.
 		eframe::egui::CentralPanel::default()
 			.frame(eframe::egui::Frame::NONE.fill(eframe::egui::Color32::BLACK))
@@ -66,14 +265,21 @@ impl eframe::App for MoonApp
 							(available.y * 0.24).clamp(140.0, 220.0),
 						);
 						// Constrain the globe callback to the top rectangle; C++ child container with explicit size.
-						ui.allocate_ui(size, |ui| self.globe.show(ui));
+						ui.allocate_ui(size, |ui| {
+							// Check this state or input before acting; C++ conditional branch.
+							if let Some(id) = self.globe.show(ui)
+							{
+								// Update this persistent member explicitly; C++ member assignment.
+								self.selected = id;
+							}
+						});
 						// Draw the scientific view below it; C++ member draw call.
 						ui.allocate_ui(
 							eframe::egui::vec2(
 								available.x,
 								(available.y - size.y - 8.0).max(460.0),
 							),
-							|ui| self.panorama.show(ui),
+							|ui| self.show_panorama(ui),
 						);
 					}
 					// Use equal-width columns on larger windows; C++ else with two child containers.
@@ -84,11 +290,15 @@ impl eframe::App for MoonApp
 							// Divide only the bounded native/desktop viewport, not the unbounded scroll axis; C++ column container.
 							ui.columns(2, |columns| {
 								// Keep the rotating Moon on black at left; C++ first child draw.
-								self.globe.show(&mut columns[0]);
+								if let Some(id) = self.globe.show(&mut columns[0])
+								{
+									// Update this persistent member explicitly; C++ member assignment.
+									self.selected = id;
+								}
 								// Disable columns' cross-axis justification so the plot can reserve tick-label space; C++ child layout override.
 								columns[1].with_layout(
 									eframe::egui::Layout::top_down(eframe::egui::Align::Min),
-									|ui| self.panorama.show(ui),
+									|ui| self.show_panorama(ui),
 								);
 							})
 						});

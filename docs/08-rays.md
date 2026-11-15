@@ -30,7 +30,7 @@ Panorama::directions reads the current index from the validated aligned Sun/Eart
 
 For the Sun, visible means positive visible solar area using the actual terrain profile. For Earth it means the current radio safety-clearance predicate, including the adjustable 0.5 through 1.0 degree margin. Thus an Earth ray can be dim even if part of the blue disk is above terrain. This deliberately matches the panorama status rather than silently adopting a second radio definition. Loading or errors export None, the Rust equivalent of C++ nullopt. Invalid geographic or sky angles clear the pair rather than retaining a stale direction.
 
-The app passes site coordinates first, then the selected directions, on every redraw. Globe::set_site establishes the local basis and clears old rays; set_directions converts the supplied angles with math::local_direction. The deferred GL callback captures copies of the two directions and origin together, so one draw uses one coherent sample. Slider edits appear on the following animation redraw, as do the existing top statuses. The globe's one-minute presentation rotation does not change the selected scientific epoch.
+The app now passes a lightweight scene through Globe::set_scene: all marker coordinates and optional directions for the selected site or all loaded sites. Each pair is converted with math::local_direction using its own site's basis. The deferred GL callback captures copies of directions, origins and camera parameters together, so one draw uses one coherent sample. Slider edits appear on the following animation redraw, as do the existing top statuses. Presentation rotation does not change the selected scientific epoch. [The interactive-controls guide](09-sites-and-globe-controls.md) describes lazy per-site loading and shared UTC lookup.
 
 The integration regression uses unequal-interval data with Sun elevation -1 then +1 degrees and Earth at +0.75 degrees. It edits the sample index and the radio clearance, verifies the exported values/flags, then removes the loaded data and verifies absence. This checks the bridge, not merely the stand-alone trigonometry.
 
@@ -38,32 +38,32 @@ The integration regression uses unequal-interval data with Sun elevation -1 then
 
 The marker is at U on the illustrative unit sphere. Each line begins at that exact same point and ends at:
 
-$$\mathbf q=\mathbf U+0.6\mathbf d.$$
+$$\mathbf q=\mathbf U+\frac{0.6}{\zeta}\mathbf d.$$
 
-The length is 0.6 lunar radii for both bodies. It represents direction only, not the Sun/Earth distances, body size or a measured mast height. The overlay explicitly says length is not to scale. Optional endpoint spheres are not implemented; they are unnecessary for the direction and would add a second misleading size scale.
+The length is 0.6 lunar radii at overview zoom zeta=1, shortening as zoom increases to retain readable endpoints. It represents direction only, not the Sun/Earth distances, body size or a measured mast height. The overlay explicitly says length is not to scale. Endpoint disks are now camera-facing triangle fans, not physical body-size models.
 
 The shader transforms both endpoints using the same uniforms already used for the Moon:
 
-$$\mathbf p_{clip}=P\left[\begin{array}{c}M\mathbf p-(0,0,3.3)\\1\end{array}\right],\qquad M=R_x(-30\text{ degrees})R_y(\alpha).$$
+$$\mathbf p_{clip}=P\left[\begin{array}{c}M\mathbf p-(0,0,3.3)\\1\end{array}\right],\qquad M=R_x(\theta)R_y(\alpha).$$
 
-P is the existing perspective matrix, M the shared rigid rotation, and alpha the animation angle. This is actual 3D line geometry, not a guessed two-dimensional arrow angle. The Sun ray near the pole is almost tangent to the lunar surface because solar elevation is small. On screen that tangent may be foreshortened; horizontal in the local sky does not require a perfectly horizontal screen line.
+P is the zoomed perspective matrix, M the shared rigid rotation, alpha the longitude rotation and theta the camera tilt, initially -30 degrees. Endpoints use actual three-dimensional geometry rather than a guessed two-dimensional arrow angle. Their camera-facing ribbon offsets are derived in the next guide. The Sun ray near the pole is almost tangent to the lunar surface because solar elevation is small. On screen that tangent may be foreshortened; horizontal in the local sky does not require a perfectly horizontal screen line.
 
 | Geometry | Vertex layout | Draw call |
 |:--|:--|:--|
 | Moon | Position and UV, 20-byte stride | Indexed triangles |
-| Direction ray | Position only, 12-byte stride | Two vertices with GL_LINES |
+| Direction ray and tip | Position and clip offset, 20-byte stride | Ribbon and disk triangles |
 
-A separate vertex array object stores the ray layout. A tiny buffer receives the two endpoints with STREAM_DRAW, meaning frequently replaced data. It is registered immediately in the renderer's existing owned buffer inventory; the additional vertex array is destroyed on shutdown and on partial initialization failure. The ray-buffer field is an alias, not a second owner. Cleanup clears it after deleting the owned buffers, preventing double deletion. The textured sphere's static mesh is never overwritten.
+A separate vertex array object stores the ray layout. A small buffer receives the ribbon and endpoint triangles with STREAM_DRAW, meaning frequently replaced data. It is registered immediately in the renderer's existing owned buffer inventory; the additional vertex array is destroyed on shutdown and on partial initialization failure. The ray-buffer field is an alias, not a second owner. Cleanup clears it after deleting the owned buffers, preventing double deletion. The textured sphere's static mesh is never overwritten.
 
-The same vertex shader is reused. A uniform integer u_ray_mode chooses a constant-color early return in the fragment shader before texture derivatives, normal mapping or Hapke calculations. Zero is restored before every Moon draw; one is selected only for the lines. Yellow is Sun, blue is Earth. Available directions use full RGB brightness; blocked directions use 0.35 times those display values. This is dimming, not blending, and the existing opaque depth-test contract stays intact.
+The same vertex shader is reused. A uniform integer u_ray_mode chooses a constant-color early return in the fragment shader before texture derivatives, normal mapping or Hapke calculations. Zero is restored before every Moon draw; one is selected only for the diagrams. Yellow is Sun, blue is Earth. Available directions use full RGB brightness; blocked directions use 0.35 times those display values. This is dimming, not blending. The Moon remains opaque and depth-tested.
 
-The sphere is drawn first and retains its depth buffer for the lines. Thus the Moon can hide a ray that enters or passes behind it; rays do not become X-ray overlays. Their exact origin can be covered by the red marker, which is drawn afterward. The globe remains a smooth illustrative sphere, not the DEM surface. Real terrain determines dimming in the app, while smooth-sphere depth determines geometric occlusion in this picture. Its fixed photographic light is unchanged and need not align with the scientific Sun ray.
+The sphere is drawn first. The newer ribbons are direction diagrams over its visible surface: their origins must face the camera, but their segments do not depth-test against the smooth sphere. This keeps a blocked body's direction readable at high zoom instead of hiding its entire short segment underground. Their exact origin can be covered by the outlined marker, drawn afterward. Real terrain determines dimming in the app. The globe's fixed photographic light is unchanged and need not align with the scientific Sun ray.
 
 ## 12. Verification and limits
 
 Run workspace tests, clippy, native release and WASM checks. Build Trunk from app/ and verify Chrome phone emulation has no page or console errors. Native captures at sample 0 and sample 1138 exercise opposite sunlight/radio states. Inspect rays.png and rays_dark.png, plus rays_mobile.png and a close crop around the marker: origins agree, colors follow the selected status, and the low-elevation Sun ray lies near the local tangent rather than pointing radially away from the pole. Browser testing uses Pixel 7 emulation with DPR 2; it is not a physical phone or the user's GPU.
 
-The new code does not fetch ephemerides, change horizons, change camera tilt, alter MSAA, relight the Moon or modify solar/radio statistics. GL_LINES uses a portable default one-pixel width. At phone sizes or when a direction points nearly along the camera axis, a ray can be very short or partly hidden. This is perspective and occlusion, not a changed scientific elevation.
+The ray painter does not fetch ephemerides, change horizons, alter MSAA, relight the Moon or modify solar/radio statistics. Camera controls, thick ribbons, endpoint disks and all-sites selection are documented in the next guide. A nearly camera-aligned direction can project to a short segment; that is perspective, not a changed scientific elevation.
 
 ## 13. Ray API index
 
@@ -83,6 +83,7 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `Arc::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `as_chunks`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `as_deref`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `as_mut`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `as_raw`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `as_ref`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `aspect_ratio`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -102,25 +103,30 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `bind_vertex_array`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `BodyDirection`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `buffer_data_u8_slice`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `button`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `button`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `bytemuck::cast_slice`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `catalog_and_lazy_filenames`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `center`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `centered_site_and_billboard_width`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `chain`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `changed`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `checkbox`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `circle_filled`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `circle_stroke`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `clamp`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `clamp`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `clear`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `clear_depth_f32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `clicked`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `clicked`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `clone`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `collect`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `color`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Color32::from_gray`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `colored_label`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `columns`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `compile_shader`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `contains`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `cos`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `count`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `crate::sky::show`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `create_buffer`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `create_program`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -137,26 +143,32 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `delete_shader`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `delete_texture`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `delete_vertex_array`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `delta`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `depth_func`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `depth_mask`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `destroy`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `detach_shader`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `direction`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `directions`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `directions_at`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `disable`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `distance_sq`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `dragged`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `drain`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `draw_arrays`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `draw_elements`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `eframe::egui::CentralPanel::default`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `eframe::egui::ComboBox::from_id_salt`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::Layout::top_down`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::ScrollArea::vertical`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `eframe::egui::vec2`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `egui::Color32::from_rgb`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::ComboBox::from_id_salt`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::FontId::proportional`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::Frame::group`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Grid::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::RichText::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `egui::Sense::hover`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `egui::Sense::click_and_drag`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::Slider::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `egui::Stroke::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `egui::vec2`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -168,19 +180,24 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `end_row`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `enumerate`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `eprintln!`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `exp`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `expand`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `extend_from_slice`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `f64::from`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `filename`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `fill`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `filter`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `filter_map`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `find`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `fixed_decimals`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `flat_map`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `flatten`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `format`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `format!`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `frame`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `front_face`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `generate_mipmap`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `get_error`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `get_or_insert`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `get_parameter_i32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `get_program_info_log`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `get_program_link_status`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -197,13 +214,18 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `HLine::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `horizon_at`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `horizontal`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `horizontal_wrapped`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `horizontal_wrapped`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `hovered`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `hypot`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `include_str!`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `include_y`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `input`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `input_mut`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `interact_pointer_pos`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `into`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `into_iter`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `is_empty`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `is_ascii_alphanumeric`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `is_empty`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `is_finite`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `is_new_shader_interface`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `is_none`: [annotated globe/src/math.rs](#141-globesrcmathrs)
@@ -211,6 +233,7 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `is_positive`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `is_some`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `iter`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `join`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `json!`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `label`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `last`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -222,23 +245,27 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `line`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Line::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `link_program`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `ln`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `load_error`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `local_direction`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `local_sky_frame`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `lock`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `lunar_core::stats`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `lunar_core::Stats::default`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `map`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `map`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `map_err`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `map_or`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `map_or_else`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `margin`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `marker`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `Marker`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `math::direction`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `math::local_direction`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `math::marker`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `math::perspective`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `math::rotation`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `math::sphere`: [annotated globe/src/lib.rs](#142-globesrclibrs)
-- `max`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `max`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `mesh_orientation_and_seam`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `min`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `model`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `MoonApp`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `Mutex::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -248,37 +275,49 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `on_exit`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `on_hover_text`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `open`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `or_else`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `paint`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `painter`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `painter_at`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `panorama::Panorama::new`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `parse`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `partition_point`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Pending::default`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `perspective`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `pixel_store_i32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `pixels_per_point`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `Plot::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `points`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `Points::new`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `powi`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `project`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `projection`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `projection_depth_and_aspect`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `push`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `radio_value`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `radius`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `rem_euclid`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `Renderer::new`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `replace`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `request_repaint`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `ribbon`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `rotation`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `saturating_sub`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `scene_identity_empty_and_invalid`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `segments`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `selectable_value`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `selected_text`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `serde_json::from_str`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `serde_json::to_vec`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `set_directions`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `set_margin_fraction`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `set_max_width`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `set_site`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `set_scene`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `set_theme`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `set_time`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `set_width`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `shader_source`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `show`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `show_panorama`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
 - `show_ui`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `show_value`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `sin`: [annotated globe/src/math.rs](#141-globesrcmathrs)
@@ -291,6 +330,8 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `spacing`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `spacing_mut`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `sphere`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `split`: [annotated app/src/lib.rs](07-ui.md#83-appsrclibrs)
+- `sqrt`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `std::array::from_fn`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `std::env::var`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `strong`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -305,6 +346,7 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `tex_parameter_i32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `text`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `then`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `time`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `to_radians`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `to_string`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `transpose`: [annotated globe/src/lib.rs](#142-globesrclibrs)
@@ -323,8 +365,9 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `upload_texture`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `use_program`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `utc_label`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
-- `vec!`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
+- `vec!`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `Vec::new`: [annotated globe/src/math.rs](#141-globesrcmathrs)
+- `Vec::with_capacity`: [annotated globe/src/math.rs](#141-globesrcmathrs)
 - `version_declaration`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `vertex_attrib_pointer_f32`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 - `vertical`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
@@ -342,6 +385,7 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 - `x_grid_spacer`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `y_axis_label`: [annotated app/src/panorama.rs](07-ui.md#82-appsrcpanoramars)
 - `zip`: [annotated globe/src/lib.rs](#142-globesrclibrs)
+- `zoom_delta`: [annotated globe/src/lib.rs](#142-globesrclibrs)
 
 ## 14. Exact ray implementation quotations
 
@@ -350,6 +394,122 @@ The new code does not fetch ephemerides, change horizons, change camera tilt, al
 ```rust
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
+// Keep all CPU/GPU camera parameters in one copyable value; C++ plain value struct.
+#[derive(Clone, Copy)]
+pub(crate) struct View
+{
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub yaw: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub tilt: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub zoom: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub aspect: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub pixels: [f32; 2],
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub scale: f32,
+}
+
+// Reuse identical rigid/perspective transforms for markers and triangle ribbons; C++ member definitions.
+impl View
+{
+	// Latitude tilt after longitude rotation; C++ matrix composition.
+	pub fn model(self) -> [f32; 9]
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (s, c) = self.yaw.sin_cos();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (st, ct) = self.tilt.sin_cos();
+		[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c]
+	}
+	// Zoom narrows the field of view without entering the sphere; C++ matrix scale.
+	pub fn projection(self) -> [f32; 16]
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut p = perspective(self.aspect);
+		p[0] *= self.zoom;
+		p[5] *= self.zoom;
+		p
+	}
+	// Optionally reject sphere-occluded surface markers, but project off-sphere ray tips; C++ checked projection.
+	pub fn project(self, point: [f32; 3], surface: bool) -> Option<[f32; 2]>
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let m = self.model();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let p: [f32; 3] =
+			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
+		if (surface && 3.3 * p[2] <= 1.0) || p[2] >= 3.2
+		{
+			return None;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let projection = self.projection();
+		Some([
+			projection[0] * p[0] / (3.3 - p[2]),
+			projection[5] * p[1] / (3.3 - p[2]),
+		])
+	}
+	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
+	pub fn ribbon(self, origin: [f32; 3], end: [f32; 3]) -> Vec<f32>
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (Some(a), Some(b)) = (self.project(origin, false), self.project(end, false))
+		else
+		{
+			return vec![];
+		};
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dx = (b[0] - a[0]) * self.pixels[0];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dy = (b[1] - a[1]) * self.pixels[1];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let length = dx.hypot(dy).max(1e-6);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let offset = [
+			-dy / length * 2.8 * self.scale / self.pixels[0],
+			dx / length * 2.8 * self.scale / self.pixels[1],
+		];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut vertices = Vec::with_capacity(330);
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for (p, sign) in [
+			(origin, -1.0),
+			(end, -1.0),
+			(end, 1.0),
+			(origin, -1.0),
+			(end, 1.0),
+			(origin, 1.0),
+		]
+		{
+			vertices.extend_from_slice(&[p[0], p[1], p[2], offset[0] * sign, offset[1] * sign]);
+		}
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for i in 0..20
+		{
+			// Visit each value without transferring the owner's resources; C++ range-for loop.
+			for angle in [
+				None,
+				Some(i as f32 * TAU / 20.0),
+				Some((i + 1) as f32 * TAU / 20.0),
+			]
+			{
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let uv = angle.map_or([0.0, 0.0], |a| {
+					[
+						a.cos() * 11.0 * self.scale / self.pixels[0],
+						a.sin() * 11.0 * self.scale / self.pixels[1],
+					]
+				});
+				vertices.extend_from_slice(&[end[0], end[1], end[2], uv[0], uv[1]]);
+			}
+		}
+		vertices
+	}
+}
 
 // Convert latitude/longitude in radians to a unit object-space direction; C++ returns array<float,3>.
 pub(crate) fn direction(lat: f32, lon: f32) -> [f32; 3]
@@ -472,6 +632,7 @@ pub(crate) fn perspective(aspect: f32) -> [f32; 16]
 }
 
 // Compose a 30-degree south presentation tilt after geographic-north rotation; C++ returns a column-major array<float,9>.
+#[cfg(test)]
 pub(crate) fn rotation(angle: f32) -> [f32; 9]
 {
 	// Compute the animated longitude rotation; C++ separate std::sin/std::cos calls.
@@ -483,6 +644,7 @@ pub(crate) fn rotation(angle: f32) -> [f32; 9]
 }
 
 // Project a unit object-space site only when visible on the sphere; C++ optional<array<float,2>>.
+#[cfg(test)]
 pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2]>
 {
 	// Do not let invalid external coordinates or an empty viewport create NaN UI positions; C++ finite-value guard.
@@ -522,6 +684,53 @@ mod tests
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
 
+	// Camera centering and billboards must agree with the GPU at high zoom; C++ regression registration.
+	#[test]
+	fn centered_site_and_billboard_width()
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let lat = (-89.4398_f32).to_radians();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let lon = 222.83_f32.to_radians();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let view = View {
+			yaw: -lon,
+			tilt: lat,
+			zoom: 128.0,
+			aspect: 1.0,
+			pixels: [800.0, 800.0],
+			scale: 2.0,
+		};
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let point = direction(lat, lon);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let center = view.project(point, true).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(center[0].abs() < 1e-4 && center[1].abs() < 1e-4);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(vertices.len(), 330);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(vertices.iter().all(|v| v.is_finite()));
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let width = (vertices[3].powi(2) + vertices[4].powi(2)).sqrt() * 800.0;
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!((width - 5.6).abs() < 1e-4);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let aligned = view.ribbon(point, point);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(aligned.iter().all(|v| v.is_finite()));
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(view.project([0.0, 0.0, -4.0], true).is_none());
+		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
+		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
+		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
+		assert_eq!(aligned.len(), 330);
+		// The first outer disk vertex is 5.5 logical points from its center; C++ screen-space radius check.
+		assert!((aligned[38].hypot(aligned[39]) * 400.0 - 11.0).abs() < 1e-4);
+	}
+
 	// Register an independent local-frame regression; C++ test registration.
 	#[test]
 	fn local_sky_frame()
@@ -549,6 +758,7 @@ mod tests
 		// All components must agree independently of the pole fixture; C++ counted assertions.
 		for i in 0..3
 		{
+			// Enforce the independent regression expectation; C++ test assertion.
 			assert!((actual[i] - expected[i]).abs() < 1e-6);
 		}
 		// Invalid data must not become a GPU coordinate; C++ error-case assertion.
@@ -584,6 +794,12 @@ mod tests
 		assert!(include_str!("moon.vert").contains("uniform mat3 u_model;"));
 		// Both stages must use the same matrix; C++ source contract assertion.
 		assert!(include_str!("moon.frag").contains("uniform mat3 u_model;"));
+		// WebGL rejects shared uniforms whose integer precisions differ between stages; C++ shader-contract assertion.
+		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
+		{
+			// Require the explicit matching qualifier instead of different stage defaults; C++ substring assertion.
+			assert!(shader.contains("uniform highp int u_ray_mode;"));
+		}
 	}
 
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
@@ -689,6 +905,22 @@ struct Ray
 	visible: bool,
 }
 
+// Lightweight catalog metadata plus optional current scientific sample; C++ value struct.
+#[derive(Clone)]
+pub struct Marker
+{
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub id: usize,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub name: String,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub lat_deg: f64,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub lon_deg: f64,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub directions: Option<[BodyDirection; 2]>,
+}
+
 /// Owns the callback's shared renderer. Call destroy from eframe's on_exit with a current context.
 // Declare named fields; Rust methods live in a separate impl, unlike inline C++ class definitions.
 pub struct Globe
@@ -699,14 +931,73 @@ pub struct Globe
 	loading: Arc<Mutex<assets::Loading>>,
 	// Selected size label 2/4/8, with width equal to 1,024 times the label; C++ uint32_t.
 	tier: u32,
-	// Optional animation epoch in seconds; C++ optional<double>.
-	started: Option<f64>,
-	// Optional unit object-space site direction; C++ optional<array<float,3>> without a core dependency.
-	site: Option<[f32; 3]>,
-	// Geographic radians define north/east even at a pole; C++ optional<pair<float,float>>.
-	coordinates: Option<(f32, f32)>,
-	// Sun and Earth in fixed color order, absent until a valid time sample arrives; C++ optional<array<Ray,2>>.
-	rays: Option<[Ray; 2]>,
+	// Interactive presentation state is independent of ephemeris time; C++ value members.
+	scene: Vec<Marker>,
+	selected: usize,
+	yaw: f32,
+	tilt: f32,
+	zoom: f32,
+	paused: bool,
+	last_time: Option<f64>,
+	focus: Option<(f64, [f32; 3], [f32; 3])>,
+}
+
+// Exercise scene validation without opening an OpenGL context; C++ isolated test namespace.
+#[cfg(test)]
+mod scene_tests
+{
+	// Reuse the production state and aggregate definitions; C++ qualified test access.
+	use super::*;
+
+	// Verify invalid entries cannot shift stable identifiers or retain a stale transition; C++ test registration.
+	#[test]
+	fn scene_identity_empty_and_invalid()
+	{
+		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
+		let mut globe = Globe {
+			renderer: Arc::new(Mutex::new(None)),
+			loading: Arc::new(Mutex::new(assets::Loading {
+				images: [None, None],
+				error: None,
+			})),
+			tier: 2,
+			scene: vec![],
+			selected: 0,
+			yaw: 0.0,
+			tilt: 0.0,
+			zoom: 1.0,
+			paused: true,
+			last_time: None,
+			focus: Some((0.0, [0.0; 3], [1.0; 3])),
+		};
+		// Keep the valid identifier deliberately different from its vector index; C++ aggregate fixture.
+		let valid = Marker {
+			id: 17,
+			name: "Published".into(),
+			lat_deg: -89.0,
+			lon_deg: 220.0,
+			directions: None,
+		};
+		// Represent malformed external metadata without corrupting the valid entry; C++ aggregate copy override.
+		let invalid = Marker {
+			id: 8,
+			lat_deg: f64::NAN,
+			..valid.clone()
+		};
+		// Apply the same filtering path used on every application redraw; C++ scene setter.
+		globe.set_scene(vec![invalid, valid], 17);
+		// Filtering must not renumber the published marker identifier; C++ collection assertion.
+		assert_eq!(
+			globe.scene.iter().map(|s| s.id).collect::<Vec<_>>(),
+			vec![17]
+		);
+		// A changed selection cancels the previous site's camera animation; C++ optional-state assertion.
+		assert!(globe.focus.is_none());
+		// Empty data clears markers and rays instead of retaining old state; C++ empty-container setter.
+		globe.set_scene(vec![], 17);
+		// No stale scientific direction survives scene replacement; C++ collection assertion.
+		assert!(globe.scene.is_empty());
+	}
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -743,61 +1034,125 @@ impl Globe
 			// Shared CPU-side completion state; C++ shared_ptr to a mutex-protected Loading.
 			loading: assets::load(tier),
 			tier,
-			// Optional animation epoch in seconds; C++ optional<double>.
-			started: None,
-			// No marker until valid geographic coordinates arrive; C++ nullopt.
-			site: None,
-			// No local basis or scientific rays until the app supplies a site/sample; C++ nullopt initialization.
-			coordinates: None,
-			rays: None,
+			// Start with an unobstructed overview and automatic rotation; C++ scalar initialization.
+			scene: Vec::new(),
+			selected: 0,
+			yaw: -0.5,
+			tilt: -std::f32::consts::PI / 6.0,
+			zoom: 1.0,
+			paused: false,
+			last_time: None,
+			focus: None,
 		})
 	}
 
-	// Accept only finite geographic coordinates; absent/invalid input clears the marker; C++ optional setter.
-	pub fn set_site(&mut self, site: Option<(f64, f64)>)
+	// Copy metadata for every marker and scientific directions only for requested sites; C++ scene value transfer.
+	pub fn set_scene(&mut self, scene: Vec<Marker>, selected: usize)
 	{
-		// Convert degrees to the renderer's object-space convention, independent of scientific data types; C++ optional transform.
-		self.coordinates = site
-			.filter(|&(lat, lon)| {
-				lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
-			})
-			.map(|(lat, lon)| {
-				(
-					lat.to_radians() as f32,
-					lon.rem_euclid(360.0).to_radians() as f32,
-				)
-			});
-		// Keep the marker and local basis tied to exactly the same site; C++ optional transform.
-		self.site = self.coordinates.map(|(lat, lon)| math::direction(lat, lon));
-		// Never retain rays belonging to a previous location; C++ optional reset.
-		self.rays = None;
-	}
-
-	// Accept current Sun/Earth angles in that order; invalid or missing data clears both rays; C++ optional value setter.
-	pub fn set_directions(&mut self, bodies: Option<[BodyDirection; 2]>)
-	{
-		// No stale geometry may survive an absent time sample; C++ reset.
-		self.rays = None;
-		// Both the site's basis and the time sample are required; C++ two optional guards.
-		if let (Some((lat, lon)), Some([sun, earth])) = (self.coordinates, bodies)
+		// Cancel an in-flight transition if another site is chosen; C++ identity guard.
+		if self.selected != selected
 		{
-			// Convert each value with the same geographic basis; C++ checked lambda returning optional<Ray>.
-			let convert = |body: BodyDirection| {
-				math::local_direction(lat, lon, body.az_deg.to_radians(), body.el_deg.to_radians())
-					.map(|direction| Ray {
-						direction,
-						visible: body.visible,
-					})
-			};
-			// Submit a complete pair only when both directions are valid; C++ zip/transform of two optionals.
-			self.rays = convert(sun).zip(convert(earth)).map(|(s, e)| [s, e]);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = None;
 		}
+		// Update this persistent member explicitly; C++ member assignment.
+		self.scene = scene
+			.into_iter()
+			.filter(|m| {
+				m.lat_deg.is_finite()
+					&& m.lon_deg.is_finite()
+					&& (-90.0..=90.0).contains(&m.lat_deg)
+			})
+			.collect();
+		// Update this persistent member explicitly; C++ member assignment.
+		self.selected = selected;
 	}
 
-	/// Fill the available UI rectangle and rotate once per 60 seconds of egui time.
+	/// Fill the available UI rectangle with interactive controls and optional one-minute rotation.
 	// Queue a paint callback for this frame and request the next; C++ an immediate-mode UI calls this each frame.
-	pub fn show(&mut self, ui: &mut egui::Ui)
+	pub fn show(&mut self, ui: &mut egui::Ui) -> Option<usize>
 	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let time = ui.input(|i| i.time);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut go = false;
+		// Submit the current interaction or display value; C++ immediate-mode API call.
+		ui.horizontal_wrapped(|ui| {
+			if ui.button("− Zoom").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom / 1.8).max(1.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			if ui.button("+ Zoom").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom * 1.8).min(1024.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			if ui.button("Go to site").clicked()
+			{
+				go = true;
+			}
+			// Check this state or input before acting; C++ conditional branch.
+			if self.paused && ui.button("Resume rotation").clicked()
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.paused = false;
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+			// Submit the current interaction or display value; C++ immediate-mode API call.
+			ui.label(format!("{:.0}×", self.zoom));
+		});
+		if go && let Some(site) = self.scene.iter().find(|s| s.id == self.selected)
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let target = -(site.lon_deg as f32).to_radians();
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = (target - self.yaw + std::f32::consts::PI)
+				.rem_euclid(std::f32::consts::TAU)
+				- std::f32::consts::PI;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = Some((
+				time,
+				[self.yaw, self.tilt, self.zoom],
+				[self.yaw + delta, (site.lat_deg as f32).to_radians(), 128.0],
+			));
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if let Some((start, from, to)) = self.focus
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let t = ((time - start) / 0.8).clamp(0.0, 1.0) as f32;
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let blend = t * t * (3.0 - 2.0 * t);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw = from[0] + (to[0] - from[0]) * blend;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.tilt = from[1] + (to[1] - from[1]) * blend;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.zoom = (from[2].ln() + (to[2].ln() - from[2].ln()) * blend).exp();
+			// Check this state or input before acting; C++ conditional branch.
+			if t >= 1.0
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+			}
+		}
+		else if !self.paused
+		{
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw += dt * std::f32::consts::TAU / 60.0;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut clicked = None;
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if self.renderer.lock().is_none()
 		{
@@ -815,25 +1170,88 @@ impl Globe
 			ui.label(label);
 		}
 		// Reserve the available paint rectangle; C++ would receive a rectangle/response pair.
-		let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+		let (rect, response) =
+			ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
 		// Evaluate this guard before using unavailable state or invalid dimensions; C++ if has the same branching semantics.
 		if !rect.is_positive()
 		{
 			// Stop this frame's work without a value; C++ return exits a void function.
-			return;
+			return None;
 		}
-		// Read monotonic egui time in seconds; C++ uses the frame clock.
-		let time = ui.input(|input| input.time);
-		// Initialize the first-frame epoch once, then copy it; C++ optional::emplace and dereference.
-		let start = *self.started.get_or_insert(time);
-		// Wrap time to one turn per 60 seconds and offset the initial longitude; C++ fmod plus a float cast.
-		let angle = ((time - start).rem_euclid(60.0) / 60.0) as f32 * std::f32::consts::TAU - 0.5;
+		// Wheel and touch pinch operate only inside the globe, not the panorama scroll area; C++ scoped event handling.
+		if response.hovered()
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
+			// Check this state or input before acting; C++ conditional branch.
+			if wheel != 0.0 || pinch != 1.0
+			{
+				// Update this persistent member explicitly; C++ member assignment.
+				self.zoom = (self.zoom * (wheel * 0.003).exp() * pinch).clamp(1.0, 1024.0);
+				// Update this persistent member explicitly; C++ member assignment.
+				self.focus = None;
+				// Consume globe wheel input before the surrounding page scroll area; C++ event consumption.
+				ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+			}
+		}
+		// Check this state or input before acting; C++ conditional branch.
+		if response.dragged()
+		{
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let delta = ui.input(|i| i.pointer.delta());
+			// Update this persistent member explicitly; C++ member assignment.
+			self.yaw += delta.x * 0.006 / self.zoom;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.tilt = (self.tilt + delta.y * 0.006 / self.zoom)
+				.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+			// Update this persistent member explicitly; C++ member assignment.
+			self.paused = true;
+			// Update this persistent member explicitly; C++ member assignment.
+			self.focus = None;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let scale = ui.ctx().pixels_per_point();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let view = math::View {
+			yaw: self.yaw,
+			tilt: self.tilt,
+			zoom: self.zoom,
+			aspect: rect.aspect_ratio(),
+			pixels: [rect.width() * scale, rect.height() * scale],
+			scale,
+		};
 		// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
 		// Snapshot the selected sample for the deferred GL callback; C++ copy small optional values into a lambda.
-		let rays = self.site.zip(self.rays);
+		let rays: Vec<_> = self
+			.scene
+			.iter()
+			.filter_map(|site| {
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let origin = math::direction(
+					(site.lat_deg as f32).to_radians(),
+					(site.lon_deg as f32).to_radians(),
+				);
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let bodies = site.directions?;
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let convert = |body: BodyDirection| {
+					math::local_direction(
+						(site.lat_deg as f32).to_radians(),
+						(site.lon_deg as f32).to_radians(),
+						body.az_deg.to_radians(),
+						body.el_deg.to_radians(),
+					)
+					.map(|direction| Ray {
+						direction,
+						visible: body.visible,
+					})
+				};
+				Some((origin, [convert(bodies[0])?, convert(bodies[1])?]))
+			})
+			.collect();
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -870,12 +1288,7 @@ impl Globe
 				if let Some(renderer) = renderer.as_ref()
 				{
 					// Update or use renderer-owned resources rather than letting handles escape; C++ accesses the corresponding owner object.
-					renderer.paint(
-						painter.gl(),
-						viewport.width_px as f32 / viewport.height_px as f32,
-						angle,
-						rays,
-					);
+					renderer.paint(painter.gl(), view, &rays);
 				}
 			}
 		});
@@ -884,40 +1297,84 @@ impl Globe
 			rect,
 			callback: Arc::new(callback),
 		});
-		// Draw the marker only after the Moon is available and the site faces the camera; C++ checked optional projection.
-		if self.renderer.lock().is_some()
-			&& let Some(ndc) = self
-				.site
-				.and_then(|p| math::marker(p, angle, rect.aspect_ratio()))
+		// Selected markers are larger; every marker has a contrasting outline and nearest-hit selection; C++ projected hit testing.
+		let painter = ui.painter_at(rect);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let pointer = response.interact_pointer_pos();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut nearest: f32 = f32::INFINITY;
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for site in self
+			.scene
+			.iter()
+			.filter(|s| s.id != self.selected)
+			.chain(self.scene.iter().filter(|s| s.id == self.selected))
 		{
-			// Convert NDC to top-left-origin logical UI coordinates, reversing vertical sign; C++ viewport transform.
-			let position = rect.center()
-				+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
-			// Keep marker radius constant on screen, independent of texture tier; C++ draw a filled overlay circle.
-			ui.painter()
-				.circle_filled(position, 4.5, egui::Color32::LIGHT_RED);
-			// Add an outline for contrast against either highlands or a dark terminator; C++ stroked-circle overlay.
-			ui.painter()
-				.circle_stroke(position, 4.5, egui::Stroke::new(1.0, egui::Color32::WHITE));
+			// Bind this intermediate value for the current operation; C++ local initialization.
+			let point = math::direction(
+				(site.lat_deg as f32).to_radians(),
+				(site.lon_deg as f32).to_radians(),
+			);
+			// Check this state or input before acting; C++ conditional branch.
+			if let Some(ndc) = view.project(point, true)
+			{
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let position = rect.center()
+					+ egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5);
+				if !rect.expand(15.0).contains(position)
+				{
+					continue;
+				}
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let selected = site.id == self.selected;
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let radius = if selected { 9.0 } else { 6.0 };
+				painter.circle_filled(
+					position,
+					radius,
+					if selected
+					{
+						egui::Color32::LIGHT_RED
+					}
+					else
+					{
+						egui::Color32::from_rgb(70, 230, 160)
+					},
+				);
+				painter.circle_stroke(
+					position,
+					radius,
+					egui::Stroke::new(2.0, egui::Color32::WHITE),
+				);
+				if selected
+				{
+					painter.text(
+						position + egui::vec2(12.0, -12.0),
+						egui::Align2::LEFT_BOTTOM,
+						&site.name,
+						egui::FontId::proportional(13.0),
+						egui::Color32::WHITE,
+					);
+				}
+				// Check this state or input before acting; C++ conditional branch.
+				if response.clicked()
+					&& let Some(p) = pointer
+				{
+					// Bind this intermediate value for the current operation; C++ local initialization.
+					let distance = p.distance_sq(position);
+					// Check this state or input before acting; C++ conditional branch.
+					if distance < 14.0_f32.powi(2) && distance < nearest
+					{
+						nearest = distance;
+						clicked = Some(site.id);
+					}
+				}
+			}
 		}
-		// Distinguish the presentation camera/light from scientific ephemerides in the adjacent plot; C++ overlay text.
-		ui.painter().text(
-			rect.left_top() + egui::vec2(8.0, 8.0),
-			egui::Align2::LEFT_TOP,
-			"Site marker: red | illustrative south view",
-			egui::FontId::proportional(12.0),
-			egui::Color32::LIGHT_RED,
-		);
-		// Explain ray colors, dimming and the non-distance scale without changing the phone layout; C++ multiline overlay label.
-		ui.painter().text(
-			rect.left_top() + egui::vec2(8.0, 25.0),
-			egui::Align2::LEFT_TOP,
-			"Yellow: Sun | blue: Earth | dim: blocked\nRays use selected time; length not to scale",
-			egui::FontId::proportional(11.0),
-			egui::Color32::LIGHT_GRAY,
-		);
+		painter.text(rect.left_top()+egui::vec2(8.0,8.0),egui::Align2::LEFT_TOP,"Drag to rotate; wheel / pinch to zoom\nYellow Sun | blue Earth | dim = blocked\nIllustrative globe; ray lengths not to scale",egui::FontId::proportional(11.0),egui::Color32::LIGHT_GRAY);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
+		clicked
 	}
 
 	// Release registered GPU objects using the current context; C++ explicit teardown avoids a late invalid-context destructor.
@@ -1091,7 +1548,9 @@ impl Renderer
 				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
 				gl.enable_vertex_attrib_array(0);
 				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
-				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 12, 0);
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 20, 0);
+				gl.enable_vertex_attrib_array(1);
+				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -1229,7 +1688,7 @@ impl Renderer
 	}
 
 	// Draw one opaque sphere inside egui's already configured viewport; C++ issues the equivalent GL commands.
-	fn paint(&self, gl: &glow::Context, aspect: f32, angle: f32, rays: Option<([f32; 3], [Ray; 2])>)
+	fn paint(&self, gl: &glow::Context, view: math::View, rays: &[([f32; 3], [Ray; 2])])
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
 		let Some(program) = self.program
@@ -1271,13 +1730,13 @@ impl Renderer
 				// Look up an active uniform, returning None if absent; C++ glGetUniformLocation returns -1.
 				gl.get_uniform_location(program, "u_projection").as_ref(),
 				false,
-				&math::perspective(aspect),
+				&view.projection(),
 			);
 			// Share one column-major rigid model matrix with geometry, normals, and CPU marker projection; C++ glUniformMatrix3fv.
 			gl.uniform_matrix_3_f32_slice(
 				gl.get_uniform_location(program, "u_model").as_ref(),
 				false,
-				&math::rotation(angle),
+				&view.model(),
 			);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 			for (unit, name) in ["u_albedo", "u_normal"].iter().enumerate()
@@ -1293,9 +1752,16 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// These are direction diagrams, not physical beams: retain blocked rays on the visible surface; C++ depth-state change.
+			gl.disable(glow::DEPTH_TEST);
 			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
-			if let Some((origin, bodies)) = rays
+			for &(origin, bodies) in rays
 			{
+				// Never expose diagrams from the back of the Moon; C++ visibility guard.
+				if view.project(origin, true).is_none()
+				{
+					continue;
+				}
 				// Reuse the exact model/projection uniforms, but skip all texture/photometry work; C++ material switch.
 				gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
 				// Select the independent, position-only line layout; C++ glBindVertexArray.
@@ -1309,16 +1775,16 @@ impl Renderer
 				{
 					// Direction rays are 0.6 lunar radii, not body distances; C++ endpoint vector arithmetic.
 					let end: [f32; 3] =
-						std::array::from_fn(|i| origin[i] + 0.6 * body.direction[i]);
-					// The first vertex equals the marker's surface point exactly; C++ contiguous two-vertex array.
-					let vertices = [origin, end];
-					// Twelve floats at most per frame need no persistent mapping; C++ glBufferData with GL_STREAM_DRAW.
+						std::array::from_fn(|i| origin[i] + 0.6 / view.zoom * body.direction[i]);
+					// Build screen-width triangle ribbons and a circular tip; C++ dynamic interleaved vertex array.
+					let vertices = view.ribbon(origin, end);
+					// Stream the ribbon and endpoint triangles without persistent mapping; C++ glBufferData.
 					gl.buffer_data_u8_slice(
 						glow::ARRAY_BUFFER,
 						bytemuck::cast_slice(&vertices),
 						glow::STREAM_DRAW,
 					);
-					// Dim failed terrain/radio predicates without disabling physical sphere occlusion; C++ conditional scalar.
+					// Dim failed terrain/radio predicates on the visible-side direction diagram; C++ conditional scalar.
 					let strength = if body.visible { 1.0 } else { 0.35 };
 					// Send an unlit display color rather than illuminating rays with the globe's illustration light; C++ glUniform3f.
 					gl.uniform_3_f32(
@@ -1327,8 +1793,9 @@ impl Renderer
 						color[1] * strength,
 						color[2] * strength,
 					);
-					// Use the portable one-pixel GL line rasterizer on desktop and WebGL2; C++ glDrawArrays(GL_LINES,0,2).
-					gl.draw_arrays(glow::LINES, 0, 2);
+					// Draw both ribbon faces and the endpoint fan as portable triangles; C++ glDrawArrays(GL_TRIANGLES).
+					gl.disable(glow::CULL_FACE);
+					gl.draw_arrays(glow::TRIANGLES, 0, (vertices.len() / 5) as i32);
 				}
 				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
 				gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -1422,7 +1889,7 @@ uniform mat3 u_model;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
-uniform int u_ray_mode;
+uniform highp int u_ray_mode;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
 // Define pi once so all angular expressions use radians consistently.
@@ -1563,7 +2030,7 @@ void main()
 	// All fragments in this draw take the same branch, before texture derivatives or Hapke evaluation; C++ uniform material switch.
 	if (u_ray_mode != 0)
 	{
-		// Preserve opaque depth-tested lines; dimming is encoded in RGB, not an altered depth or lighting model.
+		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
 		out_color = vec4(u_ray_color, 1.0);
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;

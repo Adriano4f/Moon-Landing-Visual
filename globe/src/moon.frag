@@ -13,7 +13,7 @@ uniform mat3 u_model;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
 // A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
-uniform int u_ray_mode;
+uniform highp int u_ray_mode;
 // Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
 uniform vec3 u_ray_color;
 // Define pi once so all angular expressions use radians consistently.
@@ -154,7 +154,7 @@ void main()
 	// All fragments in this draw take the same branch, before texture derivatives or Hapke evaluation; C++ uniform material switch.
 	if (u_ray_mode != 0)
 	{
-		// Preserve opaque depth-tested lines; dimming is encoded in RGB, not an altered depth or lighting model.
+		// Preserve opaque diagram colors; dimming is encoded in RGB, not photographic lighting.
 		out_color = vec4(u_ray_color, 1.0);
 		// Rays require no albedo, normals or photometric calculations; C++ early return.
 		return;

@@ -6,8 +6,10 @@ in vec3 a_position;
 in vec2 a_uv;
 // Receive the column-major view-to-clip perspective matrix from Rust.
 uniform mat4 u_projection;
-// Receive Rx(-30 degrees)*Ry(animation), shared with normals and the CPU site marker; C++ glUniformMatrix3fv.
+// Receive Rx(tilt)*Ry(yaw), shared with normals and CPU site markers; C++ glUniformMatrix3fv.
 uniform mat3 u_model;
+// Match integer precision in both stages, required by WebGL's uniform linker; C++ glUniform1i.
+uniform highp int u_ray_mode;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
 // Keep default smooth interpolation: derivatives of coverage-dependent centroid values worsened the filtering artifact.
 out vec3 v_position;
@@ -29,4 +31,6 @@ void main()
 	v_object = a_position;
 	// Translate world position to view space and project to homogeneous clip coordinates; rasterization divides by w.
 	gl_Position = u_projection * vec4(p - vec3(0.0, 0.0, 3.3), 1.0);
+	// Multiplication by homogeneous w preserves constant screen width after perspective division.
+	if (u_ray_mode != 0) gl_Position.xy += a_uv * gl_Position.w;
 }

@@ -1,6 +1,122 @@
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+// Keep all CPU/GPU camera parameters in one copyable value; C++ plain value struct.
+#[derive(Clone, Copy)]
+pub(crate) struct View
+{
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub yaw: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub tilt: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub zoom: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub aspect: f32,
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub pixels: [f32; 2],
+	// Store this public value without platform-specific ownership; C++ aggregate member.
+	pub scale: f32,
+}
+
+// Reuse identical rigid/perspective transforms for markers and triangle ribbons; C++ member definitions.
+impl View
+{
+	// Latitude tilt after longitude rotation; C++ matrix composition.
+	pub fn model(self) -> [f32; 9]
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (s, c) = self.yaw.sin_cos();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (st, ct) = self.tilt.sin_cos();
+		[c, st * s, -ct * s, 0.0, ct, st, s, -st * c, ct * c]
+	}
+	// Zoom narrows the field of view without entering the sphere; C++ matrix scale.
+	pub fn projection(self) -> [f32; 16]
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut p = perspective(self.aspect);
+		p[0] *= self.zoom;
+		p[5] *= self.zoom;
+		p
+	}
+	// Optionally reject sphere-occluded surface markers, but project off-sphere ray tips; C++ checked projection.
+	pub fn project(self, point: [f32; 3], surface: bool) -> Option<[f32; 2]>
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let m = self.model();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let p: [f32; 3] =
+			std::array::from_fn(|i| m[i] * point[0] + m[i + 3] * point[1] + m[i + 6] * point[2]);
+		if (surface && 3.3 * p[2] <= 1.0) || p[2] >= 3.2
+		{
+			return None;
+		}
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let projection = self.projection();
+		Some([
+			projection[0] * p[0] / (3.3 - p[2]),
+			projection[5] * p[1] / (3.3 - p[2]),
+		])
+	}
+	// Build two camera-facing triangles and a 20-triangle endpoint disk in clip-offset coordinates; C++ vector<float>.
+	pub fn ribbon(self, origin: [f32; 3], end: [f32; 3]) -> Vec<f32>
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let (Some(a), Some(b)) = (self.project(origin, false), self.project(end, false))
+		else
+		{
+			return vec![];
+		};
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dx = (b[0] - a[0]) * self.pixels[0];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let dy = (b[1] - a[1]) * self.pixels[1];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let length = dx.hypot(dy).max(1e-6);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let offset = [
+			-dy / length * 2.8 * self.scale / self.pixels[0],
+			dx / length * 2.8 * self.scale / self.pixels[1],
+		];
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let mut vertices = Vec::with_capacity(330);
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for (p, sign) in [
+			(origin, -1.0),
+			(end, -1.0),
+			(end, 1.0),
+			(origin, -1.0),
+			(end, 1.0),
+			(origin, 1.0),
+		]
+		{
+			vertices.extend_from_slice(&[p[0], p[1], p[2], offset[0] * sign, offset[1] * sign]);
+		}
+		// Visit each value without transferring the owner's resources; C++ range-for loop.
+		for i in 0..20
+		{
+			// Visit each value without transferring the owner's resources; C++ range-for loop.
+			for angle in [
+				None,
+				Some(i as f32 * TAU / 20.0),
+				Some((i + 1) as f32 * TAU / 20.0),
+			]
+			{
+				// Bind this intermediate value for the current operation; C++ local initialization.
+				let uv = angle.map_or([0.0, 0.0], |a| {
+					[
+						a.cos() * 11.0 * self.scale / self.pixels[0],
+						a.sin() * 11.0 * self.scale / self.pixels[1],
+					]
+				});
+				vertices.extend_from_slice(&[end[0], end[1], end[2], uv[0], uv[1]]);
+			}
+		}
+		vertices
+	}
+}
+
 // Convert latitude/longitude in radians to a unit object-space direction; C++ returns array<float,3>.
 pub(crate) fn direction(lat: f32, lon: f32) -> [f32; 3]
 {
@@ -122,6 +238,7 @@ pub(crate) fn perspective(aspect: f32) -> [f32; 16]
 }
 
 // Compose a 30-degree south presentation tilt after geographic-north rotation; C++ returns a column-major array<float,9>.
+#[cfg(test)]
 pub(crate) fn rotation(angle: f32) -> [f32; 9]
 {
 	// Compute the animated longitude rotation; C++ separate std::sin/std::cos calls.
@@ -133,6 +250,7 @@ pub(crate) fn rotation(angle: f32) -> [f32; 9]
 }
 
 // Project a unit object-space site only when visible on the sphere; C++ optional<array<float,2>>.
+#[cfg(test)]
 pub(crate) fn marker(point: [f32; 3], angle: f32, aspect: f32) -> Option<[f32; 2]>
 {
 	// Do not let invalid external coordinates or an empty viewport create NaN UI positions; C++ finite-value guard.
@@ -172,6 +290,53 @@ mod tests
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
 
+	// Camera centering and billboards must agree with the GPU at high zoom; C++ regression registration.
+	#[test]
+	fn centered_site_and_billboard_width()
+	{
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let lat = (-89.4398_f32).to_radians();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let lon = 222.83_f32.to_radians();
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let view = View {
+			yaw: -lon,
+			tilt: lat,
+			zoom: 128.0,
+			aspect: 1.0,
+			pixels: [800.0, 800.0],
+			scale: 2.0,
+		};
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let point = direction(lat, lon);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let center = view.project(point, true).unwrap();
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(center[0].abs() < 1e-4 && center[1].abs() < 1e-4);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert_eq!(vertices.len(), 330);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(vertices.iter().all(|v| v.is_finite()));
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let width = (vertices[3].powi(2) + vertices[4].powi(2)).sqrt() * 800.0;
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!((width - 5.6).abs() < 1e-4);
+		// Bind this intermediate value for the current operation; C++ local initialization.
+		let aligned = view.ribbon(point, point);
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(aligned.iter().all(|v| v.is_finite()));
+		// Enforce the independent regression expectation; C++ test assertion.
+		assert!(view.project([0.0, 0.0, -4.0], true).is_none());
+		// Reject points behind the camera instead of emitting invalid ribbon vertices; C++ empty-vector error case.
+		assert!(view.ribbon(point.map(|v| v * 3.3), point).is_empty());
+		// A camera-aligned direction retains its finite endpoint disk; C++ vertex-layout assertion.
+		assert_eq!(aligned.len(), 330);
+		// The first outer disk vertex is 5.5 logical points from its center; C++ screen-space radius check.
+		assert!((aligned[38].hypot(aligned[39]) * 400.0 - 11.0).abs() < 1e-4);
+	}
+
 	// Register an independent local-frame regression; C++ test registration.
 	#[test]
 	fn local_sky_frame()
@@ -199,6 +364,7 @@ mod tests
 		// All components must agree independently of the pole fixture; C++ counted assertions.
 		for i in 0..3
 		{
+			// Enforce the independent regression expectation; C++ test assertion.
 			assert!((actual[i] - expected[i]).abs() < 1e-6);
 		}
 		// Invalid data must not become a GPU coordinate; C++ error-case assertion.
@@ -234,6 +400,12 @@ mod tests
 		assert!(include_str!("moon.vert").contains("uniform mat3 u_model;"));
 		// Both stages must use the same matrix; C++ source contract assertion.
 		assert!(include_str!("moon.frag").contains("uniform mat3 u_model;"));
+		// WebGL rejects shared uniforms whose integer precisions differ between stages; C++ shader-contract assertion.
+		for shader in [include_str!("moon.vert"), include_str!("moon.frag")]
+		{
+			// Require the explicit matching qualifier instead of different stage defaults; C++ substring assertion.
+			assert!(shader.contains("uniform highp int u_ray_mode;"));
+		}
 	}
 
 	// Register the following function with Rust's test runner; C++ needs a test framework registration.
