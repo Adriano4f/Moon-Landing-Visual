@@ -519,7 +519,7 @@ pub(crate) struct State
 	failed: HashMap<Tile, Failure>,
 	// Insertion order of failed, oldest first, for the bound.
 	failed_order: VecDeque<Tile>,
-	view_key: Option<[u32; 6]>,
+	view_key: Option<([u32; 9], [u32; 4])>,
 }
 
 impl State
@@ -618,15 +618,10 @@ pub(crate) type Shared = Arc<Mutex<State>>;
 // Recompute the visible set and start at most MAX_FLIGHT downloads, pending + in flight <= MAX_QUEUE.
 pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 {
-	let key = [
-		view.yaw,
-		view.tilt,
-		view.zoom,
-		view.aspect,
-		view.pixels[0],
-		view.pixels[1],
-	]
-	.map(f32::to_bits);
+	let key = (
+		view.model().map(f32::to_bits),
+		[view.zoom, view.aspect, view.pixels[0], view.pixels[1]].map(f32::to_bits),
+	);
 	let changed = shared.lock().view_key != Some(key);
 	let wanted = changed.then(|| select(view));
 	let now = ctx.input(|i| i.time);
