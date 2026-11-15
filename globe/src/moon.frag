@@ -12,6 +12,10 @@ uniform sampler2D u_normal;
 uniform mat3 u_model;
 // Write opaque sRGB display color to egui's framebuffer.
 out vec4 out_color;
+// A uniform branch reuses the exact globe vertex transform for unlit direction lines; C++ integer material flag.
+uniform int u_ray_mode;
+// Direction-line colors are display colors, independent of illustrative illumination; C++ RGB uniform.
+uniform vec3 u_ray_color;
 // Define pi once so all angular expressions use radians consistently.
 const float PI = 3.141592653589793;
 // Project mapped normals into the view-facing half-space before renormalizing; dimensionless cosine.
@@ -147,6 +151,14 @@ vec3 linear_to_srgb(vec3 x)
 // Run once per vertex or fragment respectively; GLSL entry points have no C++ object ownership.
 void main()
 {
+	// All fragments in this draw take the same branch, before texture derivatives or Hapke evaluation; C++ uniform material switch.
+	if (u_ray_mode != 0)
+	{
+		// Preserve opaque depth-tested lines; dimming is encoded in RGB, not an altered depth or lighting model.
+		out_color = vec4(u_ray_color, 1.0);
+		// Rays require no albedo, normals or photometric calculations; C++ early return.
+		return;
+	}
 	// Normalize the interpolated object-space direction before reconstructing longitude and latitude.
 	vec3 p = normalize(v_object);
 	// Map atan longitude and acos latitude into normalized equirectangular coordinates.

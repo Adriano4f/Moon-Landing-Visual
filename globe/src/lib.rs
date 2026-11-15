@@ -13,6 +13,28 @@ use egui_glow::glow::{self, HasContext as _};
 // Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 use std::sync::Arc;
 
+// Copy a local sky direction across the app/renderer boundary without a core dependency; C++ plain value struct.
+#[derive(Clone, Copy, Debug)]
+pub struct BodyDirection
+{
+	// Azimuth is measured clockwise from north, in degrees; C++ float.
+	pub az_deg: f32,
+	// Elevation is measured above the site's horizontal plane, in degrees; C++ float.
+	pub el_deg: f32,
+	// The app supplies its terrain/clearance availability predicate; C++ bool.
+	pub visible: bool,
+}
+
+// Keep transformed directions distinct from local input angles; C++ internal plain value struct.
+#[derive(Clone, Copy)]
+struct Ray
+{
+	// Moon-fixed unit direction before presentation rotation; C++ array<float,3>.
+	direction: [f32; 3],
+	// False selects the dim material, independently of depth occlusion; C++ bool.
+	visible: bool,
+}
+
 /// Owns the callback's shared renderer. Call destroy from eframe's on_exit with a current context.
 // Declare named fields; Rust methods live in a separate impl, unlike inline C++ class definitions.
 pub struct Globe
@@ -27,6 +49,10 @@ pub struct Globe
 	started: Option<f64>,
 	// Optional unit object-space site direction; C++ optional<array<float,3>> without a core dependency.
 	site: Option<[f32; 3]>,
+	// Geographic radians define north/east even at a pole; C++ optional<pair<float,float>>.
+	coordinates: Option<(f32, f32)>,
+	// Sun and Earth in fixed color order, absent until a valid time sample arrives; C++ optional<array<Ray,2>>.
+	rays: Option<[Ray; 2]>,
 }
 
 // Attach methods to this type; C++ declares these as member functions inside the class.
@@ -67,6 +93,9 @@ impl Globe
 			started: None,
 			// No marker until valid geographic coordinates arrive; C++ nullopt.
 			site: None,
+			// No local basis or scientific rays until the app supplies a site/sample; C++ nullopt initialization.
+			coordinates: None,
+			rays: None,
 		})
 	}
 
@@ -74,16 +103,41 @@ impl Globe
 	pub fn set_site(&mut self, site: Option<(f64, f64)>)
 	{
 		// Convert degrees to the renderer's object-space convention, independent of scientific data types; C++ optional transform.
-		self.site = site
+		self.coordinates = site
 			.filter(|&(lat, lon)| {
 				lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
 			})
 			.map(|(lat, lon)| {
-				math::direction(
+				(
 					lat.to_radians() as f32,
 					lon.rem_euclid(360.0).to_radians() as f32,
 				)
 			});
+		// Keep the marker and local basis tied to exactly the same site; C++ optional transform.
+		self.site = self.coordinates.map(|(lat, lon)| math::direction(lat, lon));
+		// Never retain rays belonging to a previous location; C++ optional reset.
+		self.rays = None;
+	}
+
+	// Accept current Sun/Earth angles in that order; invalid or missing data clears both rays; C++ optional value setter.
+	pub fn set_directions(&mut self, bodies: Option<[BodyDirection; 2]>)
+	{
+		// No stale geometry may survive an absent time sample; C++ reset.
+		self.rays = None;
+		// Both the site's basis and the time sample are required; C++ two optional guards.
+		if let (Some((lat, lon)), Some([sun, earth])) = (self.coordinates, bodies)
+		{
+			// Convert each value with the same geographic basis; C++ checked lambda returning optional<Ray>.
+			let convert = |body: BodyDirection| {
+				math::local_direction(lat, lon, body.az_deg.to_radians(), body.el_deg.to_radians())
+					.map(|direction| Ray {
+						direction,
+						visible: body.visible,
+					})
+			};
+			// Submit a complete pair only when both directions are valid; C++ zip/transform of two optionals.
+			self.rays = convert(sun).zip(convert(earth)).map(|(s, e)| [s, e]);
+		}
 	}
 
 	/// Fill the available UI rectangle and rotate once per 60 seconds of egui time.
@@ -124,6 +178,8 @@ impl Globe
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes; C++ copies its shared_ptr.
 		let loading = Arc::clone(&self.loading);
+		// Snapshot the selected sample for the deferred GL callback; C++ copy small optional values into a lambda.
+		let rays = self.site.zip(self.rays);
 		// Capture shared state for egui's later current-context draw; C++ stores a value-capturing std::function.
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			// Own or temporarily access renderer state without copying GPU resources; C++ shared_ptr or lock_guard.
@@ -164,6 +220,7 @@ impl Globe
 						painter.gl(),
 						viewport.width_px as f32 / viewport.height_px as f32,
 						angle,
+						rays,
 					);
 				}
 			}
@@ -197,6 +254,14 @@ impl Globe
 			egui::FontId::proportional(12.0),
 			egui::Color32::LIGHT_RED,
 		);
+		// Explain ray colors, dimming and the non-distance scale without changing the phone layout; C++ multiline overlay label.
+		ui.painter().text(
+			rect.left_top() + egui::vec2(8.0, 25.0),
+			egui::Align2::LEFT_TOP,
+			"Yellow: Sun | blue: Earth | dim: blocked\nRays use selected time; length not to scale",
+			egui::FontId::proportional(11.0),
+			egui::Color32::LIGHT_GRAY,
+		);
 		// Request another frame so loading and animation progress; C++ asks the event loop to redraw.
 		ui.ctx().request_repaint();
 	}
@@ -222,6 +287,10 @@ struct Renderer
 	shaders: Vec<glow::Shader>,
 	// Optional owned vertex-array handle; C++ optional<GLuint>.
 	vao: Option<glow::VertexArray>,
+	// Own a separate position-only layout for the two direction lines; C++ optional<GLuint>.
+	ray_vao: Option<glow::VertexArray>,
+	// Alias a buffer owned by buffers for dynamic ray uploads; C++ nonowning optional<GLuint>.
+	ray_buffer: Option<glow::Buffer>,
 	// Own vertex and index buffer handles; C++ vector<GLuint>.
 	buffers: Vec<glow::Buffer>,
 	// Own the albedo and normal textures in sampler order; C++ vector<GLuint>.
@@ -252,6 +321,9 @@ impl Renderer
 			shaders: Vec::new(),
 			// Optional owned vertex-array handle; C++ optional<GLuint>.
 			vao: None,
+			// Ray resources participate in the same partial-construction cleanup; C++ nullopt initialization.
+			ray_vao: None,
+			ray_buffer: None,
 			// Own vertex and index buffer handles; C++ vector<GLuint>.
 			buffers: Vec::new(),
 			// Own the albedo and normal textures in sampler order; C++ vector<GLuint>.
@@ -350,6 +422,22 @@ impl Renderer
 				gl.enable_vertex_attrib_array(1);
 				// Describe floats, byte stride, and byte offset in each vertex; C++ glVertexAttribPointer.
 				gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 20, 12);
+				// Allocate a second VAO without disturbing the Moon's indexed mesh; C++ glGenVertexArrays.
+				renderer.ray_vao = Some(gl.create_vertex_array()?);
+				// Configure only this layout for position triples; C++ glBindVertexArray.
+				gl.bind_vertex_array(renderer.ray_vao);
+				// Allocate a tiny dynamic buffer for four ray vertices; C++ glGenBuffers.
+				let ray_buffer = gl.create_buffer()?;
+				// Register ownership immediately for cleanup on later failure; C++ owned handle vector append.
+				renderer.buffers.push(ray_buffer);
+				// Retain a nonowning handle for subsequent uploads; C++ handle copy.
+				renderer.ray_buffer = Some(ray_buffer);
+				// Make the new buffer the source of position attribute zero; C++ glBindBuffer.
+				gl.bind_buffer(glow::ARRAY_BUFFER, Some(ray_buffer));
+				// Enable only position; unused UV defaults to zero for the constant-color branch; C++ glEnableVertexAttribArray.
+				gl.enable_vertex_attrib_array(0);
+				// Three tightly packed floats describe each ray vertex; C++ glVertexAttribPointer.
+				gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 12, 0);
 				// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 				gl.bind_vertex_array(None);
 				// Select the buffer receiving the next operation; C++ glBindBuffer(target, handle or 0).
@@ -487,7 +575,7 @@ impl Renderer
 	}
 
 	// Draw one opaque sphere inside egui's already configured viewport; C++ issues the equivalent GL commands.
-	fn paint(&self, gl: &glow::Context, aspect: f32, angle: f32)
+	fn paint(&self, gl: &glow::Context, aspect: f32, angle: f32, rays: Option<([f32; 3], [Ray; 2])>)
 	{
 		// Borrow the optional program handle or return from an already-destroyed renderer; C++ checks optional before dereferencing.
 		let Some(program) = self.program
@@ -522,6 +610,8 @@ impl Renderer
 			gl.front_face(glow::CCW);
 			// Select linked shaders, or unbind them; C++ glUseProgram(handle or 0).
 			gl.use_program(Some(program));
+			// Always restore the textured material before drawing the Moon; C++ glUniform1i.
+			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
 			// Send a column-major projection without transposing; C++ glUniformMatrix4fv.
 			gl.uniform_matrix_4_f32_slice(
 				// Look up an active uniform, returning None if absent; C++ glGetUniformLocation returns -1.
@@ -549,6 +639,46 @@ impl Renderer
 			gl.bind_vertex_array(self.vao);
 			// Submit indexed triangles with 32-bit indices starting at byte zero; C++ glDrawElements.
 			gl.draw_elements(glow::TRIANGLES, self.index_count, glow::UNSIGNED_INT, 0);
+			// Draw real object-space direction lines against the sphere's existing depth buffer; C++ optional guard.
+			if let Some((origin, bodies)) = rays
+			{
+				// Reuse the exact model/projection uniforms, but skip all texture/photometry work; C++ material switch.
+				gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
+				// Select the independent, position-only line layout; C++ glBindVertexArray.
+				gl.bind_vertex_array(self.ray_vao);
+				// Upload two endpoints per ray without modifying the sphere buffers; C++ glBindBuffer.
+				gl.bind_buffer(glow::ARRAY_BUFFER, self.ray_buffer);
+				// Preserve Sun/yellow then Earth/blue order from the app; C++ array zip iteration.
+				for (body, color) in bodies
+					.into_iter()
+					.zip([[1.0, 0.9, 0.05], [0.15, 0.65, 1.0]])
+				{
+					// Direction rays are 0.6 lunar radii, not body distances; C++ endpoint vector arithmetic.
+					let end: [f32; 3] =
+						std::array::from_fn(|i| origin[i] + 0.6 * body.direction[i]);
+					// The first vertex equals the marker's surface point exactly; C++ contiguous two-vertex array.
+					let vertices = [origin, end];
+					// Twelve floats at most per frame need no persistent mapping; C++ glBufferData with GL_STREAM_DRAW.
+					gl.buffer_data_u8_slice(
+						glow::ARRAY_BUFFER,
+						bytemuck::cast_slice(&vertices),
+						glow::STREAM_DRAW,
+					);
+					// Dim failed terrain/radio predicates without disabling physical sphere occlusion; C++ conditional scalar.
+					let strength = if body.visible { 1.0 } else { 0.35 };
+					// Send an unlit display color rather than illuminating rays with the globe's illustration light; C++ glUniform3f.
+					gl.uniform_3_f32(
+						gl.get_uniform_location(program, "u_ray_color").as_ref(),
+						color[0] * strength,
+						color[1] * strength,
+						color[2] * strength,
+					);
+					// Use the portable one-pixel GL line rasterizer on desktop and WebGL2; C++ glDrawArrays(GL_LINES,0,2).
+					gl.draw_arrays(glow::LINES, 0, 2);
+				}
+				// Do not leak a dynamic buffer binding into egui; C++ glBindBuffer(...,0).
+				gl.bind_buffer(glow::ARRAY_BUFFER, None);
+			}
 			// Select vertex-layout state, or unbind with None; C++ glBindVertexArray(handle or 0).
 			gl.bind_vertex_array(None);
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
@@ -595,6 +725,14 @@ impl Renderer
 				// Release vertex-layout state while the context is current; C++ glDeleteVertexArrays.
 				gl.delete_vertex_array(vao);
 			}
+			// Delete the ray layout once; its buffer is already owned by the shared buffer inventory; C++ optional extraction.
+			if let Some(vao) = self.ray_vao.take()
+			{
+				// Release layout state while the context is current; C++ glDeleteVertexArrays.
+				gl.delete_vertex_array(vao);
+			}
+			// Clear the nonowning alias after buffer destruction; C++ handle reset.
+			self.ray_buffer = None;
 			// Iterate the stated rows, columns, resources, or completions without ownership aliasing; C++ uses a range-for loop.
 			for shader in self.shaders.drain(..)
 			{

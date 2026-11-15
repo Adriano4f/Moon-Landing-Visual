@@ -47,6 +47,8 @@ impl eframe::App for MoonApp
 		self.panorama.update();
 		// Share only geographic coordinates with the renderer; C++ optional<pair<double,double>> setter.
 		self.globe.set_site(self.panorama.site());
+		// Share the selected time sample after its site, without coupling globe to lunar_core; C++ small optional value transfer.
+		self.globe.set_directions(self.panorama.directions());
 		// Preserve black behind the Moon in both layouts; C++ immediate-mode central container.
 		eframe::egui::CentralPanel::default()
 			.frame(eframe::egui::Frame::NONE.fill(eframe::egui::Color32::BLACK))

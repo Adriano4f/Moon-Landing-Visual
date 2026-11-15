@@ -6,15 +6,17 @@ This is a visual globe, not the landing-site simulation. The independent `globe`
 
 Read this guide first, then [the Rust and complete code guide](04-globe-code.md). Its annotated listings quote every globe source and both app entry files exactly. [Asset provenance](../globe/assets/README.md) provides downloads, dimensions, units, sizes, and hashes. The earlier [scientific walkthrough](02-code.md) describes the original placeholder app, not the current renderer.
 
+The globe now also draws app-supplied Sun and Earth direction rays at the selected panorama epoch. Their local-frame conversion, shared model matrix, depth testing and dimming are derived in [the ray guide](08-rays.md). They reuse the vertex transform but take a constant-color fragment branch. The textured Moon still uses the fixed presentation light described here; that light is not silently replaced by the ray's scientific Sun direction.
+
 ## 2. Pixels, vectors, and surface directions
 
-A pixel is one addressable image location. RGB assigns it red, green, and blue channel values. A framebuffer is the image storage into which rendering writes. A physical display pixel is not necessarily one UI coordinate: egui uses logical points and converts its paint rectangle to physical pixels. The callback's viewport supplies that conversion. Implementation: [globe/src/lib.rs:155](../globe/src/lib.rs#L155).
+A pixel is one addressable image location. RGB assigns it red, green, and blue channel values. A framebuffer is the image storage into which rendering writes. A physical display pixel is not necessarily one UI coordinate: egui uses logical points and converts its paint rectangle to physical pixels. The callback's viewport supplies that conversion. Implementation: [globe/src/lib.rs:211](../globe/src/lib.rs#L211).
 
 A three-component vector is an ordered triple. Addition and scalar multiplication act componentwise. Its Euclidean length is sqrt(x*x+y*y+z*z). A unit vector has length one; normalization divides by length and requires a nonzero vector. A point is a location, while subtracting two points gives a displacement vector. Our units for rendering positions are lunar reference radii.
 
-The dot product a dot b = ax*bx+ay*by+az*bz equals length(a)*length(b)*cos(angle). For unit directions it directly gives a cosine. For example, (0,0,1) dot (1,0,0) = 0 means a right angle; (0,0,1) dotted with itself is 1. The shader uses dot products to ask whether a surface faces the Sun and camera. Implementation: [globe/src/moon.frag:182](../globe/src/moon.frag#L182).
+The dot product a dot b = ax*bx+ay*by+az*bz equals length(a)*length(b)*cos(angle). For unit directions it directly gives a cosine. For example, (0,0,1) dot (1,0,0) = 0 means a right angle; (0,0,1) dotted with itself is 1. The shader uses dot products to ask whether a surface faces the Sun and camera. Implementation: [globe/src/moon.frag:194](../globe/src/moon.frag#L194).
 
-The cross product a cross b = (ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx) is perpendicular to both vectors. Its sign distinguishes triangle orientations. For a=(1,0,0) and b=(0,1,0), a cross b=(0,0,1). The mesh test uses the z component of the cross product of two triangle edges to check outward winding. Implementation: [globe/src/math.rs:184](../globe/src/math.rs#L184).
+The cross product a cross b = (ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx) is perpendicular to both vectors. Its sign distinguishes triangle orientations. For a=(1,0,0) and b=(0,1,0), a cross b=(0,0,1). The mesh test uses the z component of the cross product of two triangle edges to check outward winding. Implementation: [globe/src/math.rs:242](../globe/src/math.rs#L242).
 
 Latitude measures angle north of the equator. Longitude increases eastward. In radians, latitude phi and longitude lambda become the unit direction
 
@@ -26,13 +28,13 @@ Thus north is +y, longitude zero faces +z, and longitude 90 degrees east faces +
 
 ## 3. Vertices, triangles, and the GPU
 
-A vertex is a mesh corner with numerical attributes. Here it stores five floats: position x,y,z and texture coordinates u,v. A triangle references three vertices. An index buffer stores these references, allowing adjacent triangles to share vertices instead of repeating all their floats. A vertex buffer stores the floats themselves. A vertex array object records how these bytes should be interpreted. Each vertex occupies 20 bytes: position starts at byte 0 and UV starts at byte 12. Implementation: [globe/src/lib.rs:348](../globe/src/lib.rs#L348).
+A vertex is a mesh corner with numerical attributes. Here it stores five floats: position x,y,z and texture coordinates u,v. A triangle references three vertices. An index buffer stores these references, allowing adjacent triangles to share vertices instead of repeating all their floats. A vertex buffer stores the floats themselves. A vertex array object records how these bytes should be interpreted. Each vertex occupies 20 bytes: position starts at byte 0 and UV starts at byte 12. Implementation: [globe/src/lib.rs:420](../globe/src/lib.rs#L420).
 
-The sphere has 256 longitude cells and 128 latitude cells. Its duplicated boundary vertices give 257*129 = 33,153 vertices, 65,536 triangles, and 196,608 indices. A cell with upper-left index a and lower-left index b=a+257 uses (a,b,a+1) and (a+1,b,b+1). The two seam copies must have identical positions even though u is 0 on one and 1 on the other. The poles use exact (0,+1,0) and (0,-1,0), not tiny cosine residuals. Implementation: [globe/src/math.rs:13](../globe/src/math.rs#L13).
+The sphere has 256 longitude cells and 128 latitude cells. Its duplicated boundary vertices give 257*129 = 33,153 vertices, 65,536 triangles, and 196,608 indices. A cell with upper-left index a and lower-left index b=a+257 uses (a,b,a+1) and (a+1,b,b+1). The two seam copies must have identical positions even though u is 0 on one and 1 on the other. The poles use exact (0,+1,0) and (0,-1,0), not tiny cosine residuals. Implementation: [globe/src/math.rs:36](../globe/src/math.rs#L36).
 
 The graphics processing unit, or GPU, transforms and shades many vertices/fragments in parallel. OpenGL is the command API that supplies data and configures this pipeline. `glow` exposes that API in Rust and also maps it to browser WebGL2. GLSL is the language of the small GPU programs called shaders. The vertex shader processes one vertex. Rasterization converts projected triangles into covered sample locations. A fragment shader computes a color for a covered location before depth testing decides whether it survives.
 
-A uniform is a value held constant for one draw, such as the rotation angle or projection matrix. A vertex attribute varies per vertex. Shader `in`/`out` declarations connect these values between stages. `gl_Position` is the vertex shader's special homogeneous clip-coordinate output. Implementation: [globe/src/moon.vert:20](../globe/src/moon.vert#L20) and [globe/src/moon.frag:148](../globe/src/moon.frag#L148).
+A uniform is a value held constant for one draw, such as the rotation angle or projection matrix. A vertex attribute varies per vertex. Shader `in`/`out` declarations connect these values between stages. `gl_Position` is the vertex shader's special homogeneous clip-coordinate output. Implementation: [globe/src/moon.vert:20](../globe/src/moon.vert#L20) and [globe/src/moon.frag:152](../globe/src/moon.frag#L152).
 
 ## 4. Matrices and coordinate spaces
 
@@ -49,7 +51,7 @@ T * (1,0,0,1) = (1,0,-3.3,1).
 T * (1,0,0,0) = (1,0,0,0).
 ```
 
-Multiplication order matters: P*T*p translates first, then projects. OpenGL accepts our matrices in column-major memory order: consecutive groups of four floats are columns, not rows. The upload passes transpose=false. Implementation: [globe/src/lib.rs:526](../globe/src/lib.rs#L526).
+Multiplication order matters: P*T*p translates first, then projects. OpenGL accepts our matrices in column-major memory order: consecutive groups of four floats are columns, not rows. The upload passes transpose=false. Implementation: [globe/src/lib.rs:616](../globe/src/lib.rs#L616).
 
 Object space is the unrotated Moon's coordinate system. World space is object space after the model rotation. First rotate by angle theta around +y: x=cos(theta)*x+sin(theta)*z, y=y, and z=-sin(theta)*x+cos(theta)*z. At theta=90 degrees, (0,0,1) becomes (1,0,0). Next apply a fixed negative 30-degree x rotation to bring the south pole toward the camera. Both shaders receive the composed column-major u_model matrix. A rigid rotation transforms normals by this same matrix. General nonuniform scaling would require an inverse-transpose normal matrix, which we do not need. The [panorama guide](05-panorama.md) derives this composition and the site marker's matching projection. This tilt is only a presentation choice; it changes no site coordinates, Horizons samples, or terrain visibility.
 
@@ -64,11 +66,11 @@ P = [f/a 0       0               0       ]
     [0   0      -1               0       ].
 ```
 
-The horizontal scale divides by aspect ratio so a sphere remains circular. The min(a,1) factor preserves a 45-degree field of view on the shorter viewport axis. The z rows map the near plane to normalized depth -1 and the far plane to +1. Implementation: [globe/src/math.rs:73](../globe/src/math.rs#L73).
+The horizontal scale divides by aspect ratio so a sphere remains circular. The min(a,1) factor preserves a 45-degree field of view on the shorter viewport axis. The z rows map the near plane to normalized depth -1 and the far plane to +1. Implementation: [globe/src/math.rs:96](../globe/src/math.rs#L96).
 
 For a square viewport, f=2.414214. A world point (1,0,0,1) becomes view (1,0,-3.3,1), then clip (2.414214,0,3.164646,3.3). Perspective divide produces normalized device coordinates, or NDC: approximately (0.73158,0,0.95898). This division by w makes equally sized distant objects appear smaller. Clipping removes geometry outside -w <= x,y,z <= w before the divide.
 
-Window space maps NDC into the viewport. In an 800 by 800 viewport, x_window=(x_NDC+1)*400 gives approximately 692.63; y=400. Depth maps (z_NDC+1)/2 into [0,1], approximately 0.97949. OpenGL window y grows upward; UI and screenshot coordinates often grow downward, which egui handles for the callback. The projection tests check the near/far endpoints and both aspect orientations. Implementation: [globe/src/math.rs:224](../globe/src/math.rs#L224).
+Window space maps NDC into the viewport. In an 800 by 800 viewport, x_window=(x_NDC+1)*400 gives approximately 692.63; y=400. Depth maps (z_NDC+1)/2 into [0,1], approximately 0.97949. OpenGL window y grows upward; UI and screenshot coordinates often grow downward, which egui handles for the callback. The projection tests check the near/far endpoints and both aspect orientations. Implementation: [globe/src/math.rs:282](../globe/src/math.rs#L282).
 
 ## 5. Rasterization, interpolation, and visibility
 
@@ -78,9 +80,9 @@ Rasterization finds which pixel samples lie inside each projected triangle. Bary
 a_fragment = sum(weight_j * a_j / w_j) / sum(weight_j / w_j).
 ```
 
-This is perspective-correct interpolation. GLSL uses it by default for our floating-point outputs. Interpolated positions and normals must be normalized again where a unit direction is required. The shader reconstructs texture UV from interpolated object direction instead of interpolating a wrapped longitude directly. Implementation: [globe/src/moon.frag:151](../globe/src/moon.frag#L151).
+This is perspective-correct interpolation. GLSL uses it by default for our floating-point outputs. Interpolated positions and normals must be normalized again where a unit direction is required. The shader reconstructs texture UV from interpolated object direction instead of interpolating a wrapped longitude directly. Implementation: [globe/src/moon.frag:163](../globe/src/moon.frag#L163).
 
-A depth buffer stores the closest surviving depth at each sample. Without it, draw order could put a rear triangle in front. The callback enables depth testing with LESS, permits writes, and clears depth to 1. A fragment with a smaller depth replaces the stored value. Counterclockwise triangles are front faces; back-face culling discards the rear surfaces of this closed opaque sphere. Blending is disabled because alpha is always one. Implementation: [globe/src/lib.rs:506](../globe/src/lib.rs#L506).
+A depth buffer stores the closest surviving depth at each sample. Without it, draw order could put a rear triangle in front. The callback enables depth testing with LESS, permits writes, and clears depth to 1. A fragment with a smaller depth replaces the stored value. Counterclockwise triangles are front faces; back-face culling discards the rear surfaces of this closed opaque sphere. Blending is disabled because alpha is always one. Implementation: [globe/src/lib.rs:594](../globe/src/lib.rs#L594).
 
 Multisample anti-aliasing, or MSAA, tests multiple coverage locations per pixel and resolves them into a final color. Four samples soften the geometric silhouette; this does not mean four independent texture or lighting evaluations everywhere, and it does not replace mipmaps. Native `NativeOptions.multisampling=4` remains enabled. The browser uses its context's available antialiasing behavior rather than claiming native's exact sample count. Implementation: [app/src/main.rs:19](../app/src/main.rs#L19).
 
@@ -90,13 +92,13 @@ The GLSL qualifier `centroid` asks for an interpolation location inside both the
 
 ## 6. Textures, filtering, and a continuous longitude seam
 
-A texture is an image addressed by normalized coordinates u,v. Our equirectangular maps use u=lambda/(2*pi)+0.5 and v=0.5-phi/pi: top is north, middle longitude is zero. Each stored pixel is called a texel. A sampler combines the image with rules for filtering and coordinates outside its bounds. Longitude repeats; latitude clamps to the edge. Implementation: [globe/src/lib.rs:461](../globe/src/lib.rs#L461).
+A texture is an image addressed by normalized coordinates u,v. Our equirectangular maps use u=lambda/(2*pi)+0.5 and v=0.5-phi/pi: top is north, middle longitude is zero. Each stored pixel is called a texel. A sampler combines the image with rules for filtering and coordinates outside its bounds. Longitude repeats; latitude clamps to the edge. Implementation: [globe/src/lib.rs:549](../globe/src/lib.rs#L549).
 
-Bilinear filtering blends four neighboring texels at one resolution. A mipmap is a sequence of smaller images, each approximately half as wide and high. When many texels fit under one screen pixel, sampling an appropriate smaller level suppresses shimmering. LINEAR_MIPMAP_LINEAR also blends between two levels, often called trilinear filtering. The level chain costs about one third beyond the base image because 1+1/4+1/16+...=4/3. Implementation: [globe/src/lib.rs:463](../globe/src/lib.rs#L463).
+Bilinear filtering blends four neighboring texels at one resolution. A mipmap is a sequence of smaller images, each approximately half as wide and high. When many texels fit under one screen pixel, sampling an appropriate smaller level suppresses shimmering. LINEAR_MIPMAP_LINEAR also blends between two levels, often called trilinear filtering. The level chain costs about one third beyond the base image because 1+1/4+1/16+...=4/3. Implementation: [globe/src/lib.rs:551](../globe/src/lib.rs#L551).
 
-At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. The earlier renderer requested a ratio up to eight through the optional anisotropic-filtering extension. The current renderer deliberately leaves every new texture at its default anisotropy ratio of one, retaining isotropic trilinear mipmapping. This is a portable conservative choice rather than a GPU-vendor-name workaround. It can blur grazing detail more than a correctly functioning anisotropic path, but removes the observed dotted arc without removing mipmaps or 4x MSAA. Implementation: [globe/src/lib.rs:463](../globe/src/lib.rs#L463).
+At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. The earlier renderer requested a ratio up to eight through the optional anisotropic-filtering extension. The current renderer deliberately leaves every new texture at its default anisotropy ratio of one, retaining isotropic trilinear mipmapping. This is a portable conservative choice rather than a GPU-vendor-name workaround. It can blur grazing detail more than a correctly functioning anisotropic path, but removes the observed dotted arc without removing mipmaps or 4x MSAA. Implementation: [globe/src/lib.rs:551](../globe/src/lib.rs#L551).
 
-Ordinary automatic UV derivatives see u jump from almost 1 to almost 0 at the longitude boundary. They can incorrectly select a very small mip level and produce a visible seam. The shader instead differentiates the continuous unit direction p. For a differential dp, du=(pz*dpx-px*dpz)/(2*pi*(px*px+pz*pz)), and dv=-dpy/(pi*sqrt(px*px+pz*pz)). It obtains dp with dFdx and dFdy, bounds the polar denominator, and passes these explicit gradients to textureGrad for both maps. The texture still repeats, but the footprint never differentiates the wrapped u value. Implementation: [globe/src/moon.frag:162](../globe/src/moon.frag#L162).
+Ordinary automatic UV derivatives see u jump from almost 1 to almost 0 at the longitude boundary. They can incorrectly select a very small mip level and produce a visible seam. The shader instead differentiates the continuous unit direction p. For a differential dp, du=(pz*dpx-px*dpz)/(2*pi*(px*px+pz*pz)), and dv=-dpy/(pi*sqrt(px*px+pz*pz)). It obtains dp with dFdx and dFdy, bounds the polar denominator, and passes these explicit gradients to textureGrad for both maps. The texture still repeats, but the footprint never differentiates the wrapped u value. Implementation: [globe/src/moon.frag:174](../globe/src/moon.frag#L174).
 
 The filtering decision comes from controlled native 8k renders at rotation zero, with the same viewport, assets, exposure, and Mesa llvmpipe renderer. Each trial changed only the listed setting relative to the previous production configuration, except the explicitly combined trial. Gradient sanitization replaced non-finite values with zero and limited each gradient's length to 0.25 normalized UV units per pixel. The existing acos clamp remained active in every trial.
 
@@ -113,7 +115,7 @@ This disproves MSAA as a necessary condition for this observed arc. Albedo-only 
 
 ## 7. Relief and normal maps
 
-A normal is a unit vector perpendicular to the surface. A smooth sphere has radial normal r. A normal map stores perturbed directions that change illumination without moving the silhouette. These are object-space normals, not tangent-space normals: RGB directly encodes directions in the unrotated Moon coordinates. The shader rotates them with the geometry and renormalizes after filtering. Implementation: [globe/src/moon.frag:167](../globe/src/moon.frag#L167).
+A normal is a unit vector perpendicular to the surface. A smooth sphere has radial normal r. A normal map stores perturbed directions that change illumination without moving the silhouette. These are object-space normals, not tangent-space normals: RGB directly encodes directions in the unrotated Moon coordinates. The shader rotates them with the geometry and renormalizes after filtering. Implementation: [globe/src/moon.frag:179](../globe/src/moon.frag#L179).
 
 LOLA is the Lunar Orbiter Laser Altimeter. The offline script uses NASA's 16-pixels-per-degree unsigned displacement product. If q is an unsigned sample, height h=0.5*q-10,000 meters relative to reference radius R=1,737,400 m. This iteration uses exaggeration 1.0. Height is relief, not an already normalized display value. The source is 5,760 by 2,880: an 8k normal texture resamples this source and does not invent 8k scientific relief measurements. Implementation: [globe/assets/prepare.py:49](../globe/assets/prepare.py#L49).
 
@@ -129,13 +131,13 @@ A normal map does not change sphere visibility. To avoid treating a geometricall
 
 Projection alone did not eliminate the native 8k artifacts. The renderer additionally cross-fades the normal-map sunlight response into the geometric-sphere sunlight response under strong foreshortening. For radial normal N and m=max(dot(N,V),0), let t=clamp((m-0.35)/0.30,0,1) and a=t*t*(3-2*t). The final radiance factor is (1-a)*Hapke(N)+a*Hapke(n_corrected). Below cosine 0.35, approximately 69.5 degrees emission, only geometric-normal lighting remains. Above cosine 0.65, approximately 49.5 degrees, mapped relief is unchanged. The transition and its first derivative are continuous.
 
-Cross-fading the evaluated responses, rather than just normal vectors, preserves a positive geometric contribution throughout the transition even if a mapped response vanishes. Both terms use the same measured parameters and sunlight. No ambient term is introduced, and the geometric night-side mask still applies. This level-of-detail choice suppresses unresolved terrain-visibility artifacts; its thresholds are presentation settings, not WAC measurements. Implementation: [globe/src/moon.frag:175](../globe/src/moon.frag#L175).
+Cross-fading the evaluated responses, rather than just normal vectors, preserves a positive geometric contribution throughout the transition even if a mapped response vanishes. Both terms use the same measured parameters and sunlight. No ambient term is introduced, and the geometric night-side mask still applies. This level-of-detail choice suppresses unresolved terrain-visibility artifacts; its thresholds are presentation settings, not WAC measurements. Implementation: [globe/src/moon.frag:187](../globe/src/moon.frag#L187).
 
 ## 8. Radiometry and the Hapke model
 
 Radiometry measures electromagnetic energy. Irradiance E is incident power per area, measured in W/m^2. Radiance L is power per projected area per solid angle in a direction, measured in W/(m^2 sr). Reflectance is a dimensionless reflected fraction, but the word alone does not identify a directional law. A bidirectional reflectance distribution function, or BRDF, is outgoing radiance divided by incident irradiance for specified incoming/outgoing directions and has units sr^-1.
 
-For a collimated beam with perpendicular irradiance J, our modeled quantity is radiance factor I/F=pi*L/J. It is dimensionless. The ISIS expression below is I/F, not a BRDF to multiply again by cos(i). Adding that cosine again would incorrectly darken the full Moon's limb. Our display uses a relative Sun intensity, not measured J. Implementation: [globe/src/moon.frag:51](../globe/src/moon.frag#L51).
+For a collimated beam with perpendicular irradiance J, our modeled quantity is radiance factor I/F=pi*L/J. It is dimensionless. The ISIS expression below is I/F, not a BRDF to multiply again by cos(i). Adding that cosine again would incorrectly darken the full Moon's limb. Our display uses a relative Sun intensity, not measured J. Implementation: [globe/src/moon.frag:55](../globe/src/moon.frag#L55).
 
 Let S be the unit direction toward the Sun, V toward the camera, and n the local mapped normal. Incidence i satisfies mu0=cos(i)=n dot S. Emission e satisfies mu=cos(e)=n dot V. Phase g satisfies cos(g)=S dot V. Opposition means g=0: observer and Sun are in the same direction. A locally unilluminated or invisible facet returns zero. A separate geometric-normal test prevents mapped normals from lighting the back side. There is no ambient or earthshine term.
 
@@ -154,7 +156,7 @@ The scientific reference is Sato et al. (2014), "Resolved Hapke parameter maps o
 | Bc0, hc | 0, 1 | Coherent-backscatter amplitude and width. |
 | phi | 0 | Porosity parameter; ISIS's porosity factor K is 1. |
 
-Implementation constants: [globe/src/moon.frag:25](../globe/src/moon.frag#L25). Reproduce the means and numeric checks with `python3 globe/assets/photometry.py`.
+Implementation constants: [globe/src/moon.frag:29](../globe/src/moon.frag#L29). Reproduce the means and numeric checks with `python3 globe/assets/photometry.py`.
 
 ### 8.1 Single-particle scattering and opposition
 
@@ -165,11 +167,11 @@ P(g) = (1+c)/2 * (1-b*b)/(1-2*b*cos(g)+b*b)^(3/2)
      + (1-c)/2 * (1-b*b)/(1+2*b*cos(g)+b*b)^(3/2).
 ```
 
-Positive c favors the first, backward lobe. It is not a [0,1] forward-lobe mixture weight. Interchanging those weights changes the opposition behavior and would mismatch these map values. Implementation: [globe/src/moon.frag:64](../globe/src/moon.frag#L64).
+Positive c favors the first, backward lobe. It is not a [0,1] forward-lobe mixture weight. Interchanging those weights changes the opposition behavior and would mismatch these map values. Implementation: [globe/src/moon.frag:68](../globe/src/moon.frag#L68).
 
 Shadow-hiding brightens near opposition because particle shadows disappear behind the particles casting them. Its normalized profile Bs(g)=1/(1+tan(g/2)/hs) enters as 1+Bs0*Bs(g). Thus Bs(0)=1. This is a separate physical mechanism from the microscopic phase function.
 
-Coherent backscatter enhances reciprocal light paths very near opposition. ISIS uses x=tan(g/2)/hc and Bc(g)=[1+(1-exp(-x))/x]/[2*(1+x)^2], with continuous limit Bc(0)=1. Its multiplier is 1+Bc0*Bc(g). Every valid map tile has Bc0=0, so our shader omits this identically one multiplier rather than evaluating a numerically singular unused profile. Likewise phi=0 gives porosity K=1. Implementation: [globe/src/moon.frag:68](../globe/src/moon.frag#L68).
+Coherent backscatter enhances reciprocal light paths very near opposition. ISIS uses x=tan(g/2)/hc and Bc(g)=[1+(1-exp(-x))/x]/[2*(1+x)^2], with continuous limit Bc(0)=1. Its multiplier is 1+Bc0*Bc(g). Every valid map tile has Bc0=0, so our shader omits this identically one multiplier rather than evaluating a numerically singular unused profile. Likewise phi=0 gives porosity K=1. Implementation: [globe/src/moon.frag:72](../globe/src/moon.frag#L72).
 
 ### 8.2 Multiple scattering
 
@@ -181,7 +183,7 @@ r0 = (1-gamma)/(1+gamma)
 H(x) = 1 / [1-w*x*(r0+(1-2*r0*x)/2*ln((1+x)/x))].
 ```
 
-Here H(0)=1 by continuity. The shader bounds positive arguments away from zero to avoid log(1/0). The multiple-scattering term is H(mu0e)*H(mue)-1, where the e suffix denotes roughness-adjusted cosines defined next. This is not the simpler (1+2*x)/(1+2*gamma*x) rational approximation. Implementation: [globe/src/moon.frag:38](../globe/src/moon.frag#L38).
+Here H(0)=1 by continuity. The shader bounds positive arguments away from zero to avoid log(1/0). The multiple-scattering term is H(mu0e)*H(mue)-1, where the e suffix denotes roughness-adjusted cosines defined next. This is not the simpler (1+2*x)/(1+2*gamma*x) rational approximation. Implementation: [globe/src/moon.frag:42](../globe/src/moon.frag#L42).
 
 ### 8.3 Macroscopic roughness
 
@@ -218,19 +220,19 @@ I/F = (w/4) * mu0e/(mu0e+mue)
     * [P(g)*(1+Bs0*Bs(g))+H(mu0e)*H(mue)-1] * S.
 ```
 
-Implementation: [globe/src/moon.frag:71](../globe/src/moon.frag#L71) through [globe/src/moon.frag:137](../globe/src/moon.frag#L137). There is no additional Lambert cosine multiplication.
+Implementation: [globe/src/moon.frag:75](../globe/src/moon.frag#L75) through [globe/src/moon.frag:141](../globe/src/moon.frag#L141). There is no additional Lambert cosine multiplication.
 
 The independent Python implementation checks 1,296 valid geometries, a dark facet, and opposition. At g=0, the center gives 0.19113042 and a location with mu=mu0=0.2 gives 0.18828614, only 1.49% darkening. At phase 0, 1, 5, 30, and 90 degrees with i=e=g/2, I/F is 0.19113042, 0.17695949, 0.14318869, 0.08717426, and 0.04459440. This checks the formula independently; it is not GPU readback or a calibration against lunar observations. Normals and the fixed off-axis light mean the displayed screenshot is not a full-Moon test image.
 
 ## 9. Linear light, color maps, and tone mapping
 
-sRGB is a nonlinear encoding of display RGB. A stored channel c decodes to c/12.92 when c<=0.04045, otherwise ((c+0.055)/1.055)^2.4. Multiplication and interpolation for physical light belong in linear values, not encoded values. We upload albedo as SRGB8_ALPHA8, so texture sampling decodes it before filtering; normal maps use ordinary RGB8 and must not be color-decoded. Mipmap generation uses the texture's color-space rules. Implementation: [globe/src/lib.rs:440](../globe/src/lib.rs#L440).
+sRGB is a nonlinear encoding of display RGB. A stored channel c decodes to c/12.92 when c<=0.04045, otherwise ((c+0.055)/1.055)^2.4. Multiplication and interpolation for physical light belong in linear values, not encoded values. We upload albedo as SRGB8_ALPHA8, so texture sampling decodes it before filtering; normal maps use ordinary RGB8 and must not be color-decoded. Mipmap generation uses the texture's color-space rules. Implementation: [globe/src/lib.rs:528](../globe/src/lib.rs#L528).
 
 The NASA map is aesthetic RGB imagery, not a per-pixel inversion of 566 nm Hapke parameters. Our explicit modeling choice is to multiply the common photometric response by each linear RGB channel divided by 0.4832, a rounded common area-weighted color-map luminance reference. Individual tier pre-JPEG means are recorded in manifest.json and are approximately 0.483. This preserves relative spatial brightness and color but does not convert RGB to measured spectral single-scattering albedo. It applies the mapped-band average outside its original 70-degree latitude coverage too, including the poles, solely for presentation.
 
-Exposure multiplies this relative radiance by 8.0. For exposed x>=0, the simple per-channel Reinhard tone map y=x/(1+x) compresses values smoothly below one. For example, x=0.5 gives 1/3 and x=2 gives 2/3. This is the global compression associated with Reinhard et al. (2002), "Photographic Tone Reproduction for Digital Images", DOI [10.1145/566654.566575](https://doi.org/10.1145/566654.566575), not the complete local adaptation method. Per-channel compression can alter hue. Implementation: [globe/src/moon.frag:199](../globe/src/moon.frag#L199).
+Exposure multiplies this relative radiance by 8.0. For exposed x>=0, the simple per-channel Reinhard tone map y=x/(1+x) compresses values smoothly below one. For example, x=0.5 gives 1/3 and x=2 gives 2/3. This is the global compression associated with Reinhard et al. (2002), "Photographic Tone Reproduction for Digital Images", DOI [10.1145/566654.566575](https://doi.org/10.1145/566654.566575), not the complete local adaptation method. Per-channel compression can alter hue. Implementation: [globe/src/moon.frag:211](../globe/src/moon.frag#L211).
 
-Finally, linear y encodes to 12.92*y for y<=0.0031308, otherwise 1.055*y^(1/2.4)-0.055. The shader writes sRGB with alpha one. egui_glow disables automatic framebuffer sRGB conversion for custom callbacks, so this explicit encoding is required and not applied twice. The [Khronos sRGB specification](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_sRGB.txt) defines these transfers. Implementation: [globe/src/moon.frag:141](../globe/src/moon.frag#L141).
+Finally, linear y encodes to 12.92*y for y<=0.0031308, otherwise 1.055*y^(1/2.4)-0.055. The shader writes sRGB with alpha one. egui_glow disables automatic framebuffer sRGB conversion for custom callbacks, so this explicit encoding is required and not applied twice. The [Khronos sRGB specification](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_sRGB.txt) defines these transfers. Implementation: [globe/src/moon.frag:145](../globe/src/moon.frag#L145).
 
 Display exposure is 8.0, one stop above the previous 4.0. A linear albedo channel of 0.6 with I/F=0.08 produces linear radiance 8*(0.6/0.4832)*0.08=0.7947, Reinhard output approximately 0.4428, and sRGB approximately 0.696, or 178/255. Exposure 4 instead gives approximately 145/255. The chosen value makes lit highlands bright mid-grey while retaining mare contrast. This is photographic presentation, not absolute radiometric calibration.
 

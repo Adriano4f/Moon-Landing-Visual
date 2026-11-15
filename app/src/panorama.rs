@@ -100,6 +100,31 @@ impl Panorama
 		self.data.as_ref().map(|d| (d.site.lat_deg, d.site.lon_deg))
 	}
 
+	// Copy only the current scientific directions/availability into the independent renderer; C++ optional<array<BodyDirection,2>>.
+	pub fn directions(&self) -> Option<[globe::BodyDirection; 2]>
+	{
+		// Loading and errors expose no invented ephemerides; C++ optional transform.
+		self.data.as_ref().map(|data| {
+			[
+				// Any visible solar area makes a solid Sun ray, matching the main status; C++ aggregate value.
+				globe::BodyDirection {
+					az_deg: data.sun.az_deg[self.index],
+					el_deg: data.sun.el_deg[self.index],
+					visible: sun_fraction(
+						data.sun.el_deg[self.index],
+						data.horizon_at(data.sun.az_deg[self.index]),
+					) > 0.0,
+				},
+				// The selected radio clearance controls the Earth ray's brightness; C++ cached boolean.
+				globe::BodyDirection {
+					az_deg: data.earth.az_deg[self.index],
+					el_deg: data.earth.el_deg[self.index],
+					visible: data.earth_above[self.index],
+				},
+			]
+		})
+	}
+
 	// Present a plain-language scene first, with optional numerical detail; C++ immediate-mode member function.
 	pub fn show(&mut self, ui: &mut egui::Ui)
 	{
@@ -590,5 +615,37 @@ mod tests
 		let blocked = availability(&data);
 		assert_eq!(blocked.pct_earth, 0.0);
 		assert_eq!(blocked.pct_both, 0.0);
+		// Build a view model without starting asynchronous I/O or an OpenGL context; C++ test aggregate.
+		let mut panorama = Panorama {
+			pending: Pending::default(),
+			data: Some(data),
+			error: None,
+			index: 0,
+			hours: 24,
+			earth_margin_deg: 1.0,
+			technical: false,
+			help: false,
+			summary: blocked,
+		};
+		// At sample zero the Sun is below flat terrain and Earth fails the edited radio margin; C++ optional extraction.
+		let first = panorama.directions().unwrap();
+		// Preserve Sun/Earth ordering and the actual numeric sample; C++ numeric assertion.
+		assert_eq!(first[0].el_deg, -1.0);
+		// The ray flags must use the same predicates as the UI, not globe illumination; C++ boolean assertions.
+		assert!(!first[0].visible && !first[1].visible);
+		// Moving time must replace the exported direction rather than retaining the first sample; C++ index edit.
+		panorama.index = 1;
+		// Re-read the chosen sample through the production bridge; C++ optional extraction.
+		let next = panorama.directions().unwrap();
+		// The Sun has risen while Earth remains below the requested safety clearance; C++ scalar assertions.
+		assert_eq!(next[0].el_deg, 1.0);
+		// Visibility changes with the same selected index; C++ boolean assertion.
+		assert!(next[0].visible && !next[1].visible);
+		// Failed or missing loading state must not export stale scientific geometry; C++ optional reset.
+		panorama.data = None;
+		// Preserve an explicit loading error without inventing a sample; C++ error assignment.
+		panorama.error = Some("fixture unavailable".into());
+		// Absence propagates to Globe::set_directions and clears the previous pair; C++ nullopt assertion.
+		assert!(panorama.directions().is_none());
 	}
 }

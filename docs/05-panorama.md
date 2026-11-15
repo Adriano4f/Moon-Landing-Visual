@@ -43,7 +43,7 @@ A stable widget identity lets egui associate this frame's description with its p
 
 CentralPanel with Frame::NONE.fill(BLACK) keeps the globe background black. Context::set_theme selects ThemePreference::Dark, not merely one theme's visual colors: this prevents a light system theme from making black text disappear on the black panel. At widths of at least 700 logical points, Ui::columns creates two equal columns. Below 700, Ui::allocate_ui reserves a globe rectangle above the panorama. Globe height is 24 percent of viewport height, clamped to 140 through 220 logical points. A logical point is a device-independent UI unit, not necessarily one physical display pixel. The panorama gets at least 460 points of height. A vertical ScrollArea permits smaller screens to reach the remainder instead of shrinking the graph below 220 points. The finite viewport size is captured before entering ScrollArea: its scroll axis is unbounded and must not become an OpenGL viewport height. The same layout works in native windows and browser CSS viewports.
 
-Implementation: [app/src/lib.rs:44](../app/src/lib.rs#L44), [app/src/panorama.rs:104](../app/src/panorama.rs#L104).
+Implementation: [app/src/lib.rs:44](../app/src/lib.rs#L44), [app/src/panorama.rs:129](../app/src/panorama.rs#L129).
 
 ## 4. Asynchronous loading and ownership
 
@@ -71,7 +71,7 @@ The first displayed index is the first timestamp at least $t_{\min}$; the exclus
 
 For example, on hourly timestamps [0,3600,7200], a 1-hour centered window around 3600 covers [1800,5400] seconds and contains only index 1. A 2-hour centered window covers [0,7200] and includes all three. Tests also use a deliberately irregular time grid to distinguish true duration selection from a sample-count approximation.
 
-Implementation: [app/src/panorama.rs:479](../app/src/panorama.rs#L479), [app/src/panorama.rs:456](../app/src/panorama.rs#L456).
+Implementation: [app/src/panorama.rs:504](../app/src/panorama.rs#L504), [app/src/panorama.rs:481](../app/src/panorama.rs#L481).
 
 ## 6. Plot construction and north-wrap handling
 
@@ -85,7 +85,7 @@ An empty selection yields no lines. A one-point piece remains safe; the separate
 
 For a supplied Horizon with $m$ uniform bins, the renderer samples at $\max(m,360)$ intervals including both endpoints. Each point calls Horizon::at; all original bin boundaries are included, and the 360-degree endpoint interpolates back to north. It does not read a DEM or recompute terrain rays. The terrain line remains distinct from the zero reference.
 
-Implementation: [app/src/panorama.rs:371](../app/src/panorama.rs#L371), [app/src/panorama.rs:494](../app/src/panorama.rs#L494).
+Implementation: [app/src/panorama.rs:396](../app/src/panorama.rs#L396), [app/src/panorama.rs:519](../app/src/panorama.rs#L519).
 
 ## 7. Visibility and the rotating site marker
 
@@ -121,7 +121,7 @@ $$
 
 The minus sign reverses OpenGL's upward y into UI's downward y. Painter::circle_filled and circle_stroke add a small red, white-outlined overlay after the GL callback. Its radius is constant in logical points, not meters. Analytic sphere occlusion hides far-side points; it is not terrain occlusion. The marker is not drawn while textures are unavailable. CPU and GL aspect ratios agree apart from possible subpixel viewport rounding. The near-pole site's on-screen motion is naturally small, but it uses the exact same rotation as the texture. Unit tests project it through all 360 integer rotation degrees, check lower-hemisphere placement, reject invalid inputs, and check a hidden antipode.
 
-Implementation: [globe/src/math.rs:102](../globe/src/math.rs#L102), [globe/src/math.rs:113](../globe/src/math.rs#L113), [globe/src/lib.rs:74](../globe/src/lib.rs#L74).
+Implementation: [globe/src/math.rs:125](../globe/src/math.rs#L125), [globe/src/math.rs:136](../globe/src/math.rs#L136), [globe/src/lib.rs:103](../globe/src/lib.rs#L103).
 
 ## 8. Panorama API index and C++ equivalents
 
@@ -572,6 +572,31 @@ impl Panorama
 	{
 		// Borrow the model and copy two scalars; C++ optional transform of a const reference.
 		self.data.as_ref().map(|d| (d.site.lat_deg, d.site.lon_deg))
+	}
+
+	// Copy only the current scientific directions/availability into the independent renderer; C++ optional<array<BodyDirection,2>>.
+	pub fn directions(&self) -> Option<[globe::BodyDirection; 2]>
+	{
+		// Loading and errors expose no invented ephemerides; C++ optional transform.
+		self.data.as_ref().map(|data| {
+			[
+				// Any visible solar area makes a solid Sun ray, matching the main status; C++ aggregate value.
+				globe::BodyDirection {
+					az_deg: data.sun.az_deg[self.index],
+					el_deg: data.sun.el_deg[self.index],
+					visible: sun_fraction(
+						data.sun.el_deg[self.index],
+						data.horizon_at(data.sun.az_deg[self.index]),
+					) > 0.0,
+				},
+				// The selected radio clearance controls the Earth ray's brightness; C++ cached boolean.
+				globe::BodyDirection {
+					az_deg: data.earth.az_deg[self.index],
+					el_deg: data.earth.el_deg[self.index],
+					visible: data.earth_above[self.index],
+				},
+			]
+		})
 	}
 
 	// Present a plain-language scene first, with optional numerical detail; C++ immediate-mode member function.
@@ -1064,6 +1089,38 @@ mod tests
 		let blocked = availability(&data);
 		assert_eq!(blocked.pct_earth, 0.0);
 		assert_eq!(blocked.pct_both, 0.0);
+		// Build a view model without starting asynchronous I/O or an OpenGL context; C++ test aggregate.
+		let mut panorama = Panorama {
+			pending: Pending::default(),
+			data: Some(data),
+			error: None,
+			index: 0,
+			hours: 24,
+			earth_margin_deg: 1.0,
+			technical: false,
+			help: false,
+			summary: blocked,
+		};
+		// At sample zero the Sun is below flat terrain and Earth fails the edited radio margin; C++ optional extraction.
+		let first = panorama.directions().unwrap();
+		// Preserve Sun/Earth ordering and the actual numeric sample; C++ numeric assertion.
+		assert_eq!(first[0].el_deg, -1.0);
+		// The ray flags must use the same predicates as the UI, not globe illumination; C++ boolean assertions.
+		assert!(!first[0].visible && !first[1].visible);
+		// Moving time must replace the exported direction rather than retaining the first sample; C++ index edit.
+		panorama.index = 1;
+		// Re-read the chosen sample through the production bridge; C++ optional extraction.
+		let next = panorama.directions().unwrap();
+		// The Sun has risen while Earth remains below the requested safety clearance; C++ scalar assertions.
+		assert_eq!(next[0].el_deg, 1.0);
+		// Visibility changes with the same selected index; C++ boolean assertion.
+		assert!(next[0].visible && !next[1].visible);
+		// Failed or missing loading state must not export stale scientific geometry; C++ optional reset.
+		panorama.data = None;
+		// Preserve an explicit loading error without inventing a sample; C++ error assignment.
+		panorama.error = Some("fixture unavailable".into());
+		// Absence propagates to Globe::set_directions and clears the previous pair; C++ nullopt assertion.
+		assert!(panorama.directions().is_none());
 	}
 }
 ```

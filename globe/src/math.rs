@@ -8,6 +8,29 @@ pub(crate) fn direction(lat: f32, lon: f32) -> [f32; 3]
 	[lat.cos() * lon.sin(), lat.sin(), lat.cos() * lon.cos()]
 }
 
+// Convert local north-clockwise azimuth/elevation to a Moon-fixed unit vector, all angles in radians; C++ optional<array<float,3>>.
+pub(crate) fn local_direction(lat: f32, lon: f32, az: f32, el: f32) -> Option<[f32; 3]>
+{
+	// Invalid external angles must clear the rays rather than contaminate GPU vertices; C++ finite/range guards.
+	if [lat, lon, az, el].iter().any(|v| !v.is_finite())
+		|| lat.abs() > FRAC_PI_2
+		|| el.abs() > FRAC_PI_2
+	{
+		// No valid direction exists for this input; C++ nullopt.
+		return None;
+	}
+	// Up points away from the center in the renderer's y-north, z-zero-longitude convention; C++ radial vector.
+	let up = direction(lat, lon);
+	// Differentiate the radial vector with respect to latitude; C++ normalized north tangent.
+	let north = [-lat.sin() * lon.sin(), lat.cos(), -lat.sin() * lon.cos()];
+	// Differentiate with respect to longitude and normalize analytically, including at the pole; C++ east tangent.
+	let east = [lon.cos(), 0.0, -lon.sin()];
+	// Resolve the local unit vector onto east, north and up; C++ component-wise linear combination.
+	Some(std::array::from_fn(|i| {
+		east[i] * el.cos() * az.sin() + north[i] * el.cos() * az.cos() + up[i] * el.sin()
+	}))
+}
+
 /// Interleaved object position and UV, followed by counterclockwise triangle indices.
 // Generate a UV sphere with duplicate seam vertices and indexed triangles; C++ returns two vectors.
 pub(crate) fn sphere(slices: u32, stacks: u32) -> (Vec<f32>, Vec<u32>)
@@ -148,6 +171,41 @@ mod tests
 {
 	// Bring these names into scope; C++ uses qualified declarations, using, and header inclusion.
 	use super::*;
+
+	// Register an independent local-frame regression; C++ test registration.
+	#[test]
+	fn local_sky_frame()
+	{
+		// Exercise the actual selected south-pole site; C++ scalar setup.
+		let lat = (-89.4398_f32).to_radians();
+		// Longitude remains east-positive despite the renderer's unusual axes; C++ scalar setup.
+		let lon = 222.83_f32.to_radians();
+		// Straight up must equal the geographic radial vector; C++ optional extraction.
+		let up = local_direction(lat, lon, 0.0, FRAC_PI_2).unwrap();
+		// Geographic north is the derivative of the radial vector with latitude; C++ expected components.
+		let north = [-lat.sin() * lon.sin(), lat.cos(), -lat.sin() * lon.cos()];
+		// Check both basis directions component by component; C++ counted loop.
+		for i in 0..3
+		{
+			// Single-precision trigonometry warrants a small absolute tolerance; C++ numerical assertion.
+			assert!((up[i] - direction(lat, lon)[i]).abs() < 1e-6);
+			// Zero azimuth/elevation must point north, not along longitude or toward the center; C++ numerical assertion.
+			assert!((local_direction(lat, lon, 0.0, 0.0).unwrap()[i] - north[i]).abs() < 1e-6);
+		}
+		// A nontrivial closed-form example detects swapped east/north or renderer axes; C++ fixture vector.
+		let expected = [0.41602117, 0.7803301, -0.4669168];
+		// At latitude 30, longitude 60, azimuth 45, elevation 30 degrees; C++ direction calculation.
+		let actual = local_direction(PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0).unwrap();
+		// All components must agree independently of the pole fixture; C++ counted assertions.
+		for i in 0..3
+		{
+			assert!((actual[i] - expected[i]).abs() < 1e-6);
+		}
+		// Invalid data must not become a GPU coordinate; C++ error-case assertion.
+		assert!(local_direction(f32::NAN, 0.0, 0.0, 0.0).is_none());
+		// Elevation beyond the physical sky range is rejected; C++ range-error assertion.
+		assert!(local_direction(0.0, 0.0, 0.0, PI).is_none());
+	}
 
 	// Register a marker projection regression; C++ testing macro.
 	#[test]
