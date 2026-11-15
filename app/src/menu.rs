@@ -212,7 +212,6 @@ impl MoonApp
 			.constrain_to(ctx.content_rect().shrink(8.0))
 			.default_pos([8.0, 66.0])
 			.default_width(if phone { 300.0 } else { 440.0 })
-			.default_height((ctx.content_rect().height() - 90.0).max(100.0))
 			.min_width(if phone { 96.0 } else { 420.0 })
 			.max_width(if phone { 320.0 } else { (ctx.content_rect().width() - 48.0).min(460.0) })
 			.max_height((ctx.content_rect().height() - 90.0).max(100.0))
@@ -226,22 +225,6 @@ impl MoonApp
 			});
 		// Persist the presentation change between frames; C++ member assignment.
 		self.menu_open = open;
-	}
-
-	pub(crate) fn change_options(&mut self, ui: &egui::Ui)
-	{
-		if !self.menu_open
-		{
-			let position = egui::pos2(ui.max_rect().right() - 148.0, ui.max_rect().top() + 4.0);
-			egui::Area::new(egui::Id::unique("change-options"))
-				.fixed_pos(position)
-				.show(ui.ctx(), |ui| {
-					if ui.button("Change options").clicked()
-					{
-						self.menu_open = true;
-					}
-				});
-		}
 	}
 
 	pub(crate) fn welcome(&mut self, ctx: &egui::Context)
@@ -274,7 +257,7 @@ impl MoonApp
 	{
 		// Wrap every explanation to the sidebar width; C++ local text policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-		self.site_time_sections(ui);
+		self.site_section(ui);
 		ui.add(egui::Separator::default().spacing(0.0));
 		section(
 			ui,
@@ -340,6 +323,7 @@ impl MoonApp
 				if let Some(p) = &mut self.panoramas[self.selected]
 				{
 					p.technical_controls(ui);
+					p.paths_controls(ui);
 				}
 			},
 		);
@@ -442,7 +426,7 @@ fn explanations(ui: &mut egui::Ui)
 
 impl MoonApp
 {
-	fn site_time_sections(&mut self, ui: &mut egui::Ui)
+	fn site_section(&mut self, ui: &mut egui::Ui)
 	{
 		section(
 			ui,
@@ -479,29 +463,6 @@ impl MoonApp
 						question(ui, text);
 					}
 				});
-			},
-		);
-		ui.add(egui::Separator::default().spacing(0.0));
-		ui.strong("View");
-		self.globe.view_controls(ui);
-		ui.add(egui::Separator::default().spacing(0.0));
-		section(
-			ui,
-			"Time & period",
-			true,
-			"",
-			|ui| {
-				// Apply the UI event only when requested; C++ conditional branch.
-				if let Some(p) = &mut self.panoramas[self.selected]
-				{
-					p.time_controls(ui);
-					// Apply the UI event only when requested; C++ conditional branch.
-					if let Some(t) = p.time()
-					{
-						// Persist the presentation change between frames; C++ member assignment.
-						self.time = Some(t);
-					}
-				}
 			},
 		);
 	}

@@ -50,9 +50,14 @@ impl Panorama
 				self.path_range(),
 			);
 		}
+		egui::Frame::NONE
+			.fill(Color32::from_rgb(28, 32, 38))
+			.corner_radius(10.0)
+			.inner_margin(8.0)
+			.show(ui, |ui| self.time_controls(ui));
 		let options=self.options();
 		if self.summary_key==Some((options,self.earth_margin_deg)) {
-			summary_cards(ui, options, &self.summary);
+			summary_cards(ui, &self.summary);
 		} else { ui.label(self.sky_status()); }
 	}
 }
@@ -73,7 +78,7 @@ fn technical(ui: &mut egui::Ui, data: &SiteData, time:i64, range:Range<usize>)
 	}
 	else
 	{
-		(ui.available_height() - 240.0).clamp(80.0, 260.0)
+		(ui.available_height() - 320.0).clamp(80.0, 260.0)
 	};
 	// Fix azimuth bounds while allowing elevation to fit terrain/track extrema; C++ plotting builder.
 	Plot::new("panorama")
@@ -170,18 +175,11 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 		.on_hover_text("Earth is linked when you can see it directly, at least the safety margin above the hills.");
 }
 
-fn summary_cards(ui: &mut egui::Ui, options:crate::timeline::Options, summary: &lunar_core::Stats)
+fn summary_cards(ui: &mut egui::Ui, summary: &lunar_core::Stats)
 {
-	// Anchor summary cards to the full period, never the selected path window; C++ subheading.
-	ui.horizontal(|ui| {
-		ui.strong(options.period.label());
-		globe::help::question(ui, "Percentages cover the chosen period; Sun means any sunlight, Earth means a clear direct link, and longest night measures continuous darkness.");
-	});
 	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
 	let card_width = ((ui.available_width() - 40.0) / 2.0).max(70.0);
 	card_grid(ui, summary, card_width);
-	// Avoid implying that hourly held-sample statistics are continuous event solutions; C++ disclaimer.
-	ui.small(format!("Sampling: {}",options.step.label()));
 }
 
 fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)

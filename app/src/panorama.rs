@@ -194,12 +194,19 @@ impl Panorama
 	{
 		if self.data.is_none() { ui.label("Load a site to choose time."); return; }
 		let mut cursor=self.cursor;
-		self.timeline.lock().controls(ui,&mut cursor);
+		ui.scope(|ui| {
+			if ui.ctx().content_rect().width() >= 700.0
+			{
+				ui.spacing_mut().interact_size = egui::vec2(24.0, 24.0);
+				ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
+				ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
+			}
+			self.timeline.lock().controls(ui, &mut cursor);
+		});
 		self.set_time(cursor);
-		self.paths_controls(ui);
 	}
 
-	fn paths_controls(&mut self, ui:&mut egui::Ui)
+	pub(crate) fn paths_controls(&mut self, ui:&mut egui::Ui)
 	{
 		ui.horizontal(|ui| {
 			ui.small("Paths");

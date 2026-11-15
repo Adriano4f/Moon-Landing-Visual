@@ -52,20 +52,15 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 {
 	// Name body colors without requiring a legend click; C++ caption.
 	legend(ui);
-	let id = ui.scope_id().with("sky-true-scale");
-	let mut true_scale = ui.ctx().data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-	ui.checkbox(&mut true_scale, "True scale 1:1")
-		.on_hover_text("One vertical degree occupies the same screen distance as one horizontal degree.");
-	ui.ctx().data_mut(|d| d.insert_temp(id, true_scale));
 	let maximum = if ui.ctx().content_rect().width() < 700.0
 	{
 		210.0
 	}
 	else
 	{
-		(ui.available_height() - 240.0).clamp(75.0, 260.0)
+		(ui.available_height() - 320.0).clamp(75.0, 260.0)
 	};
-	let height = plot_height(ui.available_width(), maximum, true_scale);
+	let height = plot_height(maximum);
 	let (response, painter) = ui.allocate_painter(
 		egui::vec2(ui.available_width(), height),
 		egui::Sense::hover(),
@@ -85,10 +80,7 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 	// Calculate the actual nonuniform angular display scale from the allocated rectangle; C++ ratio of pixels per degree.
 	let stretch = (rect.height() / 20.0) / (rect.width() / 360.0);
 	// Warn about vertical exaggeration rather than depicting the ellipses as true visual aspect ratios; C++ caption.
-	if !true_scale
-	{
-		ui.small(format!("Vertical scale ×{stretch:.1}"));
-	}
+	ui.small(format!("Vertical scale ×{stretch:.1}"));
 	// Preserve explicit missing-terrain labeling for legacy data; C++ optional guard.
 	if data.horizon.is_none()
 	{
@@ -99,13 +91,9 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 	}
 }
 
-fn plot_height(width: f32, maximum: f32, true_scale: bool) -> f32
+fn plot_height(maximum: f32) -> f32
 {
-	if true_scale
-	{
-		(width - 42.0).max(1.0) / 18.0 + 30.0
-	}
-	else if maximum.is_finite()
+	if maximum.is_finite()
 	{
 		maximum.max(31.0)
 	}
@@ -138,23 +126,12 @@ mod tests
 	use super::*;
 
 	#[test]
-	fn true_scale_has_equal_pixels_per_degree()
+	fn plot_height_handles_finite_empty_and_invalid_limits()
 	{
-		for width in [320.0, 600.0, 1000.0]
-		{
-			let height = plot_height(width, 210.0, true);
-			let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width - 42.0, height - 30.0));
-			let origin = project(rect, 0.0, 0.0);
-			let horizontal = project(rect, 1.0, 0.0).x - origin.x;
-			let vertical = origin.y - project(rect, 0.0, 1.0).y;
-			assert!((horizontal - vertical).abs() < 1e-5);
-		}
-		for width in [0.0, f32::NAN]
-		{
-			assert!(plot_height(width, 210.0, true).is_finite());
-		}
-		assert_eq!(plot_height(320.0, f32::NAN, false), 210.0);
-		assert_eq!(plot_height(320.0, 150.0, false), 150.0);
+		assert_eq!(plot_height(f32::NAN), 210.0);
+		assert_eq!(plot_height(f32::INFINITY), 210.0);
+		assert_eq!(plot_height(0.0), 31.0);
+		assert_eq!(plot_height(150.0), 150.0);
 	}
 	// Check angular size, wrap continuity, empty and invalid inputs; C++ unit test.
 	#[test]

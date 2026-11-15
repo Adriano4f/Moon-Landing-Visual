@@ -195,6 +195,13 @@ impl MoonApp
 	// Render the selected scientific view while preserving the shared epoch; C++ member function.
 	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
 	{
+		ui.horizontal_wrapped(|ui| {
+			if ui.button("Change options").clicked()
+			{
+				self.menu_open = true;
+			}
+			self.globe.view_controls(ui);
+		});
 		if self.selected >= self.published
 			&& let Some(status) = self.custom.as_ref().and_then(|c| c.status())
 		{
