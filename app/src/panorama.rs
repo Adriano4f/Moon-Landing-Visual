@@ -195,6 +195,7 @@ impl Panorama
 		if self.data.is_none() { ui.label("Load a site to choose time."); return; }
 		let mut cursor=self.cursor;
 		ui.scope(|ui| {
+			ui.visuals_mut().widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(65));
 			if ui.ctx().content_rect().width() >= 700.0
 			{
 				ui.spacing_mut().interact_size = egui::vec2(24.0, 24.0);

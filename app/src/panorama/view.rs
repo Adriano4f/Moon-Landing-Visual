@@ -7,7 +7,8 @@ impl Panorama
 	{
 		// Scrollable child UIs must wrap prose instead of widening the entire panorama; C++ local text-layout policy.
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-		ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
+		let gap = if ui.ctx().content_rect().width() >= 760.0 { 4.0 } else { 6.0 };
+		ui.spacing_mut().item_spacing = egui::vec2(8.0, gap);
 		globe::help::annotated(
 			ui,
 			egui::RichText::new("Standing on the Moon").heading(),
@@ -78,7 +79,7 @@ fn technical(ui: &mut egui::Ui, data: &SiteData, time:i64, range:Range<usize>)
 	}
 	else
 	{
-		(ui.available_height() - 340.0).clamp(80.0, 260.0)
+		(ui.available_height() - 300.0).clamp(170.0, 300.0)
 	};
 	// Fix azimuth bounds while allowing elevation to fit terrain/track extrema; C++ plotting builder.
 	Plot::new("panorama")
@@ -177,16 +178,15 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 
 fn summary_cards(ui: &mut egui::Ui, summary: &lunar_core::Stats)
 {
-	// Reserve frame padding and the gutter before dividing the available width; C++ bounded card size.
-	let card_width = ((ui.available_width() - 40.0) / 2.0).max(70.0);
-	card_grid(ui, summary, card_width);
+	let columns = if ui.available_width() >= 560.0 { 4 } else { 2 };
+	let card_width = ((ui.available_width() - 16.0 * columns as f32 - 8.0 * (columns - 1) as f32) / columns as f32).max(70.0);
+	card_grid(ui, summary, card_width, columns);
 }
 
-fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
+fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32, columns: usize)
 {
-	// Two columns wrap well on both phone and desktop panels; C++ grid of framed cards.
 	egui::Grid::new("site_summary")
-		.num_columns(2)
+		.num_columns(columns)
 		.spacing([8.0, 6.0])
 		.show(ui, |ui| {
 			// Include units and the definition of sunlight in the visible labels; C++ range-for over values.
@@ -203,8 +203,7 @@ fn card_grid(ui: &mut egui::Ui, summary: &lunar_core::Stats, card_width: f32)
 			.enumerate()
 			{
 				summary_card(ui, title, value, card_width);
-				// Close each pair explicitly; C++ grid row break.
-				if i % 2 == 1
+				if i % columns == columns - 1
 				{
 					ui.end_row();
 				}

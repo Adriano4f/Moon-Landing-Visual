@@ -5,15 +5,18 @@ impl Globe
 	pub fn view_controls(&mut self, ui: &mut egui::Ui)
 	{
 		ui.horizontal(|ui| {
-			if ui.selectable_label(self.earth_view,"From Earth").clicked() {
+			if ui.add(egui::Button::selectable(self.earth_view,"From Earth").frame_when_inactive(true)).clicked() {
 				self.earth_view=true; self.paused=true; self.zoom=1.0; self.focus=None;
 			}
-			if ui.selectable_label(!self.earth_view,"Free").clicked() {
+			if ui.add(egui::Button::selectable(!self.earth_view,"Free").frame_when_inactive(true)).clicked() {
 				self.earth_view=false; self.paused=true; self.focus=None;
 			}
-			help::question(ui,"Follow Earth, drag to turn freely, or show the orbit from space.");
 		});
-		ui.toggle_value(&mut self.space_view,"From space");
+		if ui.add(egui::Button::selectable(self.space_view,"From space").frame_when_inactive(true)).clicked()
+		{
+			self.space_view = !self.space_view;
+		}
+		help::question(ui,"Follow Earth, drag to turn freely, or show the orbit from space.");
 	}
 
 	// Draw camera controls independently of the illustration; C++ member function.

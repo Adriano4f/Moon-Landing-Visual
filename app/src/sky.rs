@@ -58,7 +58,7 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 	}
 	else
 	{
-		(ui.available_height() - 340.0).clamp(75.0, 260.0)
+		(ui.available_height() - 300.0).clamp(170.0, 300.0)
 	};
 	let height = plot_height(maximum);
 	let (response, painter) = ui.allocate_painter(

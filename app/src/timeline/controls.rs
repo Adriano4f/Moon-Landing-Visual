@@ -6,7 +6,8 @@ impl Timeline
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.strong("Period");
-			ui.label(self.options.period.label());
+			let label = self.options.period.label();
+			ui.label(label.strip_prefix("Period: ").unwrap_or(&label));
 			globe::help::question(ui, &format!(
 				"Percentages cover the chosen period using {} samples; Sun means sunlight and Earth means a clear direct link.",
 				self.options.step.label(),
@@ -14,7 +15,6 @@ impl Timeline
 		});
 		ui.add(egui::Separator::default().spacing(2.0));
 		let mut seconds = *cursor as f64;
-		let inline_time = ui.available_width() >= 560.0;
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().button_padding.x=6.0;
 			ui.spacing_mut().item_spacing.x=6.0;
@@ -36,20 +36,10 @@ impl Timeline
 						ui.selectable_value(&mut self.options.step, step, step.label());
 					}
 				});
-			if inline_time
-			{
-				ui.add(egui::Separator::default().vertical().spacing(6.0));
-				ui.spacing_mut().slider_width = 90.0;
-				ui.add(egui::Slider::new(&mut seconds, self.options.period.start as f64..=self.options.period.end as f64)
-					.show_value(false).step_by(1.0).text("Time"));
-			}
 		});
-		if !inline_time
-		{
-			ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(80.0);
-			ui.add(egui::Slider::new(&mut seconds, self.options.period.start as f64..=self.options.period.end as f64)
-				.show_value(false).step_by(1.0).text("Time"));
-		}
+		ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(80.0);
+		ui.add(egui::Slider::new(&mut seconds, self.options.period.start as f64..=self.options.period.end as f64)
+			.show_value(false).step_by(1.0).text("Time"));
 		*cursor = seconds.round() as i64;
 		ui.add(egui::Separator::default().spacing(2.0));
 		self.period_controls(ui, cursor);

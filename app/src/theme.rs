@@ -52,11 +52,12 @@ fn palette(visuals: &mut egui::Visuals)
 	]
 	{
 		widget.corner_radius = CornerRadius::same(8);
-		widget.bg_stroke = Stroke::NONE;
-		widget.bg_fill = Color32::from_rgb(29, 39, 51);
-		widget.weak_bg_fill = Color32::from_rgb(23, 31, 42);
+		widget.bg_stroke = Stroke::new(1.0, Color32::from_rgb(74, 89, 108));
+		widget.bg_fill = Color32::from_rgb(42, 52, 66);
+		widget.weak_bg_fill = Color32::from_rgb(42, 52, 66);
 	}
-	visuals.widgets.hovered.bg_fill = Color32::from_rgb(39, 59, 79);
+	visuals.widgets.hovered.bg_fill = Color32::from_rgb(55, 73, 94);
+	visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(55, 73, 94);
 	visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, accent);
 	visuals.widgets.active.bg_fill = visuals.selection.bg_fill;
 }
@@ -81,6 +82,8 @@ mod tests
 			assert_eq!(style.visuals.window_corner_radius, CornerRadius::same(10));
 			assert_eq!(style.text_styles[&TextStyle::Body].size, 15.0);
 			assert_eq!(style.visuals.panel_fill, Color32::from_rgb(16, 21, 28));
+			assert_eq!(style.visuals.widgets.inactive.bg_fill, Color32::from_rgb(42, 52, 66));
+			assert_eq!(style.visuals.widgets.inactive.bg_stroke.width, 1.0);
 		}
 	}
 }

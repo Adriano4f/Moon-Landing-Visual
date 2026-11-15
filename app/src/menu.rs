@@ -297,7 +297,7 @@ impl MoonApp
 			ui,
 			"Rays",
 			false,
-			"Yellow rays point from a site to the Sun and blue rays point to Earth.",
+			"Yellow rays show sunlight and blue rays show the Earth link.",
 			|ui| self.ray_controls(ui),
 		);
 		section(
@@ -403,7 +403,7 @@ fn explanations(ui: &mut egui::Ui)
 		),
 		(
 			"Rays",
-			"Yellow rays point to the Sun and blue rays to Earth; a dim ray is blocked by hills.",
+			"Yellow rays show sunlight and blue rays show the Earth link; a dim ray is blocked by hills.",
 		),
 		(
 			"Lighting",

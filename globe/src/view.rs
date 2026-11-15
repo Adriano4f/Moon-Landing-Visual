@@ -448,7 +448,7 @@ impl Globe
 		painter.text(
 			rect.left_top() + egui::vec2(8.0, 8.0),
 			egui::Align2::LEFT_TOP,
-			format!("Drag to orbit; scroll or pinch to zoom\n{caption}"),
+			format!("Drag for Free view; scroll or pinch to zoom\n{caption}"),
 			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);
