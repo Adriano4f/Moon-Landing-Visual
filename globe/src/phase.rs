@@ -28,7 +28,7 @@ impl Globe
 		help::annotated(
 			ui,
 			format!("{phase} · {:.1}% lit", fraction * 100.0),
-			"Share of the Moon's Earth-facing side lit by the Sun on the selected date.",
+			"How much of the Moon's Earth-facing side is lit by the Sun on the selected date.",
 		);
 		if fraction < 0.1
 		{

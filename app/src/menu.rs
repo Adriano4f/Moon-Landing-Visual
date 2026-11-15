@@ -302,31 +302,31 @@ fn explanations(ui: &mut egui::Ui)
 	for (title, text) in [
 		(
 			"View around the site",
-			"Gray hills hide whatever is behind them.",
+			"The strip shows the full circle around the site; gray hills hide what is behind them.",
 		),
 		(
 			"Sun",
-			"The percentage is how much of the Sun is above the hills.",
+			"The Sun percentage is how much of the Sun shows above the hills.",
 		),
 		(
 			"Earth link",
-			"Earth is linked when it is a little above the hills.",
+			"Earth is linked when it is in direct view, a little above the hills.",
 		),
 		(
 			"Time",
-			"Times are UTC; the cards cover the whole chosen period.",
+			"Times are UTC, and the summary cards cover the whole chosen period.",
 		),
 		(
 			"Rays",
-			"Rays point toward the Sun and Earth.",
+			"Yellow rays point to the Sun and blue rays point to Earth.",
 		),
 		(
 			"Lighting",
-			"Extra light only brightens the picture, not the results.",
+			"Extra light only brightens the picture; it never changes the results.",
 		),
 		(
 			"Data",
-			"Sky positions and hills come from NASA.",
+			"Sun and Earth positions and the hills come from NASA data.",
 		),
 	]
 	{
@@ -368,7 +368,7 @@ impl MoonApp
 					});
 					// Submit this immediate-mode widget or explanation; C++ UI helper call.
 					let text =
-						"Published landing site where an observer stands 2 m above the ground.";
+						"Results assume an observer standing 2 m above the ground at this published site.";
 					if let Some((caption, url)) = source_link(&self.catalog[self.selected].source)
 					{
 						globe::help::question_with_link(ui, text, &caption, url);

@@ -198,7 +198,7 @@ impl MoonApp
 			globe::help::annotated(
 				ui,
 				&status,
-				"Hills around your point are being computed from NASA LOLA elevation maps.",
+				"Hills around your point are computed from NASA LOLA elevation maps.",
 			);
 		}
 		if self.time.is_none()
