@@ -150,7 +150,7 @@ mod scene_tests
 	// Reuse the production state and aggregate definitions; C++ qualified test access.
 	use super::*;
 
-	fn unloaded() -> Globe
+	pub(super) fn unloaded() -> Globe
 	{
 		// Supply uninitialized GPU state so no renderer or network is needed; C++ aggregate test fixture.
 		Globe {

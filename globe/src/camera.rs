@@ -127,8 +127,15 @@ impl Globe
 		// Distinguish displayed quality from a download still in progress; C++ optional snapshot.
 		let displayed = self.renderer.lock().as_ref().map(|r| r.tier);
 		ui.horizontal(|ui| {
-			ui.small(format!("Showing {} | selected {}k",displayed.map_or("loading".into(), assets::label),self.target_tier));
-			help::question(ui,"Showing is the detail on screen now; the selected detail replaces it once downloaded.");
+			ui.small(format!(
+				"Showing {} | selected {}k",
+				displayed.map_or("loading".into(), assets::label),
+				self.target_tier
+			));
+			help::question(
+				ui,
+				"Showing is the detail on screen now; the selected detail replaces it once downloaded.",
+			);
 		});
 	}
 }

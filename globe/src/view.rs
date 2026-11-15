@@ -255,11 +255,15 @@ impl Globe
 
 	fn orbit_input(&mut self, ui: &mut egui::Ui, response: &egui::Response)
 	{
-		// Wheel and touch pinch operate only inside the globe, not the panorama scroll area; C++ scoped event handling.
-		if response.hovered() || response.dragged()
+		let (wheel, pinch, touch) =
+			ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta(), i.multi_touch()));
+		// Touch hover can be absent; use the gesture center and respect covering menus.
+		let touching = touch.is_some_and(|touch| {
+			response.interact_rect.contains(touch.center_pos)
+				&& ui.ctx().layer_id_at(touch.center_pos) == Some(response.layer_id)
+		});
+		if response.hovered() || response.dragged() || touching
 		{
-			// Bind this intermediate value for the current operation; C++ local initialization.
-			let (wheel, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
 			// Check this state or input before acting; C++ conditional branch.
 			if wheel != 0.0 || pinch != 1.0
 			{
@@ -272,7 +276,7 @@ impl Globe
 			}
 		}
 		// Two fingers zoom; one finger rotates.
-		if response.dragged() && ui.input(|i| i.multi_touch().is_none())
+		if response.dragged() && touch.is_none()
 		{
 			// Direct orbit manipulation exits Earth lock while preserving the current orientation; C++ mode switch.
 			self.earth_view = false;
@@ -469,6 +473,54 @@ mod tests
 			output.textures_delta.clear();
 		}
 		assert!(ids.windows(2).all(|pair| pair[0] == pair[1]));
+	}
+
+	#[test]
+	fn pinch_uses_touch_center_without_pointer_hover()
+	{
+		let ctx = egui::Context::default();
+		let mut globe = crate::scene_tests::unloaded();
+		globe.zoom = 8.0;
+		let touches = |phase, distance: f32| {
+			[11, 22]
+				.into_iter()
+				.enumerate()
+				.map(|(index, id)| egui::Event::Touch {
+					device_id: egui::TouchDeviceId(0),
+					id: egui::TouchId(id),
+					phase,
+					pos: egui::pos2(206.0 + (index as f32 - 0.5) * distance, 250.0),
+					force: None,
+				})
+				.collect()
+		};
+		let mut frame = |events| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(412.0, 839.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|root| {
+					egui::CentralPanel::default().show(root, |ui| {
+						let (_, response) = Globe::paint_rectangle(ui);
+						globe.orbit_input(ui, &response);
+					});
+				},
+			);
+			output.textures_delta.clear();
+			globe.zoom
+		};
+		frame(vec![egui::Event::PointerMoved(egui::Pos2::ZERO)]);
+		frame(touches(egui::TouchPhase::Start, 40.0));
+		assert!((frame(touches(egui::TouchPhase::Move, 280.0)) - 56.0).abs() < 0.01);
+		assert!((frame(touches(egui::TouchPhase::Move, 40.0)) - 8.0).abs() < 0.01);
+		frame(touches(egui::TouchPhase::End, 40.0));
+		assert_eq!([globe.yaw, globe.tilt], [0.0, 0.0]);
+		assert!(globe.earth_view);
 	}
 
 	#[test]
