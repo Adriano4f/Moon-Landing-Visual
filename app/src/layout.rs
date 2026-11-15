@@ -159,6 +159,7 @@ impl MoonApp
 		{
 			self.selected = selected;
 		}
+		let right = right.shrink2(egui::vec2(12.0, 0.0));
 		let mut info_ui = ui.new_child(egui::UiBuilder::new().id_salt("information-panel")
 			.max_rect(right).layout(egui::Layout::top_down(egui::Align::Min)));
 		info_ui.set_clip_rect(right);
