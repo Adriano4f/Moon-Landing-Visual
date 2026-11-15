@@ -179,6 +179,7 @@ impl Renderer
 			let origin = std::array::from_fn(|i| point[i] + 0.6 / view.zoom * light.sun[i]);
 			let mut ribbon = view.ribbon(origin, point);
 			ribbon.truncate(42);
+			ribbon.extend(view.arrowhead(origin,point,0.0));
 			vertices.extend(ribbon);
 		}
 		// SAFETY: the callback owns the current GL context; the ray layout matches seven floats per vertex.
@@ -332,7 +333,8 @@ impl Renderer
 					let end: [f32; 3] =
 						std::array::from_fn(|i| origin[i] + 0.6 / view.zoom * body.direction[i]);
 					// Build screen-width triangle ribbons and a circular tip; C++ dynamic interleaved vertex array.
-					let vertices = view.ribbon(origin, end);
+					let mut vertices = view.ribbon(origin, end);
+					vertices.extend(view.arrowhead(end,origin,11.0));
 					// Stream the ribbon and endpoint triangles without persistent mapping; C++ glBufferData.
 					gl.buffer_data_u8_slice(
 						glow::ARRAY_BUFFER,

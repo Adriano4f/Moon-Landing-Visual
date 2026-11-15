@@ -290,7 +290,7 @@ Far side fill is separate and nonphysical. For object-space unit position $\math
 
 ### 8.5. Rays, markers, picking and camera
 
-Site rays start at the marker's unit radial vector and extend 0.6 lunar radii toward the site's own Sun and Earth directions. Yellow denotes Sun, blue Earth, and blocked directions use 35% brightness. Rays are unlit diagram overlays, not scale distances or terrain-occluded beams.
+Site rays start at the marker's unit radial vector and extend 0.6 lunar radii toward the site's own Sun and Earth directions. Yellow denotes Sun, blue Earth, and blocked directions use 35% brightness. Thin antialiased arrowheads point toward the surface, stopping just outside the site marker or at each whole-Moon Sun-field endpoint. Rays are unlit direction diagrams, not scale distances, terrain-occluded beams or a radio propagation model.
 
 Screen-facing triangle ribbons replace implementation-dependent GL line widths. A 2.5-logical-pixel support width and transverse smooth alpha coverage give approximately 1.44 logical pixels of integrated line coverage. Endpoint disks have 2-logical-pixel support radius and radial smooth coverage. Device scale converts logical dimensions to framebuffer pixels. Alpha blending and disabled depth writes preserve the globe depth buffer; the selected-site diagrams are drawn without depth occlusion to retain blocked-direction legibility.
 

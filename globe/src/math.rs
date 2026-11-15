@@ -204,6 +204,55 @@ impl View
 			}
 		}
 	}
+
+	pub fn arrowhead(self, origin: [f32; 3], end: [f32; 3], clearance: f32) -> Vec<f32>
+	{
+		let (Some(a), Some(b)) = (self.project(origin, false), self.project(end, false))
+		else
+		{
+			return vec![];
+		};
+		let delta = [
+			(b[0] - a[0]) * self.pixels[0],
+			(b[1] - a[1]) * self.pixels[1],
+		];
+		let length = delta[0].hypot(delta[1]);
+		if !length.is_finite() || length < 1e-5 || !clearance.is_finite() || clearance < 0.0
+		{
+			return vec![];
+		}
+		let direction = delta.map(|v| v / length);
+		let mut vertices = Vec::with_capacity(84);
+		for side in [-1.0, 1.0]
+		{
+			let wing = [
+				-direction[0] * 16.0 - direction[1] * side * 7.0,
+				-direction[1] * 16.0 + direction[0] * side * 7.0,
+			];
+			let norm = wing[0].hypot(wing[1]);
+			let normal = [-wing[1] / norm * 1.5, wing[0] / norm * 1.5];
+			for (offset, edge) in [
+				(wing, -1.0),
+				([0.0; 2], -1.0),
+				([0.0; 2], 1.0),
+				(wing, -1.0),
+				([0.0; 2], 1.0),
+				(wing, 1.0),
+			]
+			{
+				vertices.extend_from_slice(&[
+					end[0],
+					end[1],
+					end[2],
+					(offset[0] + normal[0] * edge - direction[0]*2.0*clearance) * self.scale / self.pixels[0],
+					(offset[1] + normal[1] * edge - direction[1]*2.0*clearance) * self.scale / self.pixels[1],
+					edge,
+					0.0,
+				]);
+			}
+		}
+		vertices
+	}
 }
 
 // Convert latitude/longitude in radians to a unit object-space direction; C++ returns array<float,3>.
@@ -461,6 +510,26 @@ mod tests
 		let vertices = view.ribbon(point, [point[0] + 0.6, point[1], point[2]]);
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert_eq!(vertices.len(), 462);
+		for (at_origin, tip, sign) in [
+			(true, point, 1.0),
+			(false, [point[0] + 0.6, point[1], point[2]], -1.0),
+		]
+		{
+			let start=if at_origin {[point[0]+0.6,point[1],point[2]]} else {point};
+			let head = view.arrowhead(start,tip,if at_origin {11.0} else {0.0});
+			assert_eq!(head.len(), 84);
+			assert!(head.iter().all(|v| v.is_finite()));
+			assert!(head.chunks_exact(7).all(|v| v[..3] == tip));
+			if at_origin {assert!(head.chunks_exact(7).all(|v|(v[3]*view.pixels[0]).hypot(v[4]*view.pixels[1])/(2.0*view.scale)>10.0));}
+			let a=view.project(point,false).unwrap();
+			let b=view.project([point[0]+0.6,point[1],point[2]],false).unwrap();
+			assert!(head.chunks_exact(7).map(|v|v[3]*(b[0]-a[0])+v[4]*(b[1]-a[1])).sum::<f32>()*sign>0.0);
+		}
+		assert!(view.arrowhead(point, point, 0.0).is_empty());
+		assert!(
+			view.arrowhead(point.map(|v| v * CAMERA_DISTANCE), point, 0.0)
+				.is_empty()
+		);
 		// Enforce the independent regression expectation; C++ test assertion.
 		assert!(vertices.iter().all(|v| v.is_finite()));
 		// Bind this intermediate value for the current operation; C++ local initialization.
