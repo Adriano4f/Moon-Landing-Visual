@@ -30,7 +30,8 @@ pub(crate) const BUDGET: usize = 80;
 const SHARP: f32 = 1.0;
 const MAX_FLIGHT: usize = 4;
 const MAX_QUEUE: usize = 6;
-const MAX_FAILED: usize = 64;
+// Keep every visible tile's retry deadline, even during a complete outage.
+const MAX_FAILED: usize = BUDGET;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct Tile
@@ -616,7 +617,12 @@ impl State
 				);
 				while self.failed_order.len() > MAX_FAILED
 				{
-					if let Some(old) = self.failed_order.pop_front()
+					let oldest = self
+						.failed_order
+						.iter()
+						.position(|old| !self.wanted.contains(old))
+						.unwrap_or(0);
+					if let Some(old) = self.failed_order.remove(oldest)
 					{
 						self.failed.remove(&old);
 					}
@@ -1003,6 +1009,43 @@ mod tests
 		state.wanted = select(view(deg(-70.0), deg(90.0), 64.0));
 		assert!(state.plan(1000.0).is_empty());
 		assert_eq!(state.error.as_deref(), Some("GPU allocation failed"));
+	}
+
+	#[cfg(not(target_arch = "wasm32"))]
+	#[test]
+	fn outage_preserves_every_visible_retry_deadline()
+	{
+		let root = Tile {
+			z: 0,
+			row: 0,
+			col: 0,
+			pole: 0,
+		};
+		let mut wanted = vec![root];
+		let mut next = 0;
+		while wanted.len() < BUDGET
+		{
+			let remaining = BUDGET - wanted.len();
+			wanted.extend(wanted[next].children().into_iter().take(remaining));
+			next += 1;
+		}
+		let mut state = State::default();
+		state.wanted = wanted.clone();
+		for tile in wanted
+		{
+			state.finish(tile, Err("Service unavailable".into()));
+		}
+		assert_eq!(state.failed.len(), BUDGET);
+		assert!(state.plan(0.0).is_empty());
+		assert!(state.plan(3.9).is_empty());
+		// Retain a visible old failure ahead of newer off-screen failures.
+		let other = Tile { col: 1, ..root };
+		state.wanted = vec![root, other];
+		state.finish(other, Err("Service unavailable".into()));
+		assert!(state.failed.contains_key(&root));
+		assert!(state.failed.len() <= MAX_FAILED);
+		assert!(state.plan(0.0).is_empty());
+		assert!(!state.plan(4.0).is_empty());
 	}
 
 	#[cfg(not(target_arch = "wasm32"))]
