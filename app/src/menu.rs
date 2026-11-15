@@ -180,7 +180,7 @@ impl MoonApp
 			ui,
 			"More options",
 			false,
-			"Optional camera, lighting, ray and Earth margin settings.",
+			"Optional camera, lighting, ray and Earth link settings.",
 			|ui| self.advanced_sections(ui),
 		);
 		section(
@@ -213,14 +213,14 @@ impl MoonApp
 			ui,
 			"Rays",
 			false,
-			"Yellow and blue lines point from a site toward the Sun and Earth.",
+			"Yellow rays point from a site to the Sun and blue rays point to Earth.",
 			|ui| self.ray_controls(ui),
 		);
 		section(
 			ui,
-			"Radio margin",
+			"Earth link",
 			false,
-			"Extra angle above the hills that Earth must clear to count as a direct link.",
+			"Earth must be at least this many degrees above the hills to count as linked.",
 			|ui| {
 				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]
@@ -233,7 +233,7 @@ impl MoonApp
 			ui,
 			"Technical",
 			false,
-			"Show the same sky as a graph with exact angles.",
+			"Show the same sky as a graph of direction from north against height.",
 			|ui| {
 				// Apply the UI event only when requested; C++ conditional branch.
 				if let Some(p) = &mut self.panoramas[self.selected]
@@ -253,14 +253,14 @@ impl MoonApp
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, false, "Selected site only");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Point lines from this site toward the Sun and Earth, dim when blocked.");
+			question(ui, "Show rays from the selected site only; a dim ray is blocked by hills.");
 		});
 		// Submit this immediate-mode widget or explanation; C++ UI helper call.
 		ui.horizontal_wrapped(|ui| {
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
 			ui.radio_value(&mut self.all_rays, true, "All sites");
 			// Submit this immediate-mode widget or explanation; C++ UI helper call.
-			question(ui, "Point lines from every site toward the Sun and Earth at once.");
+			question(ui, "Show rays from every site at once.");
 		});
 		// Apply the UI event only when requested; C++ conditional branch.
 		if self.all_rays
@@ -275,7 +275,7 @@ impl MoonApp
 			globe::help::annotated(
 				ui,
 				format!("Site tracks ready: {ready}/{}", self.catalog.len()),
-				"Number of sites whose data has loaded and can draw rays.",
+				"Number of sites whose data has loaded and can show rays.",
 			);
 			// Visit each explanatory item in order; C++ range-for loop.
 			for (id, p) in self.panoramas.iter().enumerate()
@@ -301,16 +301,16 @@ fn explanations(ui: &mut egui::Ui)
 	// Each topic can be read independently on a small screen; C++ range-for over explanatory records.
 	for (title, text) in [
 		(
-			"View around the site",
-			"The strip shows the full circle around the site; gray hills hide what is behind them.",
+			"Standing on the Moon",
+			"The full circle around your site; gray hills hide the Sun or Earth when they are behind them.",
 		),
 		(
 			"Sun",
-			"The Sun percentage is how much of the Sun shows above the hills.",
+			"The Sun percentage is how much of the Sun shows above the hills right now.",
 		),
 		(
 			"Earth link",
-			"Earth is linked when it is in direct view, a little above the hills.",
+			"Earth is linked when you can see it directly, at least the safety margin above the hills.",
 		),
 		(
 			"Time",
@@ -318,7 +318,7 @@ fn explanations(ui: &mut egui::Ui)
 		),
 		(
 			"Rays",
-			"Yellow rays point to the Sun and blue rays point to Earth.",
+			"Yellow rays point to the Sun and blue rays to Earth; a dim ray is blocked by hills.",
 		),
 		(
 			"Lighting",

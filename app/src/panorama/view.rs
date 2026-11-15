@@ -10,7 +10,7 @@ impl Panorama
 		globe::help::annotated(
 			ui,
 			egui::RichText::new("Standing on the Moon").heading(),
-			"The full view around your site, with gray hills hiding the yellow Sun or blue Earth.",
+			"The full circle around your site; gray hills hide the Sun (yellow) or Earth (blue) when they are behind them.",
 		);
 		// Never draw invented tracks while waiting or after an error; C++ optional extraction.
 		let Some(data) = &self.data
@@ -143,7 +143,7 @@ fn solar_status(ui: &mut egui::Ui, data: &SiteData, direction:globe::BodyDirecti
 			.size(18.0)
 			.strong()
 			.color(sun_color),
-		"How much of the Sun's disk shows above the hills right now.",
+		"Percentage of the Sun showing above the hills right now.",
 	);
 }
 
@@ -175,7 +175,7 @@ fn earth_status(ui: &mut egui::Ui, earth_visible:bool)
 				Color32::LIGHT_RED
 			},
 		),
-		"Whether Earth has a direct line of sight with a small safety margin above the hills, without relay satellites.",
+		"Earth is linked when you can see it directly, at least the safety margin above the hills.",
 	);
 }
 
@@ -235,7 +235,7 @@ fn summary_card(ui: &mut egui::Ui, title: &str, value: &str, i: usize, card_widt
 								// Render the number prominently; C++ large-text label.
 								ui.label(egui::RichText::new(value).size(21.0).strong());
 								// Explain the number in ordinary language; C++ small label.
-								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the chosen period when any part of the Sun shows above the hills.", 1 => "Share of the chosen period when Earth has a direct link with the safety margin.", 2 => "Share of the chosen period when sunlight and a direct Earth link happen together.", _ => "Longest stretch of the chosen period with no Sun visible at all." }); });
+								ui.horizontal_wrapped(|ui| { ui.small(title); globe::help::question(ui, match i { 0 => "Share of the chosen period when any part of the Sun shows above the hills.", 1 => "Share of the chosen period when Earth is linked.", 2 => "Share of the chosen period when the Sun is visible and Earth is linked at the same time.", _ => "Longest stretch of the chosen period with no part of the Sun visible." }); });
 							});
 						});
 }

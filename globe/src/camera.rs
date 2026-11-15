@@ -68,7 +68,7 @@ impl Globe
 	{
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.surface_rays, "Sun rays");
-			help::question(ui, "Draw rays showing where sunlight hits the lit half of the Moon.");
+			help::question(ui, "Show rays of sunlight falling on the lit half of the Moon.");
 		});
 	}
 }

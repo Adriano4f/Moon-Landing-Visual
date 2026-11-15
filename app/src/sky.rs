@@ -80,7 +80,7 @@ pub(crate) fn show(ui: &mut egui::Ui, data: &SiteData, time:i64, range: Range<us
 	{
 		ui.colored_label(
 			Color32::LIGHT_RED,
-			"Flat horizon (no DEM yet): hills are not modeled.",
+			"Flat horizon: hills are not loaded yet.",
 		);
 	}
 }

@@ -253,7 +253,7 @@ impl Panorama
 
 		globe::help::question(
 			ui,
-			"Extra angle above the hills that Earth must clear to count as a direct link.",
+			"Earth must be at least this many degrees above the hills to count as linked.",
 		);
 	}
 	// Preserve detailed plots as an opt-in setting; C++ member function.
