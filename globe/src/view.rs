@@ -61,7 +61,9 @@ impl Globe
 	fn paint_rectangle(ui: &mut egui::Ui) -> (egui::Rect, egui::Response)
 	{
 		let size = egui::vec2(ui.available_width(), ui.available_height().max(200.0));
-		ui.allocate_exact_size(size, egui::Sense::click_and_drag())
+		let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+		let response = ui.interact(rect, ui.scope_id().with("globe-orbit"), egui::Sense::click_and_drag());
+		(rect, response)
 	}
 
 	fn loading_status(&mut self, ui: &mut egui::Ui)
@@ -400,6 +402,24 @@ impl Globe
 mod tests
 {
 	use super::*;
+
+	#[test]
+	fn orbit_interaction_id_survives_phase_controls_changing()
+	{
+		let ctx = egui::Context::default();
+		let mut ids = Vec::new();
+		for controls in [0, 3, 0]
+		{
+			let mut output = ctx.run_ui(egui::RawInput::default(), |root| {
+				egui::CentralPanel::default().show(root, |ui| {
+					for _ in 0..controls { ui.label("Phase control"); }
+					ids.push(Globe::paint_rectangle(ui).1.id);
+				});
+			});
+			output.textures_delta.clear();
+		}
+		assert!(ids.windows(2).all(|pair| pair[0] == pair[1]));
+	}
 
 	#[test]
 	fn short_phone_layout_grows_past_phase_controls()
