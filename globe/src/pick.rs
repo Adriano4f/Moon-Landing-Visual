@@ -84,38 +84,34 @@ impl Globe
 				painter.circle_stroke(position, 4.0, egui::Stroke::new(1.0, egui::Color32::BLACK));
 			}
 		}
-		let origin = rect.left_bottom() + egui::vec2(8.0, -30.0);
+		let font = egui::FontId::proportional(11.0);
+		let color = egui::Color32::LIGHT_GRAY;
+		let left = painter.layout_no_wrap("Sun 0%".into(), font.clone(), color);
+		let right = painter.layout_no_wrap("100%".into(), font, color);
+		let height = ui.spacing().interact_size.y.max(36.0)
+			.max(left.size().y).max(right.size().y);
+		let origin = rect.left_bottom() + egui::vec2(8.0, -height - 5.0);
+		let bar_x = left.size().x + 4.0;
+		let right_x = bar_x + 84.0;
+		let help_x = right_x + right.size().x + 4.0;
 		painter.rect_filled(
-			egui::Rect::from_min_size(origin - egui::vec2(3.0, 3.0), egui::vec2(170.0, 24.0)),
+			egui::Rect::from_min_size(origin, egui::vec2(help_x + height, height)).expand(3.0),
 			3.0,
 			egui::Color32::from_black_alpha(200),
 		);
 		for i in 0..40
 		{
-			let x = origin.x + 34.0 + i as f32 * 2.0;
+			let x = origin.x + bar_x + i as f32 * 2.0;
 			painter.rect_filled(
-				egui::Rect::from_min_size(egui::pos2(x, origin.y + 4.0), egui::vec2(2.0, 10.0)),
+				egui::Rect::from_min_size(egui::pos2(x, origin.y + height * 0.5 - 5.0), egui::vec2(2.0, 10.0)),
 				0.0,
 				sun_color(i as f32 * 100.0 / 39.0),
 			);
 		}
-		let font = egui::FontId::proportional(11.0);
-		painter.text(
-			origin + egui::vec2(0.0, 9.0),
-			egui::Align2::LEFT_CENTER,
-			"Sun 0%",
-			font.clone(),
-			egui::Color32::LIGHT_GRAY,
-		);
-		painter.text(
-			origin + egui::vec2(118.0, 9.0),
-			egui::Align2::LEFT_CENTER,
-			"100%",
-			font,
-			egui::Color32::LIGHT_GRAY,
-		);
+		painter.galley(origin + egui::vec2(0.0, (height - left.size().y) * 0.5), left, color);
+		painter.galley(origin + egui::vec2(right_x, (height - right.size().y) * 0.5), right, color);
 		let help =
-			egui::Rect::from_min_size(origin + egui::vec2(146.0, -1.0), egui::vec2(20.0, 20.0));
+			egui::Rect::from_min_size(origin + egui::vec2(help_x, 0.0), egui::vec2(height, height));
 		ui.scope_builder(egui::UiBuilder::new().max_rect(help), |ui| {
 			help::question(
 				ui,
@@ -123,6 +119,56 @@ impl Globe
 			);
 		});
 	}
+
+	pub(crate) fn paint_grid(&self, ui: &egui::Ui, rect: egui::Rect, view: math::View)
+	{
+		let painter = ui.painter_at(rect);
+		for [a, b] in grid_lines(rect, view)
+		{
+			painter.line_segment([a, b], egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10)));
+		}
+	}
+}
+
+fn grid_lines(rect: egui::Rect, view: math::View) -> Vec<[egui::Pos2; 2]>
+{
+	let mut lines = Vec::new();
+	if view.zoom < 3.0
+	{
+		return lines;
+	}
+	for band in 0..90
+	{
+		let lat = -89.0 + 2.0 * band as f64;
+		let cells = (180.0 * lat.to_radians().cos()).round().max(1.0) as usize;
+		let width = 360.0 / cells as f64;
+		for cell in 0..cells
+		{
+			let lon = cell as f64 * width;
+			if !to_screen(rect, view, lat, lon + width * 0.5)
+				.is_some_and(|p| rect.expand(60.0).contains(p))
+			{
+				continue;
+			}
+			for (start, end) in [([lat - 1.0, lon], [lat - 1.0, lon + width]),
+				([lat - 1.0, lon], [lat + 1.0, lon])]
+			{
+				for step in 0..4
+				{
+					let project = |i: usize| {
+						let t = i as f64 / 4.0;
+						to_screen(rect, view, start[0] + (end[0] - start[0]) * t,
+							start[1] + (end[1] - start[1]) * t)
+					};
+					if let (Some(a), Some(b)) = (project(step), project(step + 1))
+					{
+						lines.push([a, b]);
+					}
+				}
+			}
+		}
+	}
+	lines
 }
 
 fn to_screen(rect: egui::Rect, view: math::View, lat: f64, lon: f64) -> Option<egui::Pos2>
@@ -147,6 +193,22 @@ fn sun_color(pct: f32) -> egui::Color32
 mod tests
 {
 	use super::math::View;
+
+	#[test]
+	fn decorative_grid_is_zoom_only_and_finite()
+	{
+		let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+		let mut view = View {
+			pan: [0.0; 2], rotation: super::math::IDENTITY,
+			yaw: 0.0, tilt: 0.0, zoom: 1.0,
+			aspect: rect.aspect_ratio(), pixels: [800.0, 600.0], scale: 1.0,
+		};
+		assert!(super::grid_lines(rect, view).is_empty());
+		view.zoom = 3.0;
+		let lines = super::grid_lines(rect, view);
+		assert!(!lines.is_empty());
+		assert!(lines.iter().flatten().all(|p| p.x.is_finite() && p.y.is_finite()));
+	}
 
 	#[test]
 	fn dot_picking_is_exact_nearest_and_screen_sized()

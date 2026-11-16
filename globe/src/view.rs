@@ -43,6 +43,7 @@ impl Globe
 			deep::advance(&self.deep, view, ui.ctx());
 		}
 		self.queue_gl(ui, rect, view, lighting);
+		self.paint_grid(ui, rect, view);
 		self.paint_points(ui, rect, view);
 		let clicked = self.paint_markers(ui, &response, rect, view);
 		self.surface_pick(&response, rect, view, clicked.is_some());
@@ -68,22 +69,22 @@ impl Globe
 			{
 				""
 			};
-			ui.painter_at(rect).rect_filled(
-				egui::Rect::from_min_size(
-					rect.left_bottom() + egui::vec2(5.0, -38.0),
-					egui::vec2((rect.width() - 10.0).min(340.0), 35.0),
-				),
-				3.0,
-				egui::Color32::from_black_alpha(225),
-			);
-			ui.painter_at(rect).text(
-				rect.left_bottom() + egui::vec2(8.0, -8.0),
+			let bottom = if self.points.is_empty()
+			{
+				-8.0
+			}
+			else
+			{
+				-ui.spacing().interact_size.y.max(36.0) - 12.0
+			};
+			text_box(
+				&ui.painter_at(rect),
+				rect.left_bottom() + egui::vec2(8.0, bottom),
 				egui::Align2::LEFT_BOTTOM,
 				format!(
 					"Satellite mosaic: {visible}/{} tiles{status}\nShadows are recorded; lighting follows date",
 					deep.wanted.len()
 				),
-				egui::FontId::proportional(11.0),
 				egui::Color32::WHITE,
 			);
 		}
@@ -368,14 +369,6 @@ impl Globe
 	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State, satellite: bool)
 	{
 		let painter = ui.painter_at(rect);
-		painter.rect_filled(
-			egui::Rect::from_min_size(
-				rect.left_top() + egui::vec2(5.0, 5.0),
-				egui::vec2(258.0, 36.0),
-			),
-			3.0,
-			egui::Color32::from_black_alpha(225),
-		);
 		let caption = if satellite
 		{
 			"Satellite mosaic: shadows are recorded"
@@ -392,20 +385,71 @@ impl Globe
 		{
 			"Illustration; satellite detail loads on zoom"
 		};
-		painter.text(
+		text_box(
+			&painter,
 			rect.left_top() + egui::vec2(8.0, 8.0),
 			egui::Align2::LEFT_TOP,
 			format!("Left-drag to turn; right/middle-drag to move\nScroll/pinch to zoom; double-click to recenter\n{caption}"),
-			egui::FontId::proportional(11.0),
 			egui::Color32::LIGHT_GRAY,
 		);
 	}
+}
+
+fn text_box(
+	painter: &egui::Painter,
+	position: egui::Pos2,
+	align: egui::Align2,
+	text: String,
+	color: egui::Color32,
+) -> egui::Rect
+{
+	let galley = painter.layout_no_wrap(text, egui::FontId::proportional(11.0), color);
+	let bounds = align.anchor_size(position, galley.size());
+	let background = bounds.expand(3.0);
+	painter.rect_filled(background, 3.0, egui::Color32::from_black_alpha(225));
+	painter.galley(bounds.min, galley, color);
+	background
 }
 
 #[cfg(test)]
 mod tests
 {
 	use super::*;
+
+	#[test]
+	fn overlay_backgrounds_contain_multiline_text()
+	{
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			for align in [egui::Align2::LEFT_TOP, egui::Align2::LEFT_BOTTOM]
+			{
+				for text in ["", "Illustration; satellite detail loads on zoom",
+					"Left-drag to turn; right/middle-drag to move\nScroll/pinch to zoom; double-click to recenter\nSatellite mosaic: shadows are recorded",
+					"Satellite mosaic: 73/79 tiles; some detail unavailable\nShadows are recorded; lighting follows date"]
+				{
+					text_box(ui.painter(), egui::pos2(10.0, 100.0), align,
+						text.into(), egui::Color32::WHITE);
+				}
+			}
+		});
+		output.textures_delta.clear();
+		let mut background = egui::Rect::NOTHING;
+		let mut count = 0;
+		for shape in output.shapes
+		{
+			match shape.shape
+			{
+				egui::Shape::Rect(rect) => background = rect.rect,
+				egui::Shape::Text(text) =>
+				{
+					assert!(background.contains_rect(egui::Rect::from_min_size(text.pos, text.galley.size())));
+					count += 1;
+				}
+				_ => {}
+			}
+		}
+		assert!(count >= 6);
+	}
 
 	#[test]
 	fn primary_drag_orbits_and_secondary_and_middle_drag_pan_without_picking()

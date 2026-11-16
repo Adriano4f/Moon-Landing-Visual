@@ -18,14 +18,16 @@ const MAST_M: f64 = 2.0;
 const BINS_PER_FRAME: usize = 4;
 /// Horizon work per frame; keeps the UI smooth while using most of the frame.
 const FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
-/// Give up on NASA downloads after this many seconds.
-const TIMEOUT_S: f64 = 30.0;
+/// Give up after this many seconds without another terrain response.
+const TIMEOUT_S: f64 = 90.0;
 
 enum Stage
 {
 	Fetching
 	{
 		terrain: Vec<Slot>,
+		received: usize,
+		last_response: f64,
 	},
 	Computing
 	{
@@ -44,6 +46,7 @@ pub(crate) struct Custom
 	/// Set when the job ended in an error, so a new click retries.
 	pub failed: bool,
 	started: f64,
+	elapsed: f64,
 	stage: Stage,
 }
 
@@ -58,7 +61,8 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 	let done = Arc::clone(&result);
 	let ctx = ctx.clone();
 	let mut request = ehttp::Request::get(&url);
-	request.timeout = Some(std::time::Duration::from_secs_f64(TIMEOUT_S));
+	// The job owns the inactivity deadline across all terrain requests.
+	request.timeout = None;
 	ehttp::fetch(request, move |response| {
 		*done.lock() = Some(response.and_then(|r| {
 			if r.ok
@@ -78,8 +82,7 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 /// Display label with longitude in -180..180.
 fn name([lat, lon]: [f64; 2]) -> String
 {
-	let lon = if lon > 180.0 { lon - 360.0 } else { lon };
-	format!("Custom point ({lat:.2}, {lon:.2})")
+	format!("Custom point ({})", crate::coordinates(lat, lon))
 }
 
 impl Custom
@@ -98,6 +101,7 @@ impl Custom
 			timeline,
 			failed: false,
 			started: 0.0,
+			elapsed: 0.0,
 			stage: Stage::Finished,
 		}
 	}
@@ -116,7 +120,8 @@ impl Custom
 			timeline,
 			failed: false,
 			started: ctx.input(|i| i.time),
-			stage: Stage::Fetching { terrain },
+			elapsed: 0.0,
+			stage: Stage::Fetching { terrain, received: 0, last_response: 0.0 },
 		}
 	}
 
@@ -127,9 +132,13 @@ impl Custom
 			Stage::Fetching { terrain, .. } =>
 			{
 				let ready = terrain.iter().filter(|s| s.lock().is_some()).count();
+				if ready == terrain.len()
+				{
+					return Some("Waiting for shared sky data...".into());
+				}
 				Some(format!(
-					"Downloading NASA terrain around this point ({ready}/{})...",
-					terrain.len()
+					"Downloading NASA terrain around this point ({ready}/{}), {:.0} s...",
+					terrain.len(), self.elapsed
 				))
 			}
 			Stage::Computing { job, .. } => Some(format!(
@@ -157,24 +166,37 @@ impl Custom
 
 	fn advance(&mut self, elapsed: f64) -> Result<(), String>
 	{
+		self.elapsed = elapsed;
 		match &mut self.stage
 		{
-			Stage::Fetching { terrain } =>
+			Stage::Fetching { terrain, received, last_response } =>
 			{
-				let ready = |s: &Slot| s.lock().is_some();
+				let ready = terrain.iter().filter(|s| s.lock().is_some()).count();
+				if ready > *received
+				{
+					*received = ready;
+					*last_response = elapsed;
+				}
+				for response in terrain.iter()
+				{
+					if let Some(Err(error)) = &*response.lock()
+					{
+						return Err(error.clone());
+					}
+				}
+				if ready < terrain.len()
+				{
+					if elapsed - *last_response >= TIMEOUT_S
+					{
+						return Err("No NASA terrain response for 90 s. Click the point again to retry.".into());
+					}
+					return Ok(());
+				}
 				let Some(ephemeris) = self.timeline.lock().sky.clone()
 				else
 				{
 					return Ok(());
 				};
-				if !terrain.iter().all(ready)
-				{
-					if elapsed > TIMEOUT_S
-					{
-						return Err("NASA terrain server did not answer in 30 s. Click the point again to retry.".into());
-					}
-					return Ok(());
-				}
 				let take = |s: &Slot| s.lock().take().unwrap();
 				let tiffs = terrain.iter().map(take).collect::<Result<Vec<_>, _>>()?;
 				let ephemeris = ephemeris?;
@@ -267,6 +289,47 @@ mod tests
 {
 	use super::*;
 
+	fn fetching(terrain: Vec<Slot>) -> Custom
+	{
+		let timeline = Arc::new(Mutex::new(timeline::Timeline::default()));
+		let mut custom = Custom::restored([0.0, 0.0], timeline);
+		custom.stage = Stage::Fetching { terrain, received: 0, last_response: 0.0 };
+		custom
+	}
+
+	#[test]
+	fn terrain_timeout_resets_on_each_response()
+	{
+		let first = slot();
+		let mut custom = fetching(vec![Arc::clone(&first), slot()]);
+		assert!(custom.advance(80.0).is_ok());
+		*first.lock() = Some(Ok(vec![]));
+		assert!(custom.advance(80.0).is_ok());
+		assert_eq!(custom.status().unwrap(), "Downloading NASA terrain around this point (1/2), 80 s...");
+		assert!(custom.advance(169.0).is_ok());
+		assert_eq!(custom.advance(170.0).unwrap_err(),
+			"No NASA terrain response for 90 s. Click the point again to retry.");
+	}
+
+	#[test]
+	fn terrain_deadline_is_independent_of_shared_sky()
+	{
+		let mut pending = fetching(vec![slot()]);
+		assert!(pending.advance(89.0).is_ok());
+		assert!(pending.advance(90.0).is_err());
+		for terrain in [vec![], vec![Arc::new(Mutex::new(Some(Ok(vec![]))))]]
+		{
+			let mut custom = fetching(terrain);
+			assert!(custom.advance(1.0).is_ok());
+			assert!(custom.advance(500.0).is_ok());
+			assert_eq!(custom.status().as_deref(), Some("Waiting for shared sky data..."));
+			custom.timeline.lock().sky = Some(Err("sky unavailable".into()));
+			assert_eq!(custom.advance(501.0).unwrap_err(), "sky unavailable");
+		}
+		let mut failed = fetching(vec![Arc::new(Mutex::new(Some(Err("terrain unavailable".into()))))]);
+		assert_eq!(failed.advance(1.0).unwrap_err(), "terrain unavailable");
+	}
+
 	#[test]
 	fn exact_points_and_failed_retries()
 	{
@@ -274,10 +337,10 @@ mod tests
 		let timeline = Arc::new(Mutex::new(timeline::Timeline::default()));
 		let mut custom = Custom::restored(point, timeline);
 		assert_eq!(custom.point, point);
-		assert_eq!(custom.name, "Custom point (15.12, -3.10)");
+		assert_eq!(custom.name, "Custom point (15.12°, -3.10°)");
 		assert!(custom.can_reuse(point));
 		assert!(!custom.can_reuse([point[0] + 0.000001, point[1]]));
-		assert_eq!(name([-0.12345, 10.98765]), "Custom point (-0.12, 10.99)");
+		assert_eq!(name([-0.12345, 10.98765]), "Custom point (-0.12°, 10.99°)");
 		custom.failed = true;
 		assert!(!custom.can_reuse(point));
 	}
@@ -293,7 +356,8 @@ mod tests
 			timeline: Arc::clone(&timeline),
 			failed: false,
 			started: 0.0,
-			stage: Stage::Fetching { terrain: vec![] },
+			elapsed: 0.0,
+			stage: Stage::Fetching { terrain: vec![], received: 0, last_response: 0.0 },
 		};
 		let ctx = egui::Context::default();
 		custom.step(&ctx);

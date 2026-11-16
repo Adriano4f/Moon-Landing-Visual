@@ -21,6 +21,13 @@ struct Entry
 	lon_deg: f64,
 	source: String,
 }
+
+fn coordinates(lat: f64, lon: f64) -> String
+{
+	let lon = (lon + 180.0).rem_euclid(360.0) - 180.0;
+	format!("{lat:.2}°, {lon:.2}°")
+}
+
 fn filename(name: &str) -> String
 {
 	format!(
@@ -224,6 +231,17 @@ impl MoonApp
 mod tests
 {
 	use super::*;
+
+	#[test]
+	fn signed_degree_coordinates_wrap_longitude()
+	{
+		assert_eq!(coordinates(-79.24, -88.01), "-79.24°, -88.01°");
+		assert_eq!(coordinates(-79.24, 271.99), "-79.24°, -88.01°");
+		assert_eq!(coordinates(15.12345, 356.89655), "15.12°, -3.10°");
+		assert_eq!(coordinates(0.0, 360.0), "0.00°, 0.00°");
+		assert_eq!(coordinates(90.0, 540.0), "90.00°, -180.00°");
+	}
+
 	/// Validate the real prepared ephemerides through the same public ENU conversion used by lighting.
 	#[test]
 	fn moon_fixed_ephemeris_libration_ranges()

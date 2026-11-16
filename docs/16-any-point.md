@@ -1,8 +1,11 @@
 # Continuous custom points
 
 Click anywhere on the Moon away from a prepared-site marker to compute that exact point.
-There is no geographic snapping, tile outline or zoomed grid.
-The label is `Custom point (lat, lon)`, with two decimals and signed longitude.
+There is no geographic snapping or selected tile outline.
+A faint grid appears only when zoomed in and is purely decorative.
+The label uses signed decimal degrees, for example `Custom point (-79.24°, -88.01°)`.
+Coordinates have two decimals; negative latitude is south and negative longitude is west.
+Displayed longitude is normalized to -180° through 180°.
 Only the display label is rounded. Terrain and sky calculations retain the picked coordinates.
 
 `globe/src/pick.rs` unprojects the click onto the lunar surface.
@@ -18,7 +21,9 @@ Red through yellow to green represents increasing Sun visibility in the selected
 The bottom-left legend explains the color scale. The current point retains its normal marker.
 Click within about 10 screen pixels of a visible dot to reopen its exact cached point instantly.
 Otherwise a click starts a new computation at the clicked position.
-Failed current points can be clicked again to retry; terrain downloads still time out after 30 s.
+Failed current points can be clicked again to retry.
+Terrain downloads time out after 90 s without another response, not while waiting for shared sky data.
+The download status shows the response count and total elapsed seconds.
 The cache lasts for the current app session, not across reloads.
 
 Terrain still depends on NASA Moon Trek availability, coverage and browser CORS access.
