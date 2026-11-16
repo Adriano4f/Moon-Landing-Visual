@@ -109,7 +109,7 @@ impl MoonApp
 		ui.allocate_ui(size, |ui| {
 			if let Some(id) = self.globe.show(ui)
 			{
-				self.selected = id;
+				self.select_marker(ui.ctx(), id);
 			}
 		});
 		self.show_panorama(ui);
@@ -146,7 +146,7 @@ impl MoonApp
 		globe_ui.set_clip_rect(left);
 		if let Some(selected) = self.globe.show(&mut globe_ui)
 		{
-			self.selected = selected;
+			self.select_marker(ui.ctx(), selected);
 		}
 		let right = right.shrink2(egui::vec2(12.0, 0.0));
 		let mut info_ui = ui.new_child(egui::UiBuilder::new().id_salt("information-panel")

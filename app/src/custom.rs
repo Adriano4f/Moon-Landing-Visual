@@ -3,7 +3,7 @@
 use crate::data::{Altitude, Pending, SiteData};
 use crate::timeline;
 use eframe::egui::{self, mutex::Mutex};
-use lunar_core::anypoint::{self, HorizonJob, Tile};
+use lunar_core::anypoint::{self, HorizonJob};
 use lunar_core::ephemeris::{Ephemeris, topocentric};
 use lunar_core::{Horizon, Site, Track};
 use std::sync::Arc;
@@ -37,7 +37,7 @@ enum Stage
 
 pub(crate) struct Custom
 {
-	pub tile: Tile,
+	pub point: [f64; 2],
 	pub name: String,
 	pub pending: Pending,
 	timeline: timeline::Shared,
@@ -76,26 +76,24 @@ fn fetch(ctx: &egui::Context, url: String) -> Slot
 }
 
 /// Display label with longitude in -180..180.
-fn name(tile: &Tile) -> String
+fn name([lat, lon]: [f64; 2]) -> String
 {
-	let lon = if tile.lon_deg > 180.0
-	{
-		tile.lon_deg - 360.0
-	}
-	else
-	{
-		tile.lon_deg
-	};
-	format!("Custom point ({:.2}, {:.2})", tile.lat_deg, lon)
+	let lon = if lon > 180.0 { lon - 360.0 } else { lon };
+	format!("Custom point ({lat:.2}, {lon:.2})")
 }
 
 impl Custom
 {
-	pub fn restored(tile: Tile, timeline: timeline::Shared) -> Self
+	pub fn can_reuse(&self, point: [f64; 2]) -> bool
+	{
+		self.point == point && !self.failed
+	}
+
+	pub fn restored(point: [f64; 2], timeline: timeline::Shared) -> Self
 	{
 		Self {
-			name: name(&tile),
-			tile,
+			name: name(point),
+			point,
 			pending: Arc::new(Mutex::new(None)),
 			timeline,
 			failed: false,
@@ -106,15 +104,14 @@ impl Custom
 
 	pub fn start(ctx: &egui::Context, lat: f64, lon: f64, timeline: timeline::Shared) -> Self
 	{
-		let tile = anypoint::tile_of(lat, lon);
-		let terrain = anypoint::terrain_requests(tile.lat_deg, tile.lon_deg)
+		let terrain = anypoint::terrain_requests(lat, lon)
 			.into_iter()
 			.map(|url| fetch(ctx, url))
 			.collect();
 		timeline::request(&timeline, ctx);
 		Self {
-			name: name(&tile),
-			tile,
+			name: name([lat, lon]),
+			point: [lat, lon],
 			pending: Arc::new(Mutex::new(None)),
 			timeline,
 			failed: false,
@@ -131,7 +128,7 @@ impl Custom
 			{
 				let ready = terrain.iter().filter(|s| s.lock().is_some()).count();
 				Some(format!(
-					"Downloading NASA terrain around this tile ({ready}/{})...",
+					"Downloading NASA terrain around this point ({ready}/{})...",
 					terrain.len()
 				))
 			}
@@ -181,13 +178,8 @@ impl Custom
 				let take = |s: &Slot| s.lock().take().unwrap();
 				let tiffs = terrain.iter().map(take).collect::<Result<Vec<_>, _>>()?;
 				let ephemeris = ephemeris?;
-				let job = HorizonJob::new(
-					self.tile.lat_deg,
-					self.tile.lon_deg,
-					anypoint::N_AZ,
-					MAST_M,
-					&tiffs,
-				)?;
+				let job =
+					HorizonJob::new(self.point[0], self.point[1], anypoint::N_AZ, MAST_M, &tiffs)?;
 				self.stage = Stage::Computing {
 					job: Box::new(job),
 					ephemeris,
@@ -198,7 +190,7 @@ impl Custom
 				if let Some(horizon) = step_for(job, FRAME_BUDGET)?
 				{
 					let height = job.surface_m() + MAST_M;
-					let (lat, lon) = (self.tile.lat_deg, self.tile.lon_deg);
+					let [lat, lon] = self.point;
 					let mut sun = Track::default();
 					let mut earth = Track::default();
 					for (i, pair) in ephemeris.samples.iter().enumerate()
@@ -266,7 +258,7 @@ fn step_for(job: &mut HorizonJob, budget: std::time::Duration) -> Result<Option<
 
 pub(crate) struct Cached
 {
-	pub tile: Tile,
+	pub point: [f64; 2],
 	pub view: crate::panorama::Panorama,
 }
 
@@ -276,11 +268,26 @@ mod tests
 	use super::*;
 
 	#[test]
+	fn exact_points_and_failed_retries()
+	{
+		let point = [15.123456789, 356.896551724];
+		let timeline = Arc::new(Mutex::new(timeline::Timeline::default()));
+		let mut custom = Custom::restored(point, timeline);
+		assert_eq!(custom.point, point);
+		assert_eq!(custom.name, "Custom point (15.12, -3.10)");
+		assert!(custom.can_reuse(point));
+		assert!(!custom.can_reuse([point[0] + 0.000001, point[1]]));
+		assert_eq!(name([-0.12345, 10.98765]), "Custom point (-0.12, 10.99)");
+		custom.failed = true;
+		assert!(!custom.can_reuse(point));
+	}
+
+	#[test]
 	fn shared_sky_loading_and_errors_reach_the_custom_point()
 	{
 		let timeline = Arc::new(Mutex::new(timeline::Timeline::default()));
 		let mut custom = Custom {
-			tile: anypoint::tile_of(0.0, 0.0),
+			point: [0.0, 0.0],
 			name: "Custom point".into(),
 			pending: Arc::new(Mutex::new(None)),
 			timeline: Arc::clone(&timeline),

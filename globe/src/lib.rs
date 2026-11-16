@@ -110,9 +110,7 @@ pub struct Globe
 	last_time: Option<f64>,
 	focus: Option<(f64, [f32; 3], [f32; 3])>,
 	pick: Option<(f64, f64)>,
-	tile: Option<[f64; 4]>,
-	tiles: Vec<([f64; 4], f32)>,
-	grid: Option<fn(f64, f64) -> [f64; 4]>,
+	points: Vec<([f64; 2], f32)>,
 }
 
 #[cfg(test)]
@@ -152,9 +150,7 @@ mod scene_tests
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
 			pick: None,
-			tile: None,
-			tiles: Vec::new(),
-			grid: None,
+			points: Vec::new(),
 		}
 	}
 
@@ -287,9 +283,7 @@ impl Globe
 			last_time: None,
 			focus: None,
 			pick: None,
-			tile: None,
-			tiles: Vec::new(),
-			grid: None,
+			points: Vec::new(),
 		})
 	}
 

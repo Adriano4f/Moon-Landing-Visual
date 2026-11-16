@@ -43,10 +43,8 @@ impl Globe
 			deep::advance(&self.deep, view, ui.ctx());
 		}
 		self.queue_gl(ui, rect, view, lighting);
-		self.paint_grid(ui, rect, view);
-		self.paint_tiles(ui, rect, view);
+		self.paint_points(ui, rect, view);
 		let clicked = self.paint_markers(ui, &response, rect, view);
-		self.paint_tile(ui, rect, view);
 		self.surface_pick(&response, rect, view, clicked.is_some());
 		Self::legend(
 			ui,
@@ -91,7 +89,7 @@ impl Globe
 		}
 		if self.space_view { space::paint(ui,rect,self.body_rotation,lighting); }
 		ui.ctx().request_repaint();
-		clicked
+		clicked.filter(|_| self.pick.is_none())
 	}
 }
 

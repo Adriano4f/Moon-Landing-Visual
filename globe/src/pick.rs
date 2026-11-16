@@ -1,19 +1,19 @@
-//! Surface picking and tile outline for arbitrary points.
+//! Surface picking and colored dots for computed points.
 
 use super::*;
 
 impl Globe
 {
-	/// Return and clear the last click on the Moon that did not hit a marker: (lat, east lon) in degrees.
+	/// Return and clear the last custom point pick: (lat, east lon) in degrees.
 	pub fn take_pick(&mut self) -> Option<(f64, f64)>
 	{
 		self.pick.take()
 	}
 
-	/// Highlight a tile as [center lat, center lon, half lat, half lon] in degrees, or clear it.
-	pub fn set_tile(&mut self, tile: Option<[f64; 4]>)
+	/// Color computed points by their percentage of time with any Sun (0..100).
+	pub fn set_points(&mut self, points: Vec<([f64; 2], f32)>)
 	{
-		self.tile = tile;
+		self.points = points;
 	}
 
 	pub(crate) fn surface_pick(
@@ -24,7 +24,7 @@ impl Globe
 		marker_hit: bool,
 	)
 	{
-		if marker_hit || !response.clicked_by(egui::PointerButton::Primary) || response.double_clicked()
+		if !response.clicked_by(egui::PointerButton::Primary) || response.double_clicked()
 		{
 			return;
 		}
@@ -33,6 +33,15 @@ impl Globe
 		{
 			return;
 		};
+		if let Some([lat, lon]) = self.point_at(p, rect, view)
+		{
+			self.pick = Some((lat, lon));
+			return;
+		}
+		if marker_hit
+		{
+			return;
+		}
 		let ndc = [
 			(p.x - rect.center().x) / (rect.width() * 0.5),
 			-(p.y - rect.center().y) / (rect.height() * 0.5),
@@ -45,56 +54,34 @@ impl Globe
 		}
 	}
 
-	pub(crate) fn paint_tile(&self, ui: &egui::Ui, rect: egui::Rect, view: math::View)
+	fn point_at(&self, pointer: egui::Pos2, rect: egui::Rect, view: math::View)
+	-> Option<[f64; 2]>
 	{
-		let Some(tile) = self.tile
-		else
-		{
-			return;
-		};
-		let painter = ui.painter_at(rect);
-		let stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 210, 80));
-		let points = outline(rect, view, tile, 16);
-		for pair in points.windows(2)
-		{
-			if let [Some(a), Some(b)] = pair
-			{
-				painter.line_segment([*a, *b], stroke);
-			}
-		}
+		self.points
+			.iter()
+			.filter_map(|&(point, _)| {
+				let position = to_screen(rect, view, point[0], point[1])?;
+				let distance = pointer.distance_sq(position);
+				(rect.contains(position) && distance <= 10.0_f32.powi(2))
+					.then_some((point, distance))
+			})
+			.min_by(|a, b| a.1.total_cmp(&b.1))
+			.map(|(point, _)| point)
 	}
 
-	/// Color finished tiles by their percentage of time with any Sun (0..100).
-	pub fn set_tiles(&mut self, tiles: Vec<([f64; 4], f32)>)
+	pub(crate) fn paint_points(&self, ui: &mut egui::Ui, rect: egui::Rect, view: math::View)
 	{
-		self.tiles = tiles;
-	}
-
-	/// Snap (lat, east lon) to a tile [center lat, center lon, half lat, half lon], for the zoomed grid.
-	pub fn set_grid(&mut self, grid: fn(f64, f64) -> [f64; 4])
-	{
-		self.grid = Some(grid);
-	}
-
-	pub(crate) fn paint_tiles(&self, ui: &mut egui::Ui, rect: egui::Rect, view: math::View)
-	{
-		if self.tiles.is_empty()
+		if self.points.is_empty()
 		{
 			return;
 		}
 		let painter = ui.painter_at(rect);
-		for &(tile, pct) in &self.tiles
+		for &(point, pct) in &self.points
 		{
-			let points: Option<Vec<_>> = outline(rect, view, tile, 4).into_iter().collect();
-			if let Some(mut points) = points
+			if let Some(position) = to_screen(rect, view, point[0], point[1])
 			{
-				points.pop();
-				let color = sun_color(pct);
-				painter.add(egui::Shape::convex_polygon(
-					points,
-					color.gamma_multiply(0.55),
-					egui::Stroke::new(1.0, color),
-				));
+				painter.circle_filled(position, 4.0, sun_color(pct));
+				painter.circle_stroke(position, 4.0, egui::Stroke::new(1.0, egui::Color32::BLACK));
 			}
 		}
 		let origin = rect.left_bottom() + egui::vec2(8.0, -30.0);
@@ -132,50 +119,9 @@ impl Globe
 		ui.scope_builder(egui::UiBuilder::new().max_rect(help), |ui| {
 			help::question(
 				ui,
-				"Your points, colored by how often the Sun is visible in the chosen period.",
+				"Dots show computed points, colored by how often the Sun is visible in the chosen period.",
 			);
 		});
-	}
-
-	pub(crate) fn paint_grid(&self, ui: &egui::Ui, rect: egui::Rect, view: math::View)
-	{
-		let Some(grid) = self.grid
-		else
-		{
-			return;
-		};
-		if view.zoom < 3.0
-		{
-			return;
-		}
-		let painter = ui.painter_at(rect);
-		let stroke = egui::Stroke::new(1.0, egui::Color32::from_white_alpha(28));
-		let mut lat = -89.0;
-		while lat < 90.0
-		{
-			let half_lon = grid(lat, 0.0)[3];
-			let cells = (180.0 / half_lon).round() as usize;
-			for c in 0..cells
-			{
-				let lon = (c as f64 + 0.5) * 2.0 * half_lon;
-				let tile = [lat, lon, 1.0, half_lon];
-				let center = to_screen(rect, view, lat, lon);
-				if !center.is_some_and(|p| rect.expand(60.0).contains(p))
-				{
-					continue;
-				}
-				// South and west edges; neighbours supply the rest.
-				let points = outline(rect, view, tile, 2);
-				for pair in points[..3].windows(2).chain(points[6..].windows(2))
-				{
-					if let [Some(a), Some(b)] = pair
-					{
-						painter.line_segment([*a, *b], stroke);
-					}
-				}
-			}
-			lat += 2.0;
-		}
 	}
 }
 
@@ -186,26 +132,6 @@ fn to_screen(rect: egui::Rect, view: math::View, lat: f64, lon: f64) -> Option<e
 		.map(|ndc| {
 			rect.center() + egui::vec2(ndc[0] * rect.width() * 0.5, -ndc[1] * rect.height() * 0.5)
 		})
-}
-
-/// Closed boundary walk (south, east, north, west edges), n steps per edge; None where hidden.
-fn outline(rect: egui::Rect, view: math::View, tile: [f64; 4], n: usize)
--> Vec<Option<egui::Pos2>>
-{
-	let [lat, lon, hl, ho] = tile;
-	let corners = [
-		(lat - hl, lon - ho),
-		(lat - hl, lon + ho),
-		(lat + hl, lon + ho),
-		(lat + hl, lon - ho),
-	];
-	(0..=4 * n)
-		.map(|k| {
-			let (a, b) = (corners[(k / n) % 4], corners[(k / n + 1) % 4]);
-			let t = (k % n) as f64 / n as f64;
-			to_screen(rect, view, a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
-		})
-		.collect()
 }
 
 /// Red at 0 %, yellow at 50 %, green at 100 %.
@@ -221,6 +147,47 @@ fn sun_color(pct: f32) -> egui::Color32
 mod tests
 {
 	use super::math::View;
+
+	#[test]
+	fn dot_picking_is_exact_nearest_and_screen_sized()
+	{
+		let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+		let point = [0.123456789, 0.987654321];
+		let mut globe = crate::scene_tests::unloaded();
+		for zoom in [1.0, 8.0, 64.0]
+		{
+			let view = View {
+				pan: [0.0; 2],
+				rotation: super::math::IDENTITY,
+				yaw: 0.0,
+				tilt: 0.0,
+				zoom,
+				aspect: rect.aspect_ratio(),
+				pixels: [800.0, 600.0],
+				scale: 1.0,
+			};
+			let position = super::to_screen(rect, view, point[0], point[1]).unwrap();
+			assert!(globe.point_at(position, rect, view).is_none());
+			globe.set_points(vec![(point, 30.0), ([0.0, 180.0], 70.0)]);
+			assert_eq!(globe.point_at(position, rect, view), Some(point));
+			assert_eq!(
+				globe.point_at(position + egui::vec2(9.0, 0.0), rect, view),
+				Some(point)
+			);
+			assert!(
+				globe
+					.point_at(position + egui::vec2(11.0, 0.0), rect, view)
+					.is_none()
+			);
+			let nearby = [point[0], point[1] + 0.001];
+			globe.set_points(vec![(point, 30.0), (nearby, 60.0)]);
+			let position = super::to_screen(rect, view, nearby[0], nearby[1]).unwrap();
+			assert_eq!(globe.point_at(position, rect, view), Some(nearby));
+			globe.set_points(vec![([0.0, 180.0], 70.0)]);
+			assert!(globe.point_at(rect.center(), rect, view).is_none());
+			globe.set_points(vec![]);
+		}
+	}
 
 	#[test]
 	fn unproject_inverts_project()

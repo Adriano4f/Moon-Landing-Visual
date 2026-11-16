@@ -96,68 +96,14 @@ impl MoonApp
 	}
 	fn update_custom(&mut self, ctx: &eframe::egui::Context)
 	{
-		self.globe.set_grid(|lat, lon| {
-			let t = lunar_core::anypoint::tile_of(lat, lon);
-			[t.lat_deg, t.lon_deg, t.half_lat_deg, t.half_lon_deg]
-		});
 		if let Some((lat, lon)) = self.globe.take_pick()
 		{
-			let tile = lunar_core::anypoint::tile_of(lat, lon);
-			if self.custom.as_ref().is_none_or(|c| c.tile.id != tile.id || c.failed)
-			{
-				let old = self.panoramas.get_mut(self.published).and_then(Option::take);
-				if let (Some(c), Some(mut view)) = (self.custom.take(), old)
-					&& view.sun_pct().is_some()
-				{
-					self.cached.push(custom::Cached { tile: c.tile, view });
-				}
-				let timeline = std::sync::Arc::clone(&self.timeline);
-				let (job, view) = match self.cached.iter().position(|c| c.tile.id == tile.id)
-				{
-					Some(i) =>
-					{
-						let c = self.cached.swap_remove(i);
-						(custom::Custom::restored(c.tile, timeline), c.view)
-					}
-					None =>
-					{
-						let job = custom::Custom::start(ctx, lat, lon, std::sync::Arc::clone(&timeline));
-						let view = panorama::Panorama::with_pending(job.pending.clone(), timeline);
-						(job, view)
-					}
-				};
-				let entry = Entry {
-					name: job.name.clone(),
-					lat_deg: job.tile.lat_deg,
-					lon_deg: job.tile.lon_deg,
-					source: String::new(),
-				};
-				self.catalog.truncate(self.published);
-				self.panoramas.truncate(self.published);
-				self.catalog.push(entry);
-				self.panoramas.push(Some(view));
-				self.custom = Some(job);
-			}
-			self.selected = self.published;
+			self.open_custom(ctx, [lat, lon]);
 		}
 		if let Some(job) = &mut self.custom
 		{
 			job.step(ctx);
 		}
-		let tile = self
-			.custom
-			.as_ref()
-			.filter(|_| self.selected >= self.published)
-			.map(|c| {
-				[
-					c.tile.lat_deg,
-					c.tile.lon_deg,
-					c.tile.half_lat_deg,
-					c.tile.half_lon_deg,
-				]
-			});
-		self.globe.set_tile(tile);
-		let corners = |t: &lunar_core::anypoint::Tile| [t.lat_deg, t.lon_deg, t.half_lat_deg, t.half_lon_deg];
 		let current = self
 			.custom
 			.as_ref()
@@ -165,11 +111,62 @@ impl MoonApp
 		let done = self
 			.cached
 			.iter_mut()
-			.map(|c| (&c.tile, &mut c.view))
-			.chain(current.map(|(c, v)| (&c.tile, v)))
-			.filter_map(|(t, v)| Some((corners(t), v.sun_pct()?)))
+			.map(|c| (c.point, &mut c.view))
+			.chain(current.map(|(c, v)| (c.point, v)))
+			.filter_map(|(point, v)| Some((point, v.sun_pct()?)))
 			.collect();
-		self.globe.set_tiles(done);
+		self.globe.set_points(done);
+	}
+
+	fn select_marker(&mut self, ctx: &eframe::egui::Context, id: usize)
+	{
+		self.selected = id;
+		if id == self.published && let Some(c) = self.custom.as_ref().filter(|c| c.failed)
+		{
+			self.open_custom(ctx, c.point);
+		}
+	}
+
+	fn open_custom(&mut self, ctx: &eframe::egui::Context, point: [f64; 2])
+	{
+		if self.custom.as_ref().is_none_or(|c| !c.can_reuse(point))
+		{
+			let old = self.panoramas.get_mut(self.published).and_then(Option::take);
+			if let (Some(c), Some(mut view)) = (self.custom.take(), old)
+				&& view.sun_pct().is_some()
+			{
+				self.cached.push(custom::Cached { point: c.point, view });
+			}
+			let timeline = std::sync::Arc::clone(&self.timeline);
+			let (job, view) = match self.cached.iter().position(|c| c.point == point)
+			{
+				Some(i) =>
+				{
+					let c = self.cached.swap_remove(i);
+					(custom::Custom::restored(c.point, timeline), c.view)
+				}
+				None =>
+				{
+					let job = custom::Custom::start(
+						ctx, point[0], point[1], std::sync::Arc::clone(&timeline),
+					);
+					let view = panorama::Panorama::with_pending(job.pending.clone(), timeline);
+					(job, view)
+				}
+			};
+			let entry = Entry {
+				name: job.name.clone(),
+				lat_deg: job.point[0],
+				lon_deg: job.point[1],
+				source: String::new(),
+			};
+			self.catalog.truncate(self.published);
+			self.panoramas.truncate(self.published);
+			self.catalog.push(entry);
+			self.panoramas.push(Some(view));
+			self.custom = Some(job);
+		}
+		self.selected = self.published;
 	}
 
 	fn show_panorama(&mut self, ui: &mut eframe::egui::Ui)
