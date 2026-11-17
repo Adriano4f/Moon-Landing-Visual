@@ -6,6 +6,7 @@ import urllib.request
 
 import numpy as np
 from PIL import Image
+from heights import save as save_heights
 
 ROOT = pathlib.Path(__file__).resolve().parent
 BASE = "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/"
@@ -53,6 +54,9 @@ if __name__ == "__main__":
         image = color.resize(size, Image.Resampling.LANCZOS)
         image.save(ROOT / f"albedo_{tier}k.jpg", quality=94, subsampling=0)
         heights = np.asarray(Image.fromarray(dem).resize(size, Image.Resampling.BILINEAR))
+        if tier <= 4:
+            save_heights(heights, f'height_{tier}k.png', BASE + 'ldem_16_uint.tif',
+                         2 * np.pi * 1737400 / width)
         Image.fromarray(normals(heights)).save(ROOT / f"normal_{tier}k.png", compress_level=9)
         # Solid-angle weighting gives each surface area equal importance, unlike image averaging.
         a = np.asarray(image, dtype=np.float64) / 255

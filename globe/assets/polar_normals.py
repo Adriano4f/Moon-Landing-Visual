@@ -6,6 +6,7 @@ import hashlib
 import numpy as np
 from PIL import Image
 import requests
+from heights import save as save_heights
 
 RADIUS = 1737400.0
 EXTENT = 547965.0
@@ -33,7 +34,7 @@ def normals(heights, extent=EXTENT):
     return np.round((normal+1)*127.5).clip(0, 255).astype(np.uint8)
 
 
-def prepare(cache, output):
+def load_heights(cache):
     if not cache.exists():
         params = dict(f='image', bbox=f'{-EXTENT},{-EXTENT},{EXTENT},{EXTENT}',
                       size='2048,2048', format='tiff', pixelType='F32', compression='none',
@@ -45,8 +46,13 @@ def prepare(cache, output):
             raise ValueError('Service did not return the requested float height grid')
         cache.write_bytes(response.content)
         cache.with_suffix('.json').write_text(json.dumps(dict(url=response.url, bytes=len(response.content)), indent=2))
-    heights = np.asarray(Image.open(cache), dtype=np.float64)
+    return np.asarray(Image.open(cache), dtype=np.float64)
+
+
+def prepare(cache, output):
+    heights = load_heights(cache)
     for tier, grid in [(2, heights), (1, heights.reshape(1024, 2, 1024, 2).mean(axis=(1, 3)))]:
+        save_heights(grid, f'polar_height_{tier}k.png', SERVICE, 2 * EXTENT / grid.shape[0])
         image = Image.fromarray(normals(grid))
         image.save(output/f'polar_normal_{tier}k.png', optimize=True)
         image.save(output/f'polar_normal_{tier}k.webp', lossless=True, method=6)
