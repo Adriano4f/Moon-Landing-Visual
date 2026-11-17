@@ -29,7 +29,6 @@ uniform vec3 u_earth;
 uniform float u_sun_scale;
 // Scale reflected Earth light relative to solar irradiance.
 uniform float u_earthshine;
-uniform float u_far_fill;
 const float PI = 3.141592653589793;
 // Project mapped normals into the view-facing half-space before renormalizing; dimensionless cosine.
 const float MIN_EMISSION_COSINE = 0.01;
@@ -218,6 +217,8 @@ void main()
 	// Keep the Earth source in the same world frame.
 	vec3 earth_light = normalize(u_model * u_earth);
 	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - position);
+	// Parallel observer rays prevent the nearby zoom camera from sweeping an opposition hotspot across the surface.
+	vec3 photometric_view = vec3(0.0, 0.0, 1.0);
 	// Fade unresolved relief in the foreshortened limb band; use the true sphere normal below cosine 0.35.
 	vec3 geometric = normalize(position);
 	// Retain full relief above cosine 0.65, with a continuous smoothstep transition between both angles.
@@ -231,8 +232,8 @@ void main()
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
 	// Add physically distinct direct solar and phase-scaled reflected Earth contributions.
-	float reflectance = u_sun_scale * light_response(n, geometric, view, light, normal_strength)
-		+ u_earthshine * light_response(n, geometric, view, earth_light, normal_strength);
+	float reflectance = u_sun_scale * light_response(n, geometric, photometric_view, light, normal_strength)
+		+ u_earthshine * light_response(n, geometric, photometric_view, earth_light, normal_strength);
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
@@ -262,10 +263,6 @@ void main()
 	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
 	albedo *= mix(vec3(1.0), satellite_factor, 0.85);
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
-	// Only longitudes beyond +/-90 degrees from mean Earth longitude zero receive this visual aid.
-	float far_side = smoothstep(0.0, 0.15, -p.z / max(length(p.xz), 0.000001));
-	// This soft gray-blue term is deliberately not labeled physical illumination.
-	radiance += u_far_fill * far_side * vec3(0.035, 0.045, 0.065) * (albedo / 0.4832);
 	// Compress positive linear radiance with the Reinhard operator before display encoding.
 	vec3 mapped = radiance / (vec3(1.0) + radiance);
 	// Encode once to sRGB and set alpha to one; egui_glow disables framebuffer sRGB encoding.

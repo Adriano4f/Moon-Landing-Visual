@@ -236,7 +236,6 @@ impl Renderer
 				earth: [0.0, 0.0, 1.0],
 				ratio: 0.0,
 				boosted: false,
-				fill: false,
 			});
 			for (name, direction) in [("u_sun", light.sun), ("u_earth", light.earth)]
 			{
@@ -254,10 +253,6 @@ impl Renderer
 			gl.uniform_1_f32(
 				gl.get_uniform_location(program, "u_earthshine").as_ref(),
 				light.ratio * if light.boosted { 1000.0 } else { 1.0 },
-			);
-			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_far_fill").as_ref(),
-				if light.fill { 1.0 } else { 0.0 },
 			);
 		}
 	}

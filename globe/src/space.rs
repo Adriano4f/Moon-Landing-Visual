@@ -143,7 +143,6 @@ mod tests
 			earth: [0.0, 0.0, 1.0],
 			ratio: 0.0,
 			boosted: false,
-			fill: false,
 		};
 		let [moon, sun] = directions(math::IDENTITY, Some(light)).unwrap();
 		assert!((moon + sun).length() < 1e-6);

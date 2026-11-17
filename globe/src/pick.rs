@@ -120,13 +120,63 @@ impl Globe
 		});
 	}
 
-	pub(crate) fn paint_grid(&self, ui: &egui::Ui, rect: egui::Rect, view: math::View)
+	pub(crate) fn paint_grid(&mut self, ui: &egui::Ui, rect: egui::Rect, view: math::View)
 	{
+		let time = ui.input(|i| i.time);
+		let (alpha, repaint) = self.grid.update(view.zoom, time);
+		if let Some(delay) = repaint
+		{
+			ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(delay));
+		}
+		if alpha == 0
+		{
+			return;
+		}
 		let painter = ui.painter_at(rect);
 		for [a, b] in grid_lines(rect, view)
 		{
-			painter.line_segment([a, b], egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10)));
+			painter.line_segment([a, b], egui::Stroke::new(1.0, egui::Color32::from_white_alpha(alpha)));
 		}
+	}
+}
+
+#[derive(Default)]
+pub(crate) struct GridFade
+{
+	zoom: f32,
+	changed_at: Option<f64>,
+}
+
+impl GridFade
+{
+	fn update(&mut self, zoom: f32, time: f64) -> (u8, Option<f64>)
+	{
+		if !zoom.is_finite() || !time.is_finite()
+		{
+			return (0, None);
+		}
+		if zoom != self.zoom
+		{
+			self.zoom = zoom;
+			self.changed_at = Some(time);
+		}
+		let Some(start) = self.changed_at
+		else
+		{
+			return (0, None);
+		};
+		let age = time - start;
+		if zoom < 3.0 || !age.is_finite() || age < 0.0 || age >= 1.5
+		{
+			return (0, None);
+		}
+		if age < 1.0
+		{
+			return (18, Some(1.0 - age));
+		}
+		let t = ((age - 1.0) / 0.5) as f32;
+		let fade = 1.0 - t * t * (3.0 - 2.0 * t);
+		((18.0 * fade).round() as u8, Some(1.0 / 60.0))
 	}
 }
 
@@ -193,6 +243,32 @@ fn sun_color(pct: f32) -> egui::Color32
 mod tests
 {
 	use super::math::View;
+
+	#[test]
+	fn grid_holds_fades_and_stops_requesting_frames()
+	{
+		let mut grid = super::GridFade::default();
+		assert_eq!(grid.update(1.0, 0.0), (0, None));
+		assert_eq!(grid.update(3.0, 1.0), (18, Some(1.0)));
+		assert_eq!(grid.update(3.0, 1.5), (18, Some(0.5)));
+		assert_eq!(grid.update(3.0, 2.25), (9, Some(1.0 / 60.0)));
+		assert_eq!(grid.update(3.0, 2.5), (0, None));
+		assert_eq!(grid.update(3.0, 20.0), (0, None));
+		assert_eq!(grid.update(3.1, 20.0), (18, Some(1.0)));
+		assert_eq!(grid.update(2.9, 20.1), (0, None));
+		assert_eq!(grid.update(4.0, 21.0), (18, Some(1.0)));
+		let mut previous = 18;
+		for frame in 0..=30
+		{
+			let (alpha, _) = grid.update(4.0, 22.0 + frame as f64 / 60.0);
+			assert!(alpha <= previous);
+			previous = alpha;
+		}
+		assert_eq!(previous, 0);
+		assert_eq!(grid.update(4.0, f64::NAN), (0, None));
+		assert_eq!(grid.update(f32::NAN, 23.0), (0, None));
+		assert_eq!(grid.update(4.0, 19.0), (0, None));
+	}
 
 	#[test]
 	fn decorative_grid_is_zoom_only_and_finite()

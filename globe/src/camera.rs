@@ -88,13 +88,6 @@ impl Globe
 				"Make sunlight reflected by Earth 1,000 times brighter in the picture only.",
 			);
 		});
-		ui.horizontal_wrapped(|ui| {
-			ui.checkbox(&mut self.fill, "Far side fill light");
-			help::question(
-				ui,
-				"Add soft artificial light so the dark side stays visible.",
-			);
-		});
 	}
 
 	/// Expose the independent surface field without requesting more site tracks.

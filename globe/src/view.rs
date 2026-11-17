@@ -8,7 +8,6 @@ impl Globe
 		self.loading_status(ui);
 		let time = ui.input(|i| i.time);
 		let dt = (time - self.last_time.replace(time).unwrap_or(time)).clamp(0.0, 0.1) as f32;
-		let _ = time;
 		let lighting = self.scene_lighting(ui);
 		self.animate_camera(time, dt);
 		self.pending_label(ui);
@@ -89,7 +88,14 @@ impl Globe
 			);
 		}
 		if self.space_view { space::paint(ui,rect,self.body_rotation,lighting); }
-		ui.ctx().request_repaint();
+		if !self.paused || self.focus.is_some()
+		{
+			ui.ctx().request_repaint();
+		}
+		else if self.renderer.lock().is_none() && self.loading.lock().error.is_none()
+		{
+			ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+		}
 		clicked.filter(|_| self.pick.is_none())
 	}
 }
@@ -179,7 +185,6 @@ impl Globe
 			earth,
 			ratio: math::earthshine_ratio(sun, earth),
 			boosted: self.boosted,
-			fill: self.fill,
 		});
 		if self.earth_view
 			&& let Some(light) = lighting

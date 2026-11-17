@@ -569,6 +569,34 @@ mod tests
 		assert_eq!(earthshine_ratio([f32::NAN; 3], [1.0; 3]), 0.0);
 	}
 
+	#[test]
+	fn solar_incidence_stays_moon_fixed_when_camera_rotates_and_zooms()
+	{
+		let sun = direction(-0.02, -1.7);
+		for point in [direction(0.2, -1.6), direction(-0.4, 1.5)]
+		{
+			let dot = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f32>();
+			let expected = dot(point, sun);
+			for (yaw, tilt, zoom) in [(0.0, 0.0, 1.0), (1.1, -0.4, 8.0), (-2.0, 0.7, 128.0)]
+			{
+				let view = View {
+					rotation: crate::orientation::at_utc(crate::orientation::INITIAL_UTC),
+					yaw, tilt, zoom, pan: [0.0; 2], aspect: 1.0,
+					pixels: [800.0; 2], scale: 1.0,
+				};
+				let actual = dot(transform(view.model(), point), transform(view.model(), sun));
+				assert!((actual - expected).abs() < 1e-6);
+				assert_eq!(actual > 0.0, expected > 0.0);
+			}
+		}
+		let shader = include_str!("moon.frag");
+		assert!(shader.contains("vec3 light = normalize(u_model * u_sun);"));
+		assert!(shader.contains("vec3 photometric_view = vec3(0.0, 0.0, 1.0);"));
+		assert!(shader.contains("light_response(n, geometric, photometric_view, light, normal_strength)"));
+		assert!(shader.contains("if (dot(geometric, light) <= 0.0)"));
+		assert!(!shader.contains("u_far_fill"));
+	}
+
 	/// Camera centering and billboards must agree with the GPU at high zoom.
 	#[test]
 	fn centered_site_and_billboard_width()

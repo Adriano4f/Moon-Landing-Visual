@@ -55,7 +55,6 @@ struct Lighting
 	ratio: f32,
 	/// Keep the optional Earth-only exposure multiplication explicit.
 	boosted: bool,
-	fill: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -105,8 +104,7 @@ pub struct Globe
 	space_view: bool,
 	/// Multiply only Earthshine for display when explicitly requested.
 	boosted: bool,
-	/// Add an explicitly artificial far-side fill only on request.
-	fill: bool,
+	grid: pick::GridFade,
 	last_time: Option<f64>,
 	focus: Option<(f64, [f32; 3], [f32; 3])>,
 	pick: Option<(f64, f64)>,
@@ -146,7 +144,7 @@ mod scene_tests
 			earth_view: true,
 			space_view: false,
 			boosted: false,
-			fill: false,
+			grid: pick::GridFade::default(),
 			last_time: None,
 			focus: Some((0.0, [0.0; 3], [1.0; 3])),
 			pick: None,
@@ -279,7 +277,7 @@ impl Globe
 			earth_view: true,
 			space_view: false,
 			boosted: false,
-			fill: false,
+			grid: pick::GridFade::default(),
 			last_time: None,
 			focus: None,
 			pick: None,
