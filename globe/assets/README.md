@@ -31,3 +31,17 @@ python3 globe/assets/polar_normals.py /path/outside/repo/lola75-f32.tif
 ```
 
 The rendering conventions are in [`docs/03-moon.md`](../../docs/03-moon.md); detailed learning material is preserved on [`learn`](https://github.com/Adriano4f/Moon-Landing-Visual/tree/learn).
+
+## Packed height maps
+
+`prepare.py` also writes global 2k/4k packed heights; `polar_normals.py` writes south-polar 1k/2k heights. To regenerate just heights without changing existing color/normal files:
+
+```sh
+python3 globe/assets/heights.py /path/outside/repo/lola75-f32.tif
+```
+
+`heights.manifest.json` records lossless PNG hashes, metric scale/offset and valid height bounds. Decode RG as `(R * 256 + G) * 0.5 - 10000` metres; B=255 marks valid samples. There is no sRGB/gamma profile. Upload as linear UNORM8, with no mipmap sampling; linear byte interpolation commutes with this affine height decoding. Missing polar data falls back to global heights.
+
+Added downloads are 4,726,424 bytes for global 2k + polar 1k, or 17,524,390 bytes for global 4k + polar 2k. Only the selected pair loads. All four files total 22,250,814 bytes in the distribution.
+
+HTTPS verification must remain enabled for source downloads. `SSL_CERT_FILE` (urllib) or `REQUESTS_CA_BUNDLE` (requests) may select a trusted local CA bundle if required by the environment.

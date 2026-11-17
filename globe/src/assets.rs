@@ -97,10 +97,6 @@ pub(crate) fn preferences() -> (bool, Option<String>)
 
 pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 {
-	let state = Arc::new(Mutex::new(Loading {
-		images: [None, None],
-		error: None,
-	}));
 	let suffix = if tier == 0
 	{
 		"preview".into()
@@ -117,9 +113,28 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 	{
 		format!("normal_{suffix}.png")
 	};
-	for (index, filename) in [format!("albedo_{suffix}.jpg"), normal]
-		.into_iter()
-		.enumerate()
+	load_files([format!("albedo_{suffix}.jpg"), normal], ctx)
+}
+
+pub(crate) fn load_heights(tier: u32, ctx: egui::Context) -> Arc<Mutex<Loading>>
+{
+	let tier = if tier <= 2 { 2 } else { 4 };
+	load_files(
+		[
+			format!("height_{tier}k.png"),
+			format!("polar_height_{}k.png", tier / 2),
+		],
+		Some(ctx),
+	)
+}
+
+fn load_files(files: [String; 2], ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
+{
+	let state = Arc::new(Mutex::new(Loading {
+		images: [None, None],
+		error: None,
+	}));
+	for (index, filename) in files.into_iter().enumerate()
 	{
 		let state = Arc::clone(&state);
 		let ctx = ctx.clone();

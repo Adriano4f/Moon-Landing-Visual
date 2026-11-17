@@ -22,8 +22,8 @@ class ShadingTests(unittest.TestCase):
         self.assertGreater(max(phases), 10)
         shader = (Path(__file__).resolve().parents[1]/'src'/'moon.frag').read_text()
         self.assertIn('vec3 photometric_view = vec3(0.0, 0.0, 1.0);', shader)
-        self.assertIn('light_response(n, geometric, photometric_view, light, normal_strength)', shader)
-        self.assertIn('light_response(n, geometric, photometric_view, earth_light, normal_strength)', shader)
+        self.assertIn('light_response(n, geometric, photometric_view, light, normal_strength, resolved)', shader)
+        self.assertIn('light_response(n, geometric, photometric_view, earth_light, normal_strength, false)', shader)
         self.assertNotIn('light_response(n, geometric, view,', shader)
         for cosine in [-1, 0]:
             self.assertEqual(reflectance(cosine, 1, 90), 0)

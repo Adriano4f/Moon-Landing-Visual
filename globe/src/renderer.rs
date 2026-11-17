@@ -1,4 +1,5 @@
 mod deep;
+mod heights;
 mod polar;
 mod setup;
 mod textures;
@@ -25,6 +26,11 @@ pub(super) struct Renderer
 	pending: Option<(u32, std::vec::IntoIter<assets::TextureImage>)>,
 	pub(crate) polar: Option<polar::Atlas>,
 	deep: Option<deep::Atlas>,
+	heights: Vec<glow::Texture>,
+	height_tier: u32,
+	pub(crate) live_shadows: bool,
+	mask: Option<heights::Mask>,
+	mask_failed: bool,
 }
 
 impl Renderer
@@ -87,8 +93,8 @@ impl Renderer
 
 	/// Draw one opaque sphere inside egui's already configured viewport.
 	pub(super) fn paint(
-		&self,
-		gl: &glow::Context,
+		&mut self,
+		painter: &egui_glow::Painter,
 		view: math::View,
 		rays: &[([f32; 3], [Ray; 2])],
 		lighting: Option<Lighting>,
@@ -96,6 +102,7 @@ impl Renderer
 		polar_ready: bool,
 	)
 	{
+		let gl = painter.gl();
 		let Some(program) = self.program
 		else
 		{
@@ -107,9 +114,16 @@ impl Renderer
 		unsafe {
 			Self::begin_frame(gl, program);
 			Self::light_uniforms(gl, program, lighting);
+			self.bind_heights(gl, program, self.live_shadows);
 			self.bind_polar(gl, program, polar_ready);
 			self.bind_deep(gl, program);
-			self.paint_opaque(gl, program, view);
+			self.paint_opaque(
+				gl,
+				program,
+				view,
+				lighting.map_or([0.0, 0.0, 1.0], |l| l.sun),
+				painter.intermediate_fbo(),
+			);
 			// Smooth alpha coverage needs blending on native and WebGL.
 			gl.enable(glow::BLEND);
 			gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
@@ -122,7 +136,7 @@ impl Renderer
 			gl.depth_mask(true);
 			gl.disable(glow::BLEND);
 			gl.bind_vertex_array(None);
-			for unit in 0..6
+			for unit in 0..9
 			{
 				gl.active_texture(glow::TEXTURE0 + unit);
 				gl.bind_texture(glow::TEXTURE_2D, None);
@@ -157,7 +171,7 @@ impl Renderer
 			let origin = std::array::from_fn(|i| point[i] + 0.6 / view.zoom * light.sun[i]);
 			let mut ribbon = view.ribbon(origin, point);
 			ribbon.truncate(42);
-			ribbon.extend(view.arrowhead(origin,point,0.0));
+			ribbon.extend(view.arrowhead(origin, point, 0.0));
 			vertices.extend(ribbon);
 		}
 		// SAFETY: the callback owns the current GL context; the ray layout matches seven floats per vertex.
@@ -196,6 +210,14 @@ impl Renderer
 		}
 		// SAFETY: called with the owning context current, either on_exit or failed construction.
 		unsafe {
+			if let Some(mask) = self.mask.take()
+			{
+				mask.destroy(gl);
+			}
+			for texture in self.heights.drain(..)
+			{
+				gl.delete_texture(texture);
+			}
 			for texture in self.textures.drain(..)
 			{
 				gl.delete_texture(texture);
@@ -290,7 +312,7 @@ impl Renderer
 					let end: [f32; 3] =
 						std::array::from_fn(|i| origin[i] + 0.6 / view.zoom * body.direction[i]);
 					let mut vertices = view.ribbon(origin, end);
-					vertices.extend(view.arrowhead(end,origin,11.0));
+					vertices.extend(view.arrowhead(end, origin, 11.0));
 					// Stream the ribbon and endpoint triangles without persistent mapping.
 					gl.buffer_data_u8_slice(
 						glow::ARRAY_BUFFER,
@@ -339,7 +361,14 @@ impl Renderer
 
 impl Renderer
 {
-	unsafe fn paint_opaque(&self, gl: &glow::Context, program: glow::Program, view: math::View)
+	unsafe fn paint_opaque(
+		&mut self,
+		gl: &glow::Context,
+		program: glow::Program,
+		view: math::View,
+		sun: [f32; 3],
+		framebuffer: Option<glow::Framebuffer>,
+	)
 	{
 		// SAFETY: the calling paint callback owns the current context.
 		unsafe {
@@ -368,6 +397,7 @@ impl Renderer
 				gl.uniform_1_i32(gl.get_uniform_location(program, name).as_ref(), unit as i32);
 			}
 			gl.bind_vertex_array(self.vao);
+			self.shadow_mask(gl, program, view, sun, framebuffer);
 			gl.draw_arrays(glow::TRIANGLES, 0, 3);
 		}
 	}

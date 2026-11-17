@@ -81,6 +81,8 @@ pub struct Globe
 {
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	loading: Arc<Mutex<assets::Loading>>,
+	height_loading: Option<(u32, Arc<Mutex<assets::Loading>>)>,
+	live_shadows: bool,
 	polar: polar::Shared,
 	deep: deep::Shared,
 	/// Selected size label 2/4/8, or zero for the private 512-pixel browser preview.
@@ -124,6 +126,8 @@ mod scene_tests
 				images: [None, None],
 				error: None,
 			})),
+			height_loading: None,
+			live_shadows: true,
 			polar: Arc::new(Mutex::new(polar::State::default())),
 			deep: Arc::new(Mutex::new(deep::State::default())),
 			tier: 2,
@@ -253,6 +257,8 @@ impl Globe
 			renderer: Arc::new(Mutex::new(None)),
 			surface_rays: false,
 			loading: assets::load(assets::first_tier(), None),
+			height_loading: None,
+			live_shadows: true,
 			polar: Arc::new(Mutex::new(polar::State::default())),
 			deep: Arc::new(Mutex::new(deep::State::default())),
 			tier: assets::first_tier(),

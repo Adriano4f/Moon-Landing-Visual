@@ -80,6 +80,11 @@ impl Globe
 
 	pub fn lighting_controls(&mut self, ui: &mut egui::Ui)
 	{
+		ui.horizontal_wrapped(|ui| {
+			ui.selectable_value(&mut self.live_shadows, true, "Live shadows");
+			ui.selectable_value(&mut self.live_shadows, false, "Satellite photos");
+			help::question(ui, "Live shadows follow the Sun; satellite photos retain recorded shadows.");
+		});
 		// Explain that increased exposure is not increased power.
 		ui.horizontal_wrapped(|ui| {
 			ui.checkbox(&mut self.boosted, "Earthshine boosted (1000x)");

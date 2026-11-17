@@ -9,4 +9,14 @@ The independent `globe` crate renders an illustrative Moon; scientific terrain v
 - **Color:** albedo is decoded from sRGB for linear-light shading and encoded for display; relief-derived object-space normals are decoded and renormalized in the shader.
 - **GL lifetime:** renderer resources belong to the eframe/glow context. Painting uses an egui GL callback; explicit destruction releases GPU resources. See [`renderer.rs`](../globe/src/renderer.rs) and [`view.rs`](../globe/src/view.rs).
 
+## Terrain shadows
+
+The Lighting options select **Live shadows** (default) or **Satellite photos**. Live mode disables recorded mosaic contrast and traces direct sunlight over packed DEM heights; Earthshine remains separate. Photos mode preserves the photographic appearance and its recorded shadows.
+
+Global 2k/4k and south-polar 1k/2k heights use the same source DEMs and projections as the normals. Heights are linear RGB8: RG stores a 16-bit value (`value * 0.5 - 10000` metres), B marks validity. `heights.manifest.json` records scale, offset, dimensions, spacing, hashes and download sizes. The 8k visual tier uses 4k heights; no higher-resolution DEM is implied.
+
+The shader marches along the Moon-fixed Sun direction over a sphere of radius 1,737,400 m, with 3 m bias, increasing steps out to 600 km, and a 0.53° solar disk for soft visibility. There are 32 steps in the 2k tier and 48 otherwise. Height-field visibility replaces the reference-sphere solar cutoff, allowing elevated terrain beyond the terminator without lighting deep-night normal-map facets.
+
+A reduced-resolution visibility mask (up to 256² low tier / 512² high tier) is linearly upsampled and cached until camera, Sun, terrain tier or polar normals change. This is illustrative terrain lighting, not the scientific horizon solver: small ridges between samples can be missed, mask edges are softened, relief does not alter the globe silhouette, and the global/polar blend can expose source-resolution differences.
+
 Sources, attribution and offline asset reproduction: [`globe/assets/README.md`](../globe/assets/README.md). Detailed learning material is preserved on [`learn`](https://github.com/Adriano4f/Moon-Landing-Visual/tree/learn).

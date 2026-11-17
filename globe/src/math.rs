@@ -592,8 +592,8 @@ mod tests
 		let shader = include_str!("moon.frag");
 		assert!(shader.contains("vec3 light = normalize(u_model * u_sun);"));
 		assert!(shader.contains("vec3 photometric_view = vec3(0.0, 0.0, 1.0);"));
-		assert!(shader.contains("light_response(n, geometric, photometric_view, light, normal_strength)"));
-		assert!(shader.contains("if (dot(geometric, light) <= 0.0)"));
+		assert!(shader.contains("light_response(n, geometric, photometric_view, light, normal_strength, resolved)"));
+		assert!(shader.contains("if (!resolved && dot(geometric, light) <= 0.0)"));
 		assert!(!shader.contains("u_far_fill"));
 	}
 

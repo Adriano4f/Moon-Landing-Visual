@@ -51,8 +51,9 @@ impl Globe
 			rect,
 			&self.polar.lock(),
 			!self.deep.lock().resident.is_empty(),
+			self.live_shadows,
 		);
-		if self.zoom >= 2.0
+		if self.zoom >= 2.0 && !self.live_shadows
 		{
 			let deep = self.deep.lock();
 			let visible = deep
@@ -113,6 +114,16 @@ impl Globe
 
 	fn loading_status(&mut self, ui: &mut egui::Ui)
 	{
+		let height_tier = self.target_tier.min(4);
+		if self.live_shadows && self.height_loading.as_ref().is_none_or(|(tier, _)| *tier != height_tier)
+		{
+			self.height_loading = Some((height_tier, assets::load_heights(height_tier, ui.ctx().clone())));
+		}
+		if self.live_shadows && let Some((_, loading)) = &self.height_loading
+			&& let Some(error) = &loading.lock().error
+		{
+			ui.small(format!("Terrain shadows unavailable: {error}"));
+		}
 		ui.horizontal(|ui| {
 			ui.small("Moon overview");
 			help::question(
@@ -289,6 +300,8 @@ impl Globe
 		let renderer = Arc::clone(&self.renderer);
 		// Keep the loader alive until this callback finishes.
 		let loading = Arc::clone(&self.loading);
+		let heights = self.height_loading.as_ref().map(|(tier, state)| (*tier, Arc::clone(state)));
+		let live_shadows = self.live_shadows;
 		let polar = Arc::clone(&self.polar);
 		let deep = Arc::clone(&self.deep);
 		let rays = self.scene_rays();
@@ -304,10 +317,15 @@ impl Globe
 				// Texture loading may still be pending; announce only a rendered frame.
 				if let Some(renderer) = renderer.as_mut()
 				{
+					renderer.live_shadows = live_shadows;
+					if let Some((tier, heights)) = &heights
+					{
+						renderer.update_heights(painter.gl(), *tier, heights);
+					}
 					renderer.update_polar(painter.gl(), &polar);
 					renderer.update_deep(painter.gl(), &deep);
 					renderer.paint(
-						painter.gl(),
+						painter,
 						view,
 						&rays,
 						lighting,
@@ -371,10 +389,14 @@ impl Globe
 		clicked
 	}
 
-	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State, satellite: bool)
+	fn legend(ui: &mut egui::Ui, rect: egui::Rect, polar: &polar::State, satellite: bool, live: bool)
 	{
 		let painter = ui.painter_at(rect);
-		let caption = if satellite
+		let caption = if live
+		{
+			"Live shadows: terrain follows the Sun"
+		}
+		else if satellite
 		{
 			"Satellite mosaic: shadows are recorded"
 		}

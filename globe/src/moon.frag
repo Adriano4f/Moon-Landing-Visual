@@ -14,6 +14,15 @@ uniform sampler2D u_albedo;
 uniform sampler2D u_normal;
 uniform sampler2D u_polar_color;
 uniform sampler2D u_polar_normal;
+uniform highp sampler2D u_height;
+uniform highp sampler2D u_polar_height;
+uniform highp int u_height_ready;
+uniform highp int u_live_shadows;
+uniform highp int u_shadow_steps;
+uniform sampler2D u_shadow_mask;
+uniform highp int u_shadow_pass;
+uniform highp int u_mask_ready;
+uniform vec4 u_shadow_viewport;
 uniform float u_polar_ready;
 uniform float u_polar_normal_ready;
 uniform float u_polar_extent;
@@ -130,10 +139,10 @@ vec3 linear_to_srgb(vec3 x)
 }
 
 // Evaluate one directional light without night-side normal-map leakage.
-float light_response(vec3 n, vec3 geometric, vec3 view, vec3 light, float normal_strength)
+float light_response(vec3 n, vec3 geometric, vec3 view, vec3 light, float normal_strength, bool resolved)
 {
 	// Local terrain normals cannot substitute for resolved shadows.
-	if (dot(geometric, light) <= 0.0)
+	if (!resolved && dot(geometric, light) <= 0.0)
 	{
 		// Suppress this source on its geometric night side.
 		return 0.0;
@@ -142,6 +151,62 @@ float light_response(vec3 n, vec3 geometric, vec3 view, vec3 light, float normal
 	// Evaluate the smooth-sphere response independently of texture normals.
 	float geometric_reflectance = hapke(dot(geometric, light), dot(geometric, view), dot(light, view));
 	return mix(geometric_reflectance, mapped_reflectance, normal_strength);
+}
+
+float polar_height_weight(vec3 p)
+{
+	return u_polar_normal_ready * (1.0 - smoothstep(sin(-77.0 * PI / 180.0), sin(-75.0 * PI / 180.0), p.y));
+}
+
+float unpack_height(vec3 value)
+{
+	return dot(value.rg, vec2(65280.0, 255.0)) * 0.5 - 10000.0;
+}
+
+float terrain_height(vec3 p)
+{
+	float band = polar_height_weight(p);
+	vec3 polar = vec3(0.0);
+	if (band > 0.0)
+	{
+		vec2 uv = 0.5 + (1737400.0 / u_polar_extent) * vec2(p.x, -p.z) / max(1.0 - p.y, 0.000001);
+		polar = textureLod(u_polar_height, uv, 0.0).rgb;
+		band *= step(0.999, polar.b);
+		if (band >= 1.0) return unpack_height(polar);
+	}
+	vec2 uv = vec2(fract(atan(p.x, p.z) / (2.0 * PI) + 0.5), acos(clamp(p.y, -1.0, 1.0)) / PI);
+	float global = unpack_height(textureLod(u_height, uv, 0.0).rgb);
+	return mix(global, unpack_height(polar), band);
+}
+
+float solar_visibility(vec3 p)
+{
+	const float R = 1737400.0;
+	const float SUN_RADIUS = 0.265 * PI / 180.0;
+	vec3 sun = normalize(u_sun);
+	vec3 origin = p * (R + terrain_height(p) + 3.0);
+	float along = dot(origin, sun);
+	// Even the lowest terrain blocks this ray; mapped normals cannot leak sunlight into deep night.
+	if (along < 0.0 && dot(origin, origin) - along * along < (R - 10000.0) * (R - 10000.0)) return 0.0;
+	float global_spacing = 2.0 * PI * R / float(textureSize(u_height, 0).x);
+	float polar_spacing = 2.0 * u_polar_extent / float(textureSize(u_polar_height, 0).x);
+	float distance = 0.5 * mix(global_spacing, polar_spacing, polar_height_weight(p));
+	float growth = pow(600000.0 / distance, 1.0 / float(u_shadow_steps - 1));
+	float clearance_angle = 1.0;
+	for (int i = 0; i < 48; ++i)
+	{
+		if (i >= u_shadow_steps) break;
+		vec3 ray = origin + distance * sun;
+		float radius = length(ray);
+		// All encoded valid lunar terrain is below 12 km; the ray rises monotonically beyond this point.
+		if (radius > R + 12000.0 && dot(ray, sun) > 0.0) break;
+		float clearance = radius - R - terrain_height(ray / radius);
+		clearance_angle = min(clearance_angle, clearance / distance);
+		if (clearance_angle <= -SUN_RADIUS) return 0.0;
+		distance *= growth;
+	}
+	float x = clamp(clearance_angle / SUN_RADIUS, -1.0, 1.0);
+	return (acos(-x) + x * sqrt(max(0.0, 1.0 - x * x))) / PI;
 }
 
 vec4 satellite(vec2 uv, int pole)
@@ -190,6 +255,11 @@ void main()
 	vec3 position;
 	vec3 p;
 	if (!surface_point(position, p)) discard;
+	if (u_shadow_pass != 0)
+	{
+		out_color = vec4(vec3(solar_visibility(p)), 1.0);
+		return;
+	}
 	// Map atan longitude and acos latitude into normalized equirectangular coordinates.
 	vec2 uv = vec2(atan(p.x, p.z) / (2.0 * PI) + 0.5, acos(clamp(p.y, -1.0, 1.0)) / PI);
 	// Differentiate the continuous direction, not the wrapped atan output.
@@ -232,36 +302,47 @@ void main()
 	// Add only the missing view component, then restore unit length; leave already front-facing normals alone.
 	n = normalize(n + max(0.0, MIN_EMISSION_COSINE - dot(n, view)) * view);
 	// Add physically distinct direct solar and phase-scaled reflected Earth contributions.
-	float reflectance = u_sun_scale * light_response(n, geometric, photometric_view, light, normal_strength)
-		+ u_earthshine * light_response(n, geometric, photometric_view, earth_light, normal_strength);
+	bool resolved = u_live_shadows != 0 && u_height_ready != 0;
+	float visibility = 1.0;
+	if (resolved)
+	{
+		visibility = u_mask_ready != 0
+			? texture(u_shadow_mask, (gl_FragCoord.xy - u_shadow_viewport.xy) / u_shadow_viewport.zw).r
+			: solar_visibility(p);
+	}
+	float reflectance = u_sun_scale * visibility * light_response(n, geometric, photometric_view, light, normal_strength, resolved)
+		+ u_earthshine * light_response(n, geometric, photometric_view, earth_light, normal_strength, false);
 	// SRGB8_ALPHA8 texture sampling already decodes color and filters in linear space.
 	// Sample SRGB8_ALPHA8 color with explicit seam-safe derivatives; the GPU returns linear color.
 	vec3 albedo = textureGrad(u_albedo, uv, gx, gy).rgb;
 	// Use the documented mean reflectance in the unresolved cap; this is not a new terrain or color measurement.
 	albedo = mix(albedo, vec3(0.4832), polar_fallback);
-	float cap = 1.0 - smoothstep(sin(75.0 * PI / 180.0), sin(77.0 * PI / 180.0), abs(p.y));
-	vec4 global_detail = satellite(uv, 0);
-	float global_weight = global_detail.a * cap;
-	vec3 satellite_factor = mix(vec3(1.0), clamp(global_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), global_weight);
-	float satellite_weight = global_weight;
-	if (cap < 1.0)
+	if (u_live_shadows == 0)
 	{
-		int pole = p.y < 0.0 ? -1 : 1;
-		vec2 polar_detail_uv = 0.5 + (1737400.0 / 1095930.0) * vec2(p.x, p.y < 0.0 ? -p.z : p.z) / max(1.0 + abs(p.y), 0.000001);
-		vec4 polar_detail = satellite(polar_detail_uv, pole);
-		float weight = polar_detail.a * (1.0 - cap);
-		satellite_factor = mix(satellite_factor, clamp(polar_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), weight);
-		satellite_weight = max(satellite_weight, weight);
+		float cap = 1.0 - smoothstep(sin(75.0 * PI / 180.0), sin(77.0 * PI / 180.0), abs(p.y));
+		vec4 global_detail = satellite(uv, 0);
+		float global_weight = global_detail.a * cap;
+		vec3 satellite_factor = mix(vec3(1.0), clamp(global_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), global_weight);
+		float satellite_weight = global_weight;
+		if (cap < 1.0)
+		{
+			int pole = p.y < 0.0 ? -1 : 1;
+			vec2 polar_detail_uv = 0.5 + (1737400.0 / 1095930.0) * vec2(p.x, p.y < 0.0 ? -p.z : p.z) / max(1.0 + abs(p.y), 0.000001);
+			vec4 polar_detail = satellite(polar_detail_uv, pole);
+			float weight = polar_detail.a * (1.0 - cap);
+			satellite_factor = mix(satellite_factor, clamp(polar_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), weight);
+			satellite_weight = max(satellite_weight, weight);
+		}
+		if (polar_blend > 0.0)
+		{
+			// Recorded photographic shadows are bounded visual contrast, never measured current illumination or albedo.
+			vec3 mosaic = texture(u_polar_color, polar_uv).rgb;
+			float valid = step(0.0001, dot(mosaic, vec3(1.0)));
+			albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid * (1.0 - satellite_weight));
+		}
+		// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
+		albedo *= mix(vec3(1.0), satellite_factor, 0.85);
 	}
-	if (polar_blend > 0.0)
-	{
-		// Recorded photographic shadows are bounded visual contrast, never measured current illumination or albedo.
-		vec3 mosaic = texture(u_polar_color, polar_uv).rgb;
-		float valid = step(0.0001, dot(mosaic, vec3(1.0)));
-		albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid * (1.0 - satellite_weight));
-	}
-	// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
-	albedo *= mix(vec3(1.0), satellite_factor, 0.85);
 	vec3 radiance = EXPOSURE * (albedo / 0.4832) * reflectance;
 	// Compress positive linear radiance with the Reinhard operator before display encoding.
 	vec3 mapped = radiance / (vec3(1.0) + radiance);

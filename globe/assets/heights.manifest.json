@@ -1,0 +1,54 @@
+{
+  "height_2k.png": {
+    "bytes": 3553966,
+    "encoding": "RGB8: R high byte, G low byte, B validity; linear, no mipmaps",
+    "height": 1024,
+    "max_height_m": 10416.568359375,
+    "min_height_m": -8518.19921875,
+    "offset_m": -10000.0,
+    "scale_m": 0.5,
+    "sha256": "6bc190c6f792d49db03d12c725d4ba301c8c014aeb924f87d21dce1ebd3806b5",
+    "source": "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/ldem_16_uint.tif",
+    "spacing_m": 5330.276441745026,
+    "width": 2048
+  },
+  "height_4k.png": {
+    "bytes": 13181675,
+    "encoding": "RGB8: R high byte, G low byte, B validity; linear, no mipmaps",
+    "height": 2048,
+    "max_height_m": 10546.6572265625,
+    "min_height_m": -8901.0224609375,
+    "offset_m": -10000.0,
+    "scale_m": 0.5,
+    "sha256": "ffe81b3406ba8de05fc899807caa8e19fa39a2e46f22696bb8a54dc18bfc0bd1",
+    "source": "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/ldem_16_uint.tif",
+    "spacing_m": 2665.138220872513,
+    "width": 4096
+  },
+  "polar_height_1k.png": {
+    "bytes": 1172458,
+    "encoding": "RGB8: R high byte, G low byte, B validity; linear, no mipmaps",
+    "height": 1024,
+    "max_height_m": 6980.884765625,
+    "min_height_m": -7670.819091796875,
+    "offset_m": -10000.0,
+    "scale_m": 0.5,
+    "sha256": "1dd407a58048dbb328d040971127cd2f2c1299ad30e5b4eae540bb3d1b21c2f1",
+    "source": "https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_LOLA_DEM_SPole75_30mp_v04/ImageServer",
+    "spacing_m": 1070.244140625,
+    "width": 1024
+  },
+  "polar_height_2k.png": {
+    "bytes": 4342715,
+    "encoding": "RGB8: R high byte, G low byte, B validity; linear, no mipmaps",
+    "height": 2048,
+    "max_height_m": 7006.654296875,
+    "min_height_m": -7745.4951171875,
+    "offset_m": -10000.0,
+    "scale_m": 0.5,
+    "sha256": "a2f7ca22a9114b953a415c81d0ab8c5d56ef801ea5700bcc1ea87fdf5868c54d",
+    "source": "https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_LOLA_DEM_SPole75_30mp_v04/ImageServer",
+    "spacing_m": 535.1220703125,
+    "width": 2048
+  }
+}

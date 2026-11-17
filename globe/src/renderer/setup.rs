@@ -44,6 +44,11 @@ impl Renderer
 			pending: None,
 			polar: None,
 			deep: None,
+			heights: Vec::new(),
+			height_tier: 0,
+			live_shadows: true,
+			mask: None,
+			mask_failed: false,
 		}
 	}
 

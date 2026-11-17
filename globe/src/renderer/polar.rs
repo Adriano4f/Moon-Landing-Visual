@@ -11,6 +11,11 @@ pub(crate) struct Atlas
 
 impl Atlas
 {
+	pub(super) fn normal_ready(&self) -> bool
+	{
+		self.normal.is_some()
+	}
+
 	fn new(gl: &glow::Context, spec: Spec) -> Result<Self, String>
 	{
 		// SAFETY: the renderer's deferred callback owns the current context.

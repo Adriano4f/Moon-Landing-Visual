@@ -24,10 +24,12 @@ def save(heights, name, source, spacing):
     Image.fromarray(packed(heights)).save(path, optimize=True)
     manifest_path = ROOT / 'heights.manifest.json'
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    valid = heights[np.isfinite(heights) & (heights >= OFFSET) & (heights <= OFFSET + 65535*SCALE)]
     manifest[name] = dict(width=heights.shape[1], height=heights.shape[0],
                           scale_m=SCALE, offset_m=OFFSET, spacing_m=spacing,
                           encoding='RGB8: R high byte, G low byte, B validity; linear, no mipmaps',
-                          source=source, bytes=path.stat().st_size,
+                          source=source, min_height_m=float(valid.min()) if valid.size else None,
+                          max_height_m=float(valid.max()) if valid.size else None, bytes=path.stat().st_size,
                           sha256=hashlib.sha256(path.read_bytes()).hexdigest())
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
     print(name, path.stat().st_size, flush=True)
@@ -35,14 +37,14 @@ def save(heights, name, source, spacing):
 
 if __name__ == '__main__':
     import sys
-    from prepare import source
+    from prepare import source, BASE
     from polar_normals import load_heights, SERVICE, EXTENT
 
     dem = np.asarray(source('ldem_16_uint.tif'), dtype=np.float32) * SCALE + OFFSET
     for tier in (2, 4):
         size = (tier * 1024, tier * 512)
         grid = np.asarray(Image.fromarray(dem).resize(size, Image.Resampling.BILINEAR))
-        save(grid, f'height_{tier}k.png', 'NASA CGI Moon Kit ldem_16_uint.tif',
+        save(grid, f'height_{tier}k.png', BASE + 'ldem_16_uint.tif',
              2 * np.pi * 1737400 / size[0])
     polar = load_heights(Path(sys.argv[1]))
     for tier, grid in [(2, polar), (1, polar.reshape(1024, 2, 1024, 2).mean(axis=(1, 3)))]:
