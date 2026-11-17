@@ -2,6 +2,13 @@ use super::{Renderer, assets, glow};
 use egui::mutex::Mutex;
 use glow::HasContext as _;
 
+pub(super) struct SurfaceUpload
+{
+	tier: u32,
+	images: std::vec::IntoIter<assets::TextureImage>,
+	pub textures: Vec<glow::Texture>,
+}
+
 pub(super) struct Mask
 {
 	texture: glow::Texture,
@@ -65,7 +72,7 @@ impl Mask
 			{
 				mask.destroy(gl);
 				return Err(
-					"Shadow framebuffer is incomplete; using full-resolution tracing".into(),
+					"Shadow framebuffer is incomplete; keeping overview lighting".into(),
 				);
 			}
 			Ok(mask)
@@ -90,7 +97,7 @@ impl Renderer
 		view: crate::math::View,
 		sun: [f32; 3],
 		framebuffer: Option<glow::Framebuffer>,
-	)
+	) -> bool
 	{
 		unsafe {
 			gl.uniform_1_i32(
@@ -102,9 +109,9 @@ impl Renderer
 				gl.get_uniform_location(program, "u_shadow_mask").as_ref(),
 				8,
 			);
-			if !self.live_shadows || self.heights.len() != 2 || self.mask_failed
+			if !self.live_ready() || self.mask_failed
 			{
-				return;
+				return false;
 			}
 			let mut viewport = [0; 4];
 			gl.get_parameter_i32_slice(glow::VIEWPORT, &mut viewport);
@@ -132,7 +139,7 @@ impl Renderer
 						#[cfg(target_arch = "wasm32")]
 						web_sys::console::warn_1(&error.into());
 						gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer);
-						return;
+						return false;
 					}
 				}
 				gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer);
@@ -147,7 +154,7 @@ impl Renderer
 			key.extend([
 				view.camera_distance().to_bits(),
 				self.height_tier,
-				self.polar.as_ref().is_some_and(|p| p.normal_ready()) as u32,
+				self.live_normal.is_some() as u32,
 			]);
 			let mask = self.mask.as_mut().unwrap();
 			gl.active_texture(glow::TEXTURE8);
@@ -192,72 +199,110 @@ impl Renderer
 				viewport[2] as f32,
 				viewport[3] as f32,
 			);
+			true
 		}
 	}
 
-	pub(crate) fn update_heights(
+	pub(super) fn live_ready(&self) -> bool
+	{
+		self.live_shadows && self.surface_tier == Some(self.tier)
+	}
+
+	pub(crate) fn update_surface(
 		&mut self,
 		gl: &glow::Context,
 		tier: u32,
-		shared: &Mutex<assets::Loading>,
-	)
+		shared: &Mutex<assets::Loading<5>>,
+	) -> bool
 	{
 		let mut state = shared.lock();
-		if state.error.is_some()
+		if !self.live_shadows || state.error.is_some()
 		{
-			return;
+			return false;
 		}
-		let images = match state.take()
+		if self
+			.surface_upload
+			.as_ref()
+			.is_some_and(|upload| upload.tier != tier)
 		{
-			Ok(Some(images)) => images,
-			Ok(None) => return,
-			Err(error) =>
+			for texture in self.surface_upload.take().unwrap().textures
 			{
-				state.error = Some(error);
-				return;
+				unsafe {
+					gl.delete_texture(texture);
+				}
 			}
-		};
-		let mut textures = Vec::new();
-		let result = (|| {
-			for (i, image) in images.iter().enumerate()
+		}
+		if self.surface_upload.is_none()
+		{
+			match state.take()
 			{
-				let width = if i == 0 { tier * 1024 } else { tier * 512 };
-				if image.width() != width || image.height() != tier * 512
+				Ok(Some(images)) =>
 				{
-					return Err("Unexpected height texture dimensions".into());
+					self.surface_upload = Some(SurfaceUpload {
+						tier,
+						images: Vec::from(images).into_iter(),
+						textures: Vec::new(),
+					})
+				}
+				Ok(None) => return false,
+				Err(error) =>
+				{
+					state.error = Some(error);
+					return false;
+				}
+			}
+		}
+		let mut upload = self.surface_upload.take().unwrap();
+		let result = (|| {
+			if let Some(image) = upload.images.next()
+			{
+				let i = upload.textures.len();
+				let height_tier = tier.min(4);
+				let dimensions = [
+					(tier * 1024, tier * 512),
+					(tier * 1024, tier * 512),
+					(height_tier * 1024, height_tier * 512),
+					(height_tier * 512, height_tier * 512),
+					(height_tier * 512, height_tier * 512),
+				];
+				if (image.width(), image.height()) != dimensions[i]
+				{
+					return Err("Unexpected lighting texture dimensions".into());
 				}
 				let previous = self.textures.len();
 				#[cfg(not(target_arch = "wasm32"))]
 				let uploaded =
-					self.upload_texture(gl, image.width(), image.height(), image.as_raw(), false);
+					self.upload_texture(gl, image.width(), image.height(), image.as_raw(), i == 0);
 				#[cfg(target_arch = "wasm32")]
-				let uploaded = self.upload_browser_texture(gl, image, false);
+				let uploaded = self.upload_browser_texture(gl, &image, i == 0);
 				if self.textures.len() > previous
 				{
-					textures.push(self.textures.pop().unwrap());
+					upload.textures.push(self.textures.pop().unwrap());
 				}
 				uploaded?;
-				// Packed bytes must never be averaged in mipmaps.
-				unsafe {
-					gl.bind_texture(glow::TEXTURE_2D, textures.last().copied());
-					gl.tex_parameter_i32(
-						glow::TEXTURE_2D,
-						glow::TEXTURE_MIN_FILTER,
-						glow::LINEAR as i32,
-					);
-					gl.tex_parameter_i32(
-						glow::TEXTURE_2D,
-						glow::TEXTURE_WRAP_S,
-						if i == 0
-						{
-							glow::REPEAT
-						}
-						else
-						{
-							glow::CLAMP_TO_EDGE
-						} as i32,
-					);
-					gl.bind_texture(glow::TEXTURE_2D, None);
+				if i == 2 || i == 3
+				{
+					unsafe {
+						gl.bind_texture(glow::TEXTURE_2D, upload.textures.last().copied());
+						gl.tex_parameter_i32(
+							glow::TEXTURE_2D,
+							glow::TEXTURE_MIN_FILTER,
+							glow::LINEAR as i32,
+						);
+						gl.tex_parameter_i32(
+							glow::TEXTURE_2D,
+							glow::TEXTURE_WRAP_S,
+							if i == 2
+							{
+								glow::REPEAT
+							}
+							else
+							{
+								glow::CLAMP_TO_EDGE
+							} as i32,
+						);
+						gl.bind_texture(glow::TEXTURE_2D, None);
+					}
 				}
 			}
 			Ok::<_, String>(())
@@ -265,18 +310,39 @@ impl Renderer
 		if let Err(error) = result
 		{
 			state.error = Some(error);
+			for texture in upload.textures
+			{
+				unsafe {
+					gl.delete_texture(texture);
+				}
+			}
+			return false;
 		}
-		else
+		if upload.textures.len() != 5
 		{
-			std::mem::swap(&mut self.heights, &mut textures);
-			self.height_tier = tier;
+			self.surface_upload = Some(upload);
+			return true;
 		}
+		let normal = upload.textures.pop().unwrap();
+		let heights = upload.textures.split_off(2);
+		let old_textures = std::mem::replace(&mut self.textures, upload.textures);
+		let old_heights = std::mem::replace(&mut self.heights, heights);
+		let old_normal = self.live_normal.replace(normal);
+		self.pending = None;
+		self.tier = tier;
+		self.height_tier = tier.min(4);
+		self.surface_tier = Some(tier);
+		self.visible_announced = false;
 		unsafe {
-			for texture in textures
+			for texture in old_textures
+				.into_iter()
+				.chain(old_heights)
+				.chain(old_normal)
 			{
 				gl.delete_texture(texture);
 			}
 		}
+		false
 	}
 
 	pub(super) unsafe fn bind_heights(&self, gl: &glow::Context, program: glow::Program, live: bool)

@@ -28,6 +28,10 @@ pub(super) struct Renderer
 	deep: Option<deep::Atlas>,
 	heights: Vec<glow::Texture>,
 	height_tier: u32,
+	surface_tier: Option<u32>,
+	live_normal: Option<glow::Texture>,
+	surface_upload: Option<heights::SurfaceUpload>,
+	deep_ready: bool,
 	pub(crate) live_shadows: bool,
 	mask: Option<heights::Mask>,
 	mask_failed: bool,
@@ -114,7 +118,7 @@ impl Renderer
 		unsafe {
 			Self::begin_frame(gl, program);
 			Self::light_uniforms(gl, program, lighting);
-			self.bind_heights(gl, program, self.live_shadows);
+			self.bind_heights(gl, program, self.live_ready());
 			self.bind_polar(gl, program, polar_ready);
 			self.bind_deep(gl, program);
 			self.paint_opaque(
@@ -210,6 +214,17 @@ impl Renderer
 		}
 		// SAFETY: called with the owning context current, either on_exit or failed construction.
 		unsafe {
+			if let Some(upload) = self.surface_upload.take()
+			{
+				for texture in upload.textures
+				{
+					gl.delete_texture(texture);
+				}
+			}
+			if let Some(normal) = self.live_normal.take()
+			{
+				gl.delete_texture(normal);
+			}
 			if let Some(mask) = self.mask.take()
 			{
 				mask.destroy(gl);
@@ -397,7 +412,13 @@ impl Renderer
 				gl.uniform_1_i32(gl.get_uniform_location(program, name).as_ref(), unit as i32);
 			}
 			gl.bind_vertex_array(self.vao);
-			self.shadow_mask(gl, program, view, sun, framebuffer);
+			if !self.shadow_mask(gl, program, view, sun, framebuffer)
+			{
+				gl.uniform_1_i32(
+					gl.get_uniform_location(program, "u_live_shadows").as_ref(),
+					0,
+				);
+			}
 			gl.draw_arrays(glow::TRIANGLES, 0, 3);
 		}
 	}

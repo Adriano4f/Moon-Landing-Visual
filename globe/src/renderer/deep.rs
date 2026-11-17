@@ -278,9 +278,25 @@ mod tests
 
 impl Renderer
 {
-	pub(crate) fn update_deep(&mut self, gl: &glow::Context, shared: &Shared)
+	pub(crate) fn update_deep(
+		&mut self,
+		gl: &glow::Context,
+		shared: &Shared,
+		view: crate::math::View,
+	)
 	{
 		let mut state = shared.lock();
+		let enabled = view.zoom >= 2.0
+			&& (!crate::polar::wanted(view)
+				|| self
+					.polar
+					.as_ref()
+					.is_some_and(|atlas| atlas.normal_ready()));
+		self.deep_ready = enabled && state.coverage_ready();
+		if !enabled
+		{
+			return;
+		}
 		if self.deep.as_ref().is_some_and(|atlas| atlas.failed)
 		{
 			state.pending.clear();
@@ -376,6 +392,7 @@ impl Renderer
 			atlas.failed = true;
 			state.disable(error);
 		}
+		self.deep_ready = state.coverage_ready() && !atlas.failed;
 	}
 
 	pub(super) fn bind_deep(&self, gl: &glow::Context, program: glow::Program)
@@ -384,7 +401,7 @@ impl Renderer
 		unsafe {
 			gl.uniform_1_i32(
 				gl.get_uniform_location(program, "u_deep_ready").as_ref(),
-				i32::from(self.deep.as_ref().is_some_and(|a| !a.failed)),
+				i32::from(self.deep_ready && self.deep.as_ref().is_some_and(|a| !a.failed)),
 			);
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_deep_color").as_ref(), 4);
 			gl.uniform_1_i32(gl.get_uniform_location(program, "u_deep_pages").as_ref(), 5);

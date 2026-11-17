@@ -114,10 +114,10 @@ impl Globe
 
 	fn loading_status(&mut self, ui: &mut egui::Ui)
 	{
-		let height_tier = self.target_tier.min(4);
+		let height_tier = self.target_tier;
 		if self.live_shadows && self.height_loading.as_ref().is_none_or(|(tier, _)| *tier != height_tier)
 		{
-			self.height_loading = Some((height_tier, assets::load_heights(height_tier, ui.ctx().clone())));
+			self.height_loading = Some((height_tier, assets::load_surface(height_tier, ui.ctx().clone())));
 		}
 		if self.live_shadows && let Some((_, loading)) = &self.height_loading
 			&& let Some(error) = &loading.lock().error
@@ -135,8 +135,9 @@ impl Globe
 			.renderer
 			.lock()
 			.as_ref()
-			.is_some_and(|r| r.visible_announced)
+			.is_some_and(|r| r.visible_announced && r.tier != self.target_tier)
 			&& self.tier != self.target_tier
+			&& !self.live_shadows
 		{
 			self.tier = self.target_tier;
 			self.loading = assets::load(self.tier, Some(ui.ctx().clone()));
@@ -310,6 +311,10 @@ impl Globe
 		let ctx = ui.ctx().clone();
 		let callback = egui_glow::CallbackFn::new(move |info, painter| {
 			let mut renderer = renderer.lock();
+			if let Some(renderer) = renderer.as_mut()
+			{
+				renderer.live_shadows = live_shadows;
+			}
 			Self::process_textures(&mut renderer, &loading, &ctx, painter.gl());
 			let viewport = info.viewport_in_pixels();
 			if viewport.width_px > 0 && viewport.height_px > 0
@@ -319,11 +324,12 @@ impl Globe
 				{
 					renderer.live_shadows = live_shadows;
 					if let Some((tier, heights)) = &heights
+						&& renderer.update_surface(painter.gl(), *tier, heights)
 					{
-						renderer.update_heights(painter.gl(), *tier, heights);
+						ctx.request_repaint();
 					}
 					renderer.update_polar(painter.gl(), &polar);
-					renderer.update_deep(painter.gl(), &deep);
+					renderer.update_deep(painter.gl(), &deep, view);
 					renderer.paint(
 						painter,
 						view,
@@ -706,6 +712,10 @@ impl Globe
 		gl: &glow::Context,
 	)
 	{
+		if renderer.as_ref().is_some_and(|renderer| renderer.live_shadows)
+		{
+			return;
+		}
 		if loading.lock().error.is_none()
 		{
 			let result = loading.lock().take();

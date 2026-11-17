@@ -13,6 +13,8 @@ The independent `globe` crate renders an illustrative Moon; scientific terrain v
 
 The Lighting options select **Live shadows** (default) or **Satellite photos**. Live mode disables recorded mosaic contrast and traces direct sunlight over packed DEM heights; Earthshine remains separate. Photos mode preserves the photographic appearance and its recorded shadows.
 
+Loading is transactional: global color/normal, both height maps and polar normals are staged together, with one GPU upload per frame. The previous complete surface remains visible during tier changes; initial loading uses the consistent overview without cast shadows. Live lighting starts only after the complete set and its visibility mask are ready. Satellite imagery stays on the overview until all currently requested tiles are resident, rather than exposing partially downloaded hemispheres. Polar mosaic color and normals become visible together.
+
 Global 2k/4k and south-polar 1k/2k heights use the same source DEMs and projections as the normals. Heights are linear RGB8: RG stores a 16-bit value (`value * 0.5 - 10000` metres), B marks validity. `heights.manifest.json` records scale, offset, dimensions, spacing, hashes and download sizes. The 8k visual tier uses 4k heights; no higher-resolution DEM is implied.
 
 The shader marches along the Moon-fixed Sun direction over a sphere of radius 1,737,400 m, with 3 m bias, increasing steps out to 600 km, and a 0.53° solar disk for soft visibility. There are 32 steps in the 2k tier and 48 otherwise. Height-field visibility replaces the reference-sphere solar cutoff, allowing elevated terrain beyond the terminator without lighting deep-night normal-map facets.

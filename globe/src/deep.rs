@@ -526,6 +526,13 @@ pub(crate) struct State
 
 impl State
 {
+	pub fn coverage_ready(&self) -> bool
+	{
+		!self.disabled
+			&& !self.wanted.is_empty()
+			&& self.wanted.iter().all(|tile| self.resident.contains(tile))
+	}
+
 	pub fn is_disabled(&self) -> bool
 	{
 		self.disabled
@@ -672,6 +679,30 @@ pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 mod tests
 {
 	use super::*;
+
+	#[test]
+	fn imagery_requires_complete_visible_coverage()
+	{
+		let mut state = State::default();
+		assert!(!state.coverage_ready());
+		let west = Tile {
+			z: 0,
+			row: 0,
+			col: 0,
+			pole: 0,
+		};
+		let east = Tile { col: 1, ..west };
+		state.wanted = vec![west, east];
+		state.resident.insert(west);
+		assert!(!state.coverage_ready());
+		state.resident.insert(east);
+		assert!(state.coverage_ready());
+		state.wanted.push(Tile { z: 1, ..west });
+		assert!(!state.coverage_ready());
+		state.wanted.pop();
+		state.disable("upload failed".into());
+		assert!(!state.coverage_ready());
+	}
 
 	fn view(lat: f32, lon: f32, zoom: f32) -> math::View
 	{

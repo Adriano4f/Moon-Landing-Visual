@@ -81,7 +81,7 @@ pub struct Globe
 {
 	renderer: Arc<Mutex<Option<Renderer>>>,
 	loading: Arc<Mutex<assets::Loading>>,
-	height_loading: Option<(u32, Arc<Mutex<assets::Loading>>)>,
+	height_loading: Option<(u32, Arc<Mutex<assets::Loading<5>>>)>,
 	live_shadows: bool,
 	polar: polar::Shared,
 	deep: deep::Shared,

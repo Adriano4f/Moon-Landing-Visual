@@ -46,6 +46,10 @@ impl Renderer
 			deep: None,
 			heights: Vec::new(),
 			height_tier: 0,
+			surface_tier: None,
+			live_normal: None,
+			surface_upload: None,
+			deep_ready: false,
 			live_shadows: true,
 			mask: None,
 			mask_failed: false,
@@ -171,5 +175,28 @@ impl Renderer
 			gl.bind_buffer(glow::ARRAY_BUFFER, None);
 		}
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests
+{
+	use super::*;
+
+	#[test]
+	fn live_lighting_requires_a_committed_matching_surface()
+	{
+		let mut renderer = Renderer::empty(0);
+		assert!(!renderer.live_ready());
+		renderer.surface_tier = Some(2);
+		assert!(!renderer.live_ready());
+		renderer.tier = 2;
+		assert!(renderer.live_ready());
+		renderer.tier = 4;
+		assert!(!renderer.live_ready());
+		renderer.surface_tier = Some(4);
+		assert!(renderer.live_ready());
+		renderer.live_shadows = false;
+		assert!(!renderer.live_ready());
 	}
 }

@@ -286,11 +286,17 @@ impl Renderer
 	pub(crate) fn bind_polar(&self, gl: &glow::Context, program: glow::Program, ready: bool)
 	{
 		let color = self.polar.as_ref().map_or(self.textures[0], |p| p.color);
-		let normal = self
-			.polar
-			.as_ref()
-			.and_then(|p| p.normal)
-			.unwrap_or(self.textures[1]);
+		let normal = if self.live_ready()
+		{
+			self.live_normal.unwrap()
+		}
+		else
+		{
+			self.polar
+				.as_ref()
+				.and_then(|p| p.normal)
+				.unwrap_or(self.textures[1])
+		};
 		// SAFETY: all samplers have complete textures even before the optional atlas is ready.
 		unsafe {
 			for (unit, name, texture) in
@@ -305,8 +311,18 @@ impl Renderer
 				if ready { 1.0 } else { 0.0 },
 			);
 			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_polar_normal_ready").as_ref(),
-				if self.polar.as_ref().is_some_and(|p| p.normal.is_some()) { 1.0 } else { 0.0 },
+				gl.get_uniform_location(program, "u_polar_normal_ready")
+					.as_ref(),
+				if self.live_ready()
+					|| ((ready || self.deep_ready)
+						&& self.polar.as_ref().is_some_and(|p| p.normal.is_some()))
+				{
+					1.0
+				}
+				else
+				{
+					0.0
+				},
 			);
 			gl.uniform_1_f32(
 				gl.get_uniform_location(program, "u_polar_extent").as_ref(),

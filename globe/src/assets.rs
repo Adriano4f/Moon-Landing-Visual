@@ -9,9 +9,9 @@ pub(crate) type TextureImage = send_wrapper::SendWrapper<web_sys::HtmlImageEleme
 use std::sync::Arc;
 
 /// Keep asynchronous CPU results separate from current-context GPU state.
-pub(crate) struct Loading
+pub(crate) struct Loading<const N: usize = 2>
 {
-	pub images: [Option<Result<TextureImage, String>>; 2],
+	pub images: [Option<Result<TextureImage, String>>; N],
 	pub error: Option<String>,
 }
 
@@ -116,22 +116,36 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 	load_files([format!("albedo_{suffix}.jpg"), normal], ctx)
 }
 
-pub(crate) fn load_heights(tier: u32, ctx: egui::Context) -> Arc<Mutex<Loading>>
+pub(crate) fn load_surface(tier: u32, ctx: egui::Context) -> Arc<Mutex<Loading<5>>>
 {
-	let tier = if tier <= 2 { 2 } else { 4 };
+	let height_tier = tier.min(4);
+	let ext = if cfg!(target_arch = "wasm32")
+	{
+		"webp"
+	}
+	else
+	{
+		"png"
+	};
 	load_files(
 		[
-			format!("height_{tier}k.png"),
-			format!("polar_height_{}k.png", tier / 2),
+			format!("albedo_{tier}k.jpg"),
+			format!("normal_{tier}k.{ext}"),
+			format!("height_{height_tier}k.png"),
+			format!("polar_height_{}k.png", height_tier / 2),
+			format!("polar_normal_{}k.{ext}", height_tier / 2),
 		],
 		Some(ctx),
 	)
 }
 
-fn load_files(files: [String; 2], ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
+fn load_files<const N: usize>(
+	files: [String; N],
+	ctx: Option<egui::Context>,
+) -> Arc<Mutex<Loading<N>>>
 {
 	let state = Arc::new(Mutex::new(Loading {
-		images: [None, None],
+		images: std::array::from_fn(|_| None),
 		error: None,
 	}));
 	for (index, filename) in files.into_iter().enumerate()
@@ -162,10 +176,10 @@ fn load_files(files: [String; 2], ctx: Option<egui::Context>) -> Arc<Mutex<Loadi
 	state
 }
 
-impl Loading
+impl<const N: usize> Loading<N>
 {
-	/// Move both completed images out only when neither is missing or erroneous.
-	pub fn take(&mut self) -> Result<Option<[TextureImage; 2]>, String>
+	/// Move a complete set out only when no image is missing or erroneous.
+	pub fn take(&mut self) -> Result<Option<[TextureImage; N]>, String>
 	{
 		for result in self.images.iter().flatten()
 		{
@@ -176,10 +190,9 @@ impl Loading
 		}
 		if self.images.iter().all(Option::is_some)
 		{
-			Ok(Some([
-				self.images[0].take().unwrap()?,
-				self.images[1].take().unwrap()?,
-			]))
+			Ok(Some(std::array::from_fn(|i| {
+				self.images[i].take().unwrap().unwrap()
+			})))
 		}
 		else
 		{
@@ -192,6 +205,27 @@ impl Loading
 mod tests
 {
 	use super::*;
+	#[test]
+	fn surface_waits_for_every_image_and_keeps_failed_sets_unconsumed()
+	{
+		for missing in 0..5
+		{
+			let mut state = Loading::<5> {
+				images: std::array::from_fn(|_| Some(Ok(RgbImage::new(2, 1)))),
+				error: None,
+			};
+			state.images[missing] = None;
+			assert!(state.take().unwrap().is_none());
+			assert_eq!(state.images.iter().flatten().count(), 4);
+			state.images[missing] = Some(Err("network failure".into()));
+			assert_eq!(state.take().unwrap_err(), "network failure");
+			assert_eq!(state.images.iter().flatten().count(), 5);
+			state.images[missing] = Some(Ok(RgbImage::new(2, 1)));
+			assert_eq!(state.take().unwrap().unwrap().len(), 5);
+			assert!(state.take().unwrap().is_none());
+		}
+	}
+
 	#[test]
 	fn initial_and_selected_tier_labels()
 	{
@@ -251,9 +285,9 @@ pub(crate) fn read_native(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_browser(
+fn read_browser<const N: usize>(
 	filename: String,
-	state: Arc<Mutex<Loading>>,
+	state: Arc<Mutex<Loading<N>>>,
 	index: usize,
 	ctx: Option<egui::Context>,
 )
