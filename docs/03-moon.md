@@ -9,11 +9,15 @@ The independent `globe` crate renders an illustrative Moon; scientific terrain v
 - **Color:** albedo is decoded from sRGB for linear-light shading and encoded for display; relief-derived object-space normals are decoded and renormalized in the shader.
 - **GL lifetime:** renderer resources belong to the eframe/glow context. Painting uses an egui GL callback; explicit destruction releases GPU resources. See [`renderer.rs`](../globe/src/renderer.rs) and [`view.rs`](../globe/src/view.rs).
 
+## Quality and anti-aliasing
+
+The Lighting options contain one **Quality: Fast / Realistic** choice. Fast uses satellite contrast with a cheap lunar-Lambert response and no normal-map sampling, terrain marching or visibility mask. Height textures are requested only after choosing Realistic; base color/normal pairs remain transactionally loaded for mode/tier switching. Realistic retains Hapke, normals and DEM shadows without adding recorded photographic shadows. Earthshine remains separate in both modes. Mobile/2k devices default to Fast; desktop browsers default to the 4k tier and Realistic (native desktops retain their existing tier). The selection is remembered in eframe storage when available, otherwise for the lifetime of the view.
+
+Separate compile-time shader variants remove terrain and Hapke work from Fast. Both rasterize a tight projected-disc quad with a two-pixel coverage margin, discard off-disc fragments, and blend analytic pixel-width limb coverage. Texture coordinates use seam-safe explicit derivatives; color/normal textures have trilinear mipmaps with up to 2x anisotropy when supported. Satellite arrays use trilinear mipmaps without anisotropy to keep Fast inexpensive. Packed heights and page tables remain unmipmapped data. Shadow masks retain bilinear upsampling and are cached by camera/Sun/terrain state. Uniform locations and sampler assignments are initialized once per program; only active textures are bound. Realistic stops requesting photographic tiles after its complete surface is ready. Loading, animation and the existing anti-aliased egui overlays retain event-driven repaints. No extra supersampling or post-process pass is needed; native MSAA remains enabled as before.
+
+Loading remains transactional: global color/normal, both height maps and polar normals are staged together, with one GPU upload per frame. The previous complete surface remains visible during tier changes; initial Realistic loading uses the Fast overview until the complete set and visibility mask are ready. Satellite imagery stays on the overview until all currently requested tiles are resident, rather than exposing partially downloaded hemispheres. Failed replacements retain the existing complete surface.
+
 ## Terrain shadows
-
-The Lighting options select **Live shadows** (default) or **Satellite photos**. Live mode disables recorded mosaic contrast and traces direct sunlight over packed DEM heights; Earthshine remains separate. Photos mode preserves the photographic appearance and its recorded shadows.
-
-Loading is transactional: global color/normal, both height maps and polar normals are staged together, with one GPU upload per frame. The previous complete surface remains visible during tier changes; initial loading uses the consistent overview without cast shadows. Live lighting starts only after the complete set and its visibility mask are ready. Satellite imagery stays on the overview until all currently requested tiles are resident, rather than exposing partially downloaded hemispheres. Polar mosaic color and normals become visible together.
 
 Global 2k/4k and south-polar 1k/2k heights use the same source DEMs and projections as the normals. Heights are linear RGB8: RG stores a 16-bit value (`value * 0.5 - 10000` metres), B marks validity. `heights.manifest.json` records scale, offset, dimensions, spacing, hashes and download sizes. The 8k visual tier uses 4k heights; no higher-resolution DEM is implied.
 

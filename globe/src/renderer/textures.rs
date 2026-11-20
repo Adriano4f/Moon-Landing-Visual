@@ -3,6 +3,20 @@ use glow::HasContext as _;
 
 impl Renderer
 {
+	pub(super) unsafe fn anisotropy(gl: &glow::Context, target: u32)
+	{
+		if gl
+			.supported_extensions()
+			.iter()
+			.any(|name| name.ends_with("texture_filter_anisotropic"))
+		{
+			unsafe {
+				let maximum = gl.get_parameter_f32(glow::MAX_TEXTURE_MAX_ANISOTROPY);
+				gl.tex_parameter_f32(target, glow::TEXTURE_MAX_ANISOTROPY, maximum.min(2.0));
+			}
+		}
+	}
+
 	#[cfg(not(target_arch = "wasm32"))]
 	pub(super) fn upload_texture(
 		&mut self,
@@ -138,7 +152,7 @@ impl Renderer
 			);
 			gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::REPEAT as i32);
 			gl.generate_mipmap(glow::TEXTURE_2D);
-			// Keep the texture's default anisotropy ratio of one: textureGrad with anisotropy made dotted limb arcs on llvmpipe.
+			Self::anisotropy(gl, glow::TEXTURE_2D);
 			gl.tex_parameter_i32(
 				glow::TEXTURE_2D,
 				glow::TEXTURE_WRAP_T,
@@ -169,6 +183,7 @@ impl Renderer
 				glow::CLAMP_TO_EDGE as i32,
 			);
 			gl.generate_mipmap(glow::TEXTURE_2D);
+			Self::anisotropy(gl, glow::TEXTURE_2D);
 		}
 	}
 }

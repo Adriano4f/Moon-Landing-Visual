@@ -1,4 +1,4 @@
-use super::{Renderer, assets, glow};
+use super::{Program, Renderer, assets, glow};
 use egui::mutex::Mutex;
 use glow::HasContext as _;
 
@@ -93,22 +93,17 @@ impl Renderer
 	pub(super) unsafe fn shadow_mask(
 		&mut self,
 		gl: &glow::Context,
-		program: glow::Program,
+		program: &Program,
 		view: crate::math::View,
 		sun: [f32; 3],
 		framebuffer: Option<glow::Framebuffer>,
 	) -> bool
 	{
 		unsafe {
-			gl.uniform_1_i32(
-				gl.get_uniform_location(program, "u_shadow_pass").as_ref(),
+			gl.uniform_1_i32(program.uniform("u_shadow_pass"),
 				0,
 			);
-			gl.uniform_1_i32(gl.get_uniform_location(program, "u_mask_ready").as_ref(), 0);
-			gl.uniform_1_i32(
-				gl.get_uniform_location(program, "u_shadow_mask").as_ref(),
-				8,
-			);
+			gl.uniform_1_i32(program.uniform("u_mask_ready"), 0);
 			if !self.live_ready() || self.mask_failed
 			{
 				return false;
@@ -170,13 +165,12 @@ impl Renderer
 				gl.disable(glow::DEPTH_TEST);
 				gl.clear_color(1.0, 1.0, 1.0, 1.0);
 				gl.clear(glow::COLOR_BUFFER_BIT);
-				gl.uniform_1_i32(
-					gl.get_uniform_location(program, "u_shadow_pass").as_ref(),
-					1,
-				);
-				gl.draw_arrays(glow::TRIANGLES, 0, 3);
-				gl.uniform_1_i32(
-					gl.get_uniform_location(program, "u_shadow_pass").as_ref(),
+				gl.uniform_1_i32(program.uniform("u_shadow_pass"),
+					1);
+				gl.disable(glow::BLEND);
+				gl.draw_arrays(glow::TRIANGLES, 0, 6);
+				gl.enable(glow::BLEND);
+				gl.uniform_1_i32(program.uniform("u_shadow_pass"),
 					0,
 				);
 				gl.bind_framebuffer(glow::FRAMEBUFFER, framebuffer);
@@ -190,10 +184,9 @@ impl Renderer
 				mask.key = key;
 			}
 			gl.bind_texture(glow::TEXTURE_2D, Some(mask.texture));
-			gl.uniform_1_i32(gl.get_uniform_location(program, "u_mask_ready").as_ref(), 1);
+			gl.uniform_1_i32(program.uniform("u_mask_ready"), 1);
 			gl.uniform_4_f32(
-				gl.get_uniform_location(program, "u_shadow_viewport")
-					.as_ref(),
+				program.uniform("u_shadow_viewport"),
 				viewport[0] as f32,
 				viewport[1] as f32,
 				viewport[2] as f32,
@@ -203,9 +196,9 @@ impl Renderer
 		}
 	}
 
-	pub(super) fn live_ready(&self) -> bool
+	pub(crate) fn live_ready(&self) -> bool
 	{
-		self.live_shadows && self.surface_tier == Some(self.tier)
+		self.live_shadows && self.surface_tier == Some(self.tier) && !self.mask_failed
 	}
 
 	pub(crate) fn update_surface(
@@ -345,29 +338,24 @@ impl Renderer
 		false
 	}
 
-	pub(super) unsafe fn bind_heights(&self, gl: &glow::Context, program: glow::Program, live: bool)
+	pub(super) unsafe fn bind_heights(&self, gl: &glow::Context, program: &Program, live: bool)
 	{
 		unsafe {
-			gl.uniform_1_i32(
-				gl.get_uniform_location(program, "u_live_shadows").as_ref(),
+			gl.uniform_1_i32(program.uniform("u_live_shadows"),
 				live as i32,
 			);
 			gl.uniform_1_i32(
-				gl.get_uniform_location(program, "u_height_ready").as_ref(),
+				program.uniform("u_height_ready"),
 				(self.heights.len() == 2) as i32,
 			);
 			gl.uniform_1_i32(
-				gl.get_uniform_location(program, "u_shadow_steps").as_ref(),
+				program.uniform("u_shadow_steps"),
 				if self.height_tier <= 2 { 32 } else { 48 },
 			);
-			for (i, name) in ["u_height", "u_polar_height"].iter().enumerate()
+			for (i, texture) in self.heights.iter().enumerate()
 			{
 				gl.active_texture(glow::TEXTURE6 + i as u32);
-				gl.bind_texture(glow::TEXTURE_2D, self.heights.get(i).copied());
-				gl.uniform_1_i32(
-					gl.get_uniform_location(program, name).as_ref(),
-					6 + i as i32,
-				);
+				gl.bind_texture(glow::TEXTURE_2D, Some(*texture));
 			}
 		}
 	}

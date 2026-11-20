@@ -43,9 +43,13 @@ pub(crate) fn select(max: i32, mobile: bool, forced: Option<&str>) -> Result<u32
 		Some(_) => return Err("MOON_TIER must be 2, 4 or 8".into()),
 		None =>
 		{
-			if mobile || cfg!(target_arch = "wasm32")
+			if mobile
 			{
 				2048
+			}
+			else if cfg!(target_arch = "wasm32")
+			{
+				4096
 			}
 			else
 			{

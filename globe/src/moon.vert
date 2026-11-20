@@ -12,6 +12,7 @@ uniform mat3 u_model;
 uniform highp float u_camera_distance;
 // Explicit integer precision must match the fragment stage for WebGL linking.
 uniform highp int u_ray_mode;
+uniform vec4 u_disc_bounds;
 // Pass world-space surface position to the fragment stage with perspective-correct interpolation.
 // Keep default smooth interpolation: derivatives of coverage-dependent centroid values worsened the filtering artifact.
 out vec3 v_position;
@@ -23,7 +24,10 @@ void main()
 {
 	if (u_ray_mode == 0)
 	{
-		v_screen = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)) * 2.0 - 1.0;
+		vec2 corner = vec2(
+			gl_VertexID == 1 || gl_VertexID == 2 || gl_VertexID == 4 ? 1.0 : 0.0,
+			gl_VertexID == 2 || gl_VertexID == 4 || gl_VertexID == 5 ? 1.0 : 0.0);
+		v_screen = mix(u_disc_bounds.xy, u_disc_bounds.zw, corner);
 		v_position = vec3(0.0);
 		v_object = vec3(0.0, 0.0, 1.0);
 		v_uv = vec2(0.0);

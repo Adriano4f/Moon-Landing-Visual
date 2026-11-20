@@ -1,4 +1,5 @@
 use crate::polar::{Shared, Spec};
+use super::Program;
 use crate::{assets, glow, renderer::Renderer};
 use glow::HasContext as _;
 
@@ -151,6 +152,7 @@ impl Atlas
 			gl.active_texture(glow::TEXTURE2);
 			gl.bind_texture(glow::TEXTURE_2D, Some(self.color));
 			gl.generate_mipmap(glow::TEXTURE_2D);
+			Renderer::anisotropy(gl, glow::TEXTURE_2D);
 			gl.tex_parameter_i32(
 				glow::TEXTURE_2D,
 				glow::TEXTURE_MIN_FILTER,
@@ -283,7 +285,7 @@ impl Renderer
 		Ok(())
 	}
 
-	pub(crate) fn bind_polar(&self, gl: &glow::Context, program: glow::Program, ready: bool)
+	pub(super) fn bind_polar(&self, gl: &glow::Context, program: &Program, ready: bool)
 	{
 		let color = self.polar.as_ref().map_or(self.textures[0], |p| p.color);
 		let normal = if self.live_ready()
@@ -302,17 +304,19 @@ impl Renderer
 			for (unit, name, texture) in
 				[(2, "u_polar_color", color), (3, "u_polar_normal", normal)]
 			{
+				if program.uniform(name).is_none()
+				{
+					continue;
+				}
 				gl.active_texture(glow::TEXTURE0 + unit);
 				gl.bind_texture(glow::TEXTURE_2D, Some(texture));
-				gl.uniform_1_i32(gl.get_uniform_location(program, name).as_ref(), unit as i32);
 			}
 			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_polar_ready").as_ref(),
+				program.uniform("u_polar_ready"),
 				if ready { 1.0 } else { 0.0 },
 			);
 			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_polar_normal_ready")
-					.as_ref(),
+				program.uniform("u_polar_normal_ready"),
 				if self.live_ready()
 					|| ((ready || self.deep_ready)
 						&& self.polar.as_ref().is_some_and(|p| p.normal.is_some()))
@@ -324,8 +328,7 @@ impl Renderer
 					0.0
 				},
 			);
-			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_polar_extent").as_ref(),
+			gl.uniform_1_f32(program.uniform("u_polar_extent"),
 				crate::polar::EXTENT,
 			);
 		}

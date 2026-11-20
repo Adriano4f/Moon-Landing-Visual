@@ -99,6 +99,19 @@ impl View
 		p[14] = 2.0 * far * near / (near - far);
 		p
 	}
+
+	pub fn disc_bounds(self) -> [f32; 4]
+	{
+		let projection = self.projection();
+		let tangent = (self.camera_distance().powi(2) - 1.0).sqrt();
+		let radius = [projection[0] / tangent, projection[5] / tangent];
+		std::array::from_fn(|i| {
+			let axis = i % 2;
+			let sign = if i < 2 { -1.0 } else { 1.0 };
+			(self.pan[axis] + sign * (radius[axis] + 4.0 / self.pixels[axis].max(1.0)))
+				.clamp(-1.0, 1.0)
+		})
+	}
 	/// Optionally reject sphere-occluded surface markers, but project off-sphere ray tips.
 	pub fn project(self, point: [f32; 3], surface: bool) -> Option<[f32; 2]>
 	{
@@ -452,6 +465,53 @@ mod tests
 				assert!((b[i] - a[i] - view.pan[i]).abs() < 1e-5);
 			}
 		}
+	}
+
+	#[test]
+	fn disc_quad_bounds_include_limb_pan_and_coverage_margin()
+	{
+		for zoom in [super::super::MIN_ZOOM, 1.0, 2.0, 8.0, 128.0]
+		{
+			for aspect in [0.5, 1.0, 2.0]
+			{
+				let view = View {
+					aspect,
+					..panned_view(zoom)
+				};
+				let bounds = view.disc_bounds();
+				assert!(
+					bounds
+						.iter()
+						.all(|v| v.is_finite() && (-1.0..=1.0).contains(v))
+				);
+				assert!(bounds[0] <= bounds[2] && bounds[1] <= bounds[3]);
+				let projection = view.projection();
+				let radius = 1.0 / (view.camera_distance().powi(2) - 1.0).sqrt();
+				for angle in 0..360
+				{
+					let (s, c) = (angle as f32 * PI / 180.0).sin_cos();
+					let limb = [
+						view.pan[0] + projection[0] * radius * c,
+						view.pan[1] + projection[5] * radius * s,
+					];
+					if limb.iter().all(|v| v.abs() <= 1.0)
+					{
+						assert!(limb[0] >= bounds[0] && limb[0] <= bounds[2]);
+						assert!(limb[1] >= bounds[1] && limb[1] <= bounds[3]);
+					}
+				}
+			}
+		}
+		let offscreen = View {
+			pan: [1000.0; 2],
+			..panned_view(1.0)
+		};
+		assert_eq!(offscreen.disc_bounds(), [1.0; 4]);
+		let empty = View {
+			pixels: [0.0; 2],
+			..panned_view(1.0)
+		};
+		assert!(empty.disc_bounds().iter().all(|v| v.is_finite()));
 	}
 
 	#[test]

@@ -1,5 +1,5 @@
 //! Fixed-size virtual texture: one page lookup and one imagery sample per pixel.
-use super::{Renderer, assets, glow};
+use super::{Program, Renderer, assets, glow};
 use crate::deep::{Shared, Tile};
 use glow::HasContext as _;
 
@@ -43,13 +43,13 @@ impl Atlas
 			gl.bind_texture(glow::TEXTURE_2D_ARRAY, Some(color));
 			gl.tex_storage_3d(
 				glow::TEXTURE_2D_ARRAY,
-				1,
+				9,
 				glow::SRGB8_ALPHA8,
 				256,
 				256,
 				slots as i32,
 			);
-			Self::filter(gl, glow::TEXTURE_2D_ARRAY, glow::LINEAR);
+			Self::filter(gl, glow::TEXTURE_2D_ARRAY, glow::LINEAR_MIPMAP_LINEAR);
 			gl.active_texture(glow::TEXTURE5);
 			gl.bind_texture(glow::TEXTURE_2D, Some(pages));
 			gl.tex_image_2d(
@@ -90,7 +90,15 @@ impl Atlas
 				gl.tex_parameter_i32(target, parameter, glow::CLAMP_TO_EDGE as i32);
 			}
 			gl.tex_parameter_i32(target, glow::TEXTURE_MIN_FILTER, filter as i32);
-			gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, filter as i32);
+			let mag = if filter == glow::LINEAR_MIPMAP_LINEAR
+			{
+				glow::LINEAR
+			}
+			else
+			{
+				filter
+			};
+			gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, mag as i32);
 		}
 	}
 
@@ -209,6 +217,9 @@ impl Atlas
 		let pixels = Self::page_pixels(&self.entries);
 		// SAFETY: page dimensions are fixed and all entries address allocated layers.
 		unsafe {
+			gl.active_texture(glow::TEXTURE4);
+			gl.bind_texture(glow::TEXTURE_2D_ARRAY, Some(self.color));
+			gl.generate_mipmap(glow::TEXTURE_2D_ARRAY);
 			gl.active_texture(glow::TEXTURE5);
 			gl.bind_texture(glow::TEXTURE_2D, Some(self.pages));
 			gl.tex_sub_image_2d(
@@ -395,16 +406,14 @@ impl Renderer
 		self.deep_ready = state.coverage_ready() && !atlas.failed;
 	}
 
-	pub(super) fn bind_deep(&self, gl: &glow::Context, program: glow::Program)
+	pub(super) fn bind_deep(&self, gl: &glow::Context, program: &Program)
 	{
 		// SAFETY: every active sampler has a complete texture of its declared type.
 		unsafe {
 			gl.uniform_1_i32(
-				gl.get_uniform_location(program, "u_deep_ready").as_ref(),
+				program.uniform("u_deep_ready"),
 				i32::from(self.deep_ready && self.deep.as_ref().is_some_and(|a| !a.failed)),
 			);
-			gl.uniform_1_i32(gl.get_uniform_location(program, "u_deep_color").as_ref(), 4);
-			gl.uniform_1_i32(gl.get_uniform_location(program, "u_deep_pages").as_ref(), 5);
 			gl.active_texture(glow::TEXTURE4);
 			gl.bind_texture(glow::TEXTURE_2D_ARRAY, self.deep.as_ref().map(|a| a.color));
 			gl.active_texture(glow::TEXTURE5);

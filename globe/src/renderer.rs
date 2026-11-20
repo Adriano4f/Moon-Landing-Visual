@@ -8,9 +8,37 @@ use super::glow;
 use super::{Lighting, Ray, assets, field, math};
 use glow::HasContext as _;
 
+#[cfg(not(target_arch = "wasm32"))]
+type Uniforms = std::collections::HashMap<String, glow::UniformLocation>;
+#[cfg(target_arch = "wasm32")]
+type Uniforms = send_wrapper::SendWrapper<std::collections::HashMap<String, glow::UniformLocation>>;
+
+struct Program
+{
+	handle: glow::Program,
+	uniforms: Uniforms,
+}
+
+impl Program
+{
+	fn new(handle: glow::Program) -> Self
+	{
+		let uniforms = std::collections::HashMap::new();
+		#[cfg(target_arch = "wasm32")]
+		let uniforms = send_wrapper::SendWrapper::new(uniforms);
+		Self { handle, uniforms }
+	}
+
+	fn uniform(&self, name: &str) -> Option<&glow::UniformLocation>
+	{
+		self.uniforms.get(name)
+	}
+}
+
 pub(super) struct Renderer
 {
-	program: Option<glow::Program>,
+	program: Option<std::sync::Arc<Program>>,
+	fast_program: Option<std::sync::Arc<Program>>,
 	shaders: Vec<glow::Shader>,
 	vao: Option<glow::VertexArray>,
 	/// Own a separate position-only layout for the two direction lines.
@@ -107,7 +135,15 @@ impl Renderer
 	)
 	{
 		let gl = painter.gl();
-		let Some(program) = self.program
+		let selected = if self.live_ready()
+		{
+			&self.program
+		}
+		else
+		{
+			&self.fast_program
+		};
+		let Some(program) = selected.clone()
 		else
 		{
 			return;
@@ -116,14 +152,20 @@ impl Renderer
 		// setup. The app requests a 24-bit depth buffer on native and web. egui_glow 0.37
 		// draws to the default framebuffer, disables framebuffer-sRGB, and restores UI state.
 		unsafe {
-			Self::begin_frame(gl, program);
-			Self::light_uniforms(gl, program, lighting);
-			self.bind_heights(gl, program, self.live_ready());
-			self.bind_polar(gl, program, polar_ready);
-			self.bind_deep(gl, program);
+			Self::begin_frame(gl, &program);
+			Self::light_uniforms(gl, &program, lighting);
+			if self.live_ready()
+			{
+				self.bind_heights(gl, &program, true);
+			}
+			self.bind_polar(gl, &program, polar_ready);
+			if !self.live_ready()
+			{
+				self.bind_deep(gl, &program);
+			}
 			self.paint_opaque(
 				gl,
-				program,
+				&program,
 				view,
 				lighting.map_or([0.0, 0.0, 1.0], |l| l.sun),
 				painter.intermediate_fbo(),
@@ -134,9 +176,9 @@ impl Renderer
 			gl.depth_mask(false);
 			if surface_rays
 			{
-				self.paint_surface_rays(gl, program, view, lighting);
+				self.paint_surface_rays(gl, &program, view, lighting);
 			}
-			self.paint_site_rays(gl, program, view, rays);
+			self.paint_site_rays(gl, &program, view, rays);
 			gl.depth_mask(true);
 			gl.disable(glow::BLEND);
 			gl.bind_vertex_array(None);
@@ -159,7 +201,7 @@ impl Renderer
 	fn paint_surface_rays(
 		&self,
 		gl: &glow::Context,
-		program: glow::Program,
+		program: &Program,
 		view: math::View,
 		lighting: Option<Lighting>,
 	)
@@ -181,9 +223,8 @@ impl Renderer
 		// SAFETY: the callback owns the current GL context; the ray layout matches seven floats per vertex.
 		unsafe {
 			gl.enable(glow::DEPTH_TEST);
-			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
-			gl.uniform_3_f32(
-				gl.get_uniform_location(program, "u_ray_color").as_ref(),
+			gl.uniform_1_i32(program.uniform("u_ray_mode"), 1);
+			gl.uniform_3_f32(program.uniform("u_ray_color"),
 				1.0,
 				0.9,
 				0.05,
@@ -256,7 +297,11 @@ impl Renderer
 			}
 			if let Some(program) = self.program.take()
 			{
-				gl.delete_program(program);
+				gl.delete_program(program.handle);
+			}
+			if let Some(program) = self.fast_program.take()
+			{
+				gl.delete_program(program.handle);
 			}
 		}
 	}
@@ -264,7 +309,7 @@ impl Renderer
 
 impl Renderer
 {
-	unsafe fn light_uniforms(gl: &glow::Context, program: glow::Program, lighting: Option<Lighting>)
+	unsafe fn light_uniforms(gl: &glow::Context, program: &Program, lighting: Option<Lighting>)
 	{
 		// SAFETY: the caller keeps this renderer's GL context current.
 		unsafe {
@@ -277,18 +322,18 @@ impl Renderer
 			for (name, direction) in [("u_sun", light.sun), ("u_earth", light.earth)]
 			{
 				gl.uniform_3_f32(
-					gl.get_uniform_location(program, name).as_ref(),
+					program.uniform(name),
 					direction[0],
 					direction[1],
 					direction[2],
 				);
 			}
 			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_sun_scale").as_ref(),
+				program.uniform("u_sun_scale"),
 				if lighting.is_some() { 1.0 } else { 0.0 },
 			);
 			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_earthshine").as_ref(),
+				program.uniform("u_earthshine"),
 				light.ratio * if light.boosted { 1000.0 } else { 1.0 },
 			);
 		}
@@ -297,7 +342,7 @@ impl Renderer
 	unsafe fn paint_site_rays(
 		&self,
 		gl: &glow::Context,
-		program: glow::Program,
+		program: &Program,
 		view: math::View,
 		rays: &[([f32; 3], [Ray; 2])],
 	)
@@ -314,7 +359,7 @@ impl Renderer
 				{
 					continue;
 				}
-				gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 1);
+				gl.uniform_1_i32(program.uniform("u_ray_mode"), 1);
 				// Select the independent, position-only line layout.
 				gl.bind_vertex_array(self.ray_vao);
 				// Upload two endpoints per ray without modifying the sphere buffers.
@@ -338,7 +383,7 @@ impl Renderer
 					let strength = if body.visible { 1.0 } else { 0.35 };
 					// Send an unlit display color rather than illuminating rays with the globe's illustration light.
 					gl.uniform_3_f32(
-						gl.get_uniform_location(program, "u_ray_color").as_ref(),
+						program.uniform("u_ray_color"),
 						color[0] * strength,
 						color[1] * strength,
 						color[2] * strength,
@@ -356,7 +401,7 @@ impl Renderer
 
 impl Renderer
 {
-	unsafe fn begin_frame(gl: &glow::Context, program: glow::Program)
+	unsafe fn begin_frame(gl: &glow::Context, program: &Program)
 	{
 		// SAFETY: the calling paint callback owns the current context.
 		unsafe {
@@ -365,11 +410,12 @@ impl Renderer
 			gl.depth_mask(true);
 			gl.clear_depth_f32(1.0);
 			gl.clear(glow::DEPTH_BUFFER_BIT);
-			gl.disable(glow::BLEND);
+			gl.enable(glow::BLEND);
+			gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
 			gl.enable(glow::CULL_FACE);
 			gl.cull_face(glow::BACK);
 			gl.front_face(glow::CCW);
-			gl.use_program(Some(program));
+			gl.use_program(Some(program.handle));
 		}
 	}
 }
@@ -379,7 +425,7 @@ impl Renderer
 	unsafe fn paint_opaque(
 		&mut self,
 		gl: &glow::Context,
-		program: glow::Program,
+		program: &Program,
 		view: math::View,
 		sun: [f32; 3],
 		framebuffer: Option<glow::Framebuffer>,
@@ -387,39 +433,45 @@ impl Renderer
 	{
 		// SAFETY: the calling paint callback owns the current context.
 		unsafe {
-			gl.uniform_1_f32(
-				gl.get_uniform_location(program, "u_camera_distance")
-					.as_ref(),
+			gl.uniform_1_f32(program.uniform("u_camera_distance"),
 				view.camera_distance(),
 			);
-			gl.uniform_1_i32(gl.get_uniform_location(program, "u_ray_mode").as_ref(), 0);
+			gl.uniform_1_i32(program.uniform("u_ray_mode"), 0);
+			let bounds = view.disc_bounds();
+			gl.uniform_4_f32(program.uniform("u_disc_bounds"),
+				bounds[0],
+				bounds[1],
+				bounds[2],
+				bounds[3],
+			);
 			// Send a column-major projection without transposing.
 			gl.uniform_matrix_4_f32_slice(
-				gl.get_uniform_location(program, "u_projection").as_ref(),
+				program.uniform("u_projection"),
 				false,
 				&view.projection(),
 			);
 			// Share one column-major rigid model matrix with geometry, normals, and CPU marker projection.
-			gl.uniform_matrix_3_f32_slice(
-				gl.get_uniform_location(program, "u_model").as_ref(),
+			gl.uniform_matrix_3_f32_slice(program.uniform("u_model"),
 				false,
 				&view.model(),
 			);
 			for (unit, name) in ["u_albedo", "u_normal"].iter().enumerate()
 			{
+				if program.uniform(name).is_none()
+				{
+					continue;
+				}
 				gl.active_texture(glow::TEXTURE0 + unit as u32);
 				gl.bind_texture(glow::TEXTURE_2D, Some(self.textures[unit]));
-				gl.uniform_1_i32(gl.get_uniform_location(program, name).as_ref(), unit as i32);
 			}
 			gl.bind_vertex_array(self.vao);
-			if !self.shadow_mask(gl, program, view, sun, framebuffer)
+			if self.live_ready() && !self.shadow_mask(gl, program, view, sun, framebuffer)
 			{
-				gl.uniform_1_i32(
-					gl.get_uniform_location(program, "u_live_shadows").as_ref(),
+				gl.uniform_1_i32(program.uniform("u_live_shadows"),
 					0,
 				);
 			}
-			gl.draw_arrays(glow::TRIANGLES, 0, 3);
+			gl.draw_arrays(glow::TRIANGLES, 0, 6);
 		}
 	}
 }

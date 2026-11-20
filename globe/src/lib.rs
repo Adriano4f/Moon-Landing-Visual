@@ -157,6 +157,37 @@ mod scene_tests
 	}
 
 	#[test]
+	fn quality_restoration_and_lazy_surface_requests()
+	{
+		let mut globe = unloaded();
+		assert_eq!(globe.quality(), "realistic");
+		assert!(globe.needs_surface());
+		globe.restore_quality(Some("fast"));
+		assert_eq!(globe.quality(), "fast");
+		assert!(!globe.needs_surface());
+		for choice in [None, Some(""), Some("unknown")]
+		{
+			globe.restore_quality(choice);
+			assert_eq!(globe.quality(), "fast");
+			assert!(!globe.needs_surface());
+		}
+		globe.restore_quality(Some("realistic"));
+		assert!(globe.needs_surface());
+		globe.height_loading = Some((
+			2,
+			Arc::new(Mutex::new(assets::Loading {
+				images: std::array::from_fn(|_| None),
+				error: None,
+			})),
+		));
+		assert!(!globe.needs_surface());
+		globe.target_tier = 4;
+		assert!(globe.needs_surface());
+		globe.restore_quality(Some("fast"));
+		assert!(!globe.needs_surface());
+	}
+
+	#[test]
 	fn initial_light_is_validated_and_never_reused_after_real_tracks()
 	{
 		let mut globe = unloaded();
@@ -238,6 +269,29 @@ mod scene_tests
 
 impl Globe
 {
+	pub fn quality(&self) -> &'static str
+	{
+		if self.live_shadows
+		{
+			"realistic"
+		}
+		else
+		{
+			"fast"
+		}
+	}
+
+	pub fn restore_quality(&mut self, quality: Option<&str>)
+	{
+		match quality
+		{
+			Some("fast") => self.live_shadows = false,
+			Some("realistic") => self.live_shadows = true,
+			_ =>
+			{}
+		}
+	}
+
 	pub fn new(gl: &Arc<glow::Context>) -> Result<Self, String>
 	{
 		let (mobile, forced) = assets::preferences();
@@ -258,7 +312,7 @@ impl Globe
 			surface_rays: false,
 			loading: assets::load(assets::first_tier(), None),
 			height_loading: None,
-			live_shadows: true,
+			live_shadows: tier > 2 && !mobile,
 			polar: Arc::new(Mutex::new(polar::State::default())),
 			deep: Arc::new(Mutex::new(deep::State::default())),
 			tier: assets::first_tier(),

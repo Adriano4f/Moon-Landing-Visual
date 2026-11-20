@@ -81,6 +81,10 @@ impl MoonApp
 		let panoramas: Vec<_> = (0..catalog.len()).map(|_| None).collect();
 		let published = catalog.len();
 		let mut globe = globe::Globe::new(gl)?;
+		let quality = cc
+			.storage
+			.and_then(|storage| storage.get_string("moon-quality"));
+		globe.restore_quality(quality.as_deref());
 		let [sun, earth] =
 			startup::directions(include_bytes!("../assets/data/moon-ephemeris.initial.bin"))?;
 		globe.set_startup_light(sun, earth)?;
@@ -323,7 +327,13 @@ impl eframe::App for MoonApp
 		let phone = ui.ctx().content_rect().width() < 760.0;
 		theme::apply(ui.ctx(), phone);
 		ui.set_style(ui.ctx().style_of(eframe::egui::Theme::Dark));
+		let quality = self.globe.quality();
 		self.settings(ui, phone);
+		if quality != self.globe.quality()
+			&& let Some(storage) = frame.storage_mut()
+		{
+			storage.set_string("moon-quality", self.globe.quality().into());
+		}
 		self.central_view(ui);
 		self.welcome(ui.ctx());
 		if std::mem::take(&mut self.guide_dismissal_pending)

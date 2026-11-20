@@ -81,9 +81,10 @@ impl Globe
 	pub fn lighting_controls(&mut self, ui: &mut egui::Ui)
 	{
 		ui.horizontal_wrapped(|ui| {
-			ui.selectable_value(&mut self.live_shadows, true, "Live shadows");
-			ui.selectable_value(&mut self.live_shadows, false, "Satellite photos");
-			help::question(ui, "Live shadows follow the Sun; satellite photos retain recorded shadows.");
+			ui.label("Quality:");
+			ui.selectable_value(&mut self.live_shadows, false, "Fast");
+			ui.selectable_value(&mut self.live_shadows, true, "Realistic");
+			help::question(ui, "Fast uses satellite photos. Realistic adds terrain lighting and shadows, requiring more graphics power and data.");
 		});
 		// Explain that increased exposure is not increased power.
 		ui.horizontal_wrapped(|ui| {

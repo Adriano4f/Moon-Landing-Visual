@@ -28,7 +28,13 @@ impl Globe
 			pixels: [rect.width() * scale, rect.height() * scale],
 			scale,
 		};
-		if self.has_visible_moon() && polar::wanted(view)
+		let photographic = !self.live_shadows
+			|| self
+				.renderer
+				.lock()
+				.as_ref()
+				.is_none_or(|r| !r.live_ready());
+		if photographic && self.has_visible_moon() && polar::wanted(view)
 		{
 			polar::advance(
 				&self.polar,
@@ -37,7 +43,7 @@ impl Globe
 				ui.ctx(),
 			);
 		}
-		if self.has_visible_moon() && self.zoom >= 2.0
+		if photographic && self.has_visible_moon() && self.zoom >= 2.0
 		{
 			deep::advance(&self.deep, view, ui.ctx());
 		}
@@ -112,10 +118,19 @@ impl Globe
 		(rect, response)
 	}
 
+	pub(super) fn needs_surface(&self) -> bool
+	{
+		self.live_shadows
+			&& self
+				.height_loading
+				.as_ref()
+				.is_none_or(|(tier, _)| *tier != self.target_tier)
+	}
+
 	fn loading_status(&mut self, ui: &mut egui::Ui)
 	{
 		let height_tier = self.target_tier;
-		if self.live_shadows && self.height_loading.as_ref().is_none_or(|(tier, _)| *tier != height_tier)
+		if self.needs_surface()
 		{
 			self.height_loading = Some((height_tier, assets::load_surface(height_tier, ui.ctx().clone())));
 		}
@@ -323,7 +338,8 @@ impl Globe
 				if let Some(renderer) = renderer.as_mut()
 				{
 					renderer.live_shadows = live_shadows;
-					if let Some((tier, heights)) = &heights
+					if live_shadows
+						&& let Some((tier, heights)) = &heights
 						&& renderer.update_surface(painter.gl(), *tier, heights)
 					{
 						ctx.request_repaint();
