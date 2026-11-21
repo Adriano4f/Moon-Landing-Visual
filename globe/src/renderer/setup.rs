@@ -150,6 +150,7 @@ impl Renderer
 				"u_polar_height",
 				"u_shadow_mask",
 				"u_detail",
+				"u_detail_height",
 			]
 			.iter()
 			.enumerate()

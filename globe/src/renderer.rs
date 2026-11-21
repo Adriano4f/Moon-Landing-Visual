@@ -55,7 +55,7 @@ pub(super) struct Renderer
 	pending: Option<(u32, std::vec::IntoIter<assets::TextureImage>)>,
 	pub(crate) polar: Option<polar::Atlas>,
 	deep: Option<deep::Atlas>,
-	detail: Option<(crate::detail::Spec, glow::Texture)>,
+	detail: Option<(crate::detail::Spec, glow::Texture, Option<glow::Texture>)>,
 	heights: Vec<glow::Texture>,
 	height_tier: u32,
 	surface_tier: Option<u32>,
@@ -185,7 +185,7 @@ impl Renderer
 			gl.depth_mask(true);
 			gl.disable(glow::BLEND);
 			gl.bind_vertex_array(None);
-			for unit in 0..10
+			for unit in 0..11
 			{
 				gl.active_texture(glow::TEXTURE0 + unit);
 				gl.bind_texture(glow::TEXTURE_2D, None);
@@ -248,9 +248,13 @@ impl Renderer
 	/// Release registered GPU objects using the current context.
 	pub(super) fn destroy(&mut self, gl: &glow::Context)
 	{
-		if let Some((_, texture)) = self.detail.take()
+		if let Some((_, texture, height)) = self.detail.take()
 		{
 			unsafe { gl.delete_texture(texture); }
+			if let Some(height) = height
+			{
+				unsafe { gl.delete_texture(height); }
+			}
 		}
 		if let Some(deep) = self.deep.take()
 		{

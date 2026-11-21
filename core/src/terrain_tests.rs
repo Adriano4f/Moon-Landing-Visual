@@ -1,5 +1,179 @@
 use super::*;
 
+fn shadow_dot(a: [f64; 3], b: [f64; 3]) -> f64
+{
+	a.into_iter().zip(b).map(|(a, b)| a * b).sum()
+}
+
+fn shadow_basis(lat: f64, lon: f64) -> [[f64; 3]; 3]
+{
+	let (s, c) = lat.to_radians().sin_cos();
+	let (sl, cl) = lon.to_radians().sin_cos();
+	[[c * sl, s, c * cl], [cl, 0.0, -sl], [-s * sl, c, -s * cl]]
+}
+
+fn shadow_dem(p: [f64; 3], basis: [[f64; 3]; 3], rim: f64) -> TerrainSample
+{
+	let x = MOON_RADIUS_M * shadow_dot(p, basis[1]);
+	let y = MOON_RADIUS_M * shadow_dot(p, basis[2]);
+	let edge = ((12800.0 - x.abs().max(y.abs())) / 1536.0).clamp(0.0, 1.0);
+	let weight = edge * edge * (3.0 - 2.0 * edge);
+	let height = |spacing: f64| {
+		let ix = (x / spacing).floor();
+		let iy = (y / spacing).floor();
+		let field = |x: f64, y: f64| {
+			let local = rim * (-((x.hypot(y) - 1800.0) / 90.0).powi(2)).exp();
+			let distant =
+				4000.0 * (-((x - 90000.0) / 10000.0).powi(2) - (y / 10000.0).powi(2)).exp();
+			((-1000.0 + local + distant) * 2.0).round() * 0.5
+		};
+		let tx = x / spacing - ix;
+		let ty = y / spacing - iy;
+		let row = |j| field(ix * spacing, j) * (1.0 - tx) + field((ix + 1.0) * spacing, j) * tx;
+		row(iy * spacing) * (1.0 - ty) + row((iy + 1.0) * spacing) * ty
+	};
+	TerrainSample {
+		z_m: height(1000.0) * (1.0 - weight) + height(50.0) * weight,
+		resolution_m: if weight > 0.0 { 50.0 } else { 1000.0 },
+	}
+}
+
+fn shadow_march(basis: [[f64; 3]; 3], sun: [f64; 3], rim: f64) -> f64
+{
+	let origin = basis[0].map(|x| x * (MOON_RADIUS_M + shadow_dem(basis[0], basis, rim).z_m + 0.5));
+	let mut distance = 25.0;
+	let mut clearance_angle = 1.0_f64;
+	let mut visit = |distance: f64| {
+		let ray = std::array::from_fn(|i| origin[i] + distance * sun[i]);
+		let radius = shadow_dot(ray, ray).sqrt();
+		let p = ray.map(|x| x / radius);
+		let height = shadow_dem(p, basis, rim).z_m;
+		let angle = (radius - MOON_RADIUS_M - height) / distance;
+		let improved = angle < clearance_angle;
+		clearance_angle = clearance_angle.min(angle);
+		(p, radius, improved)
+	};
+	for _ in 0..768
+	{
+		let (p, radius, _) = visit(distance);
+		let edge = MOON_RADIUS_M
+			* shadow_dot(p, basis[1])
+				.abs()
+				.max(shadow_dot(p, basis[2]).abs());
+		if edge >= 12800.0 || distance >= 600000.0
+		{
+			break;
+		}
+		if radius > MOON_RADIUS_M + 15000.0 && shadow_dot(p, sun) > 0.0
+		{
+			break;
+		}
+		distance += 50.0;
+	}
+	let growth = (600000.0 / distance).max(1.0).powf(1.0 / 47.0);
+	let mut best_distance = 0.0;
+	for _ in 0..48
+	{
+		let (_, _, improved) = visit(distance);
+		if improved
+		{
+			best_distance = distance;
+		}
+		distance *= growth;
+	}
+	if best_distance > 0.0
+	{
+		let start = best_distance / growth;
+		let stride = best_distance * (growth - 1.0 / growth) / 16.0;
+		for i in 0..16
+		{
+			visit((start + (f64::from(i) + 0.5) * stride).min(600000.0));
+		}
+	}
+	let x = (clearance_angle / f64::from(SUN_RADIUS_DEG).to_radians()).clamp(-1.0, 1.0);
+	(x.acos().mul_add(-1.0, std::f64::consts::PI) + x * (1.0 - x * x).max(0.0).sqrt())
+		/ std::f64::consts::PI
+}
+
+#[test]
+fn detail_shadow_march_matches_core_horizons()
+{
+	// Moon-fixed ephemeris directions at 2027-01-01 and 2027-01-02 00:00 UTC.
+	let dated_suns = [
+		[
+			-0.9926345348358154,
+			-0.01770699955523014,
+			-0.11984651535749435,
+		],
+		[
+			-0.9450840353965759,
+			-0.017429450526833534,
+			-0.32636234164237976,
+		],
+	];
+	for (lat, lon) in [(-5.9, 179.4), (-89.45, 222.69)]
+	{
+		let basis = shadow_basis(lat, lon);
+		for rim in [0.0, 300.0]
+		{
+			let horizon = horizon_from_terrain(lat, lon, 360, 0.5, Some(600000.0), |lat, lon| {
+				Ok(Some(shadow_dem(shadow_basis(lat, lon)[0], basis, rim)))
+			})
+			.unwrap();
+			for az in [0.0_f64, 90.0, 180.0, 270.0]
+			{
+				let h = horizon.at(az as f32);
+				for offset in [-1.0_f32, -0.4, 0.0, 0.4, 1.0]
+				{
+					let el = f64::from(h + offset).to_radians();
+					let az = az.to_radians();
+					let sun = std::array::from_fn(|i| {
+						basis[0][i] * el.sin()
+							+ (basis[1][i] * az.sin() + basis[2][i] * az.cos()) * el.cos()
+					});
+					let actual = shadow_march(basis, sun, rim);
+					let expected = f64::from(sun_fraction(h + offset, h));
+					assert!(
+						(actual - expected).abs() < 0.16,
+						"{lat},{lon}: {az} {h} {offset}: {actual} != {expected}"
+					);
+					if offset.abs() > SUN_RADIUS_DEG
+					{
+						assert_eq!(actual > 0.5, offset > 0.0);
+					}
+				}
+			}
+			for sun in dated_suns
+			{
+				let sun = sun.map(|x| x / shadow_dot(sun, sun).sqrt());
+				let az = shadow_dot(sun, basis[1])
+					.atan2(shadow_dot(sun, basis[2]))
+					.to_degrees()
+					.rem_euclid(360.0);
+				let el = shadow_dot(sun, basis[0]).asin().to_degrees() as f32;
+				let actual = shadow_march(basis, sun, rim);
+				let expected = f64::from(sun_fraction(el, horizon.at(az as f32)));
+				assert!(
+					(actual - expected).abs() < 0.16,
+					"dated Sun {lat},{lon}: {actual} != {expected}"
+				);
+			}
+		}
+	}
+}
+
+#[test]
+fn detail_shadow_geometry_is_curved_and_falls_back_to_distant_heights()
+{
+	let basis = shadow_basis(0.0, 0.0);
+	let sun = |el: f64| [el.to_radians().cos(), 0.0, el.to_radians().sin()];
+	assert_eq!(shadow_march(basis, sun(0.0), 0.0), 0.0);
+	assert_eq!(shadow_march(basis, sun(3.0), 0.0), 1.0);
+	assert_eq!(shadow_march(basis, sun(6.0), 300.0), 0.0);
+	assert_eq!(shadow_march(basis, sun(20.0), 300.0), 1.0);
+	assert_eq!(shadow_march(basis, sun(-5.0), 0.0), 0.0);
+}
+
 #[test]
 fn pgda_projection_matches_labeled_axes()
 {

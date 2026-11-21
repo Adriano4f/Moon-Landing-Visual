@@ -9,6 +9,7 @@ uniform highp sampler2DArray u_deep_color;
 uniform sampler2D u_deep_pages;
 uniform highp int u_deep_ready;
 uniform sampler2D u_detail;
+uniform highp sampler2D u_detail_height;
 uniform int u_detail_kind;
 uniform int u_detail_pole;
 uniform vec4 u_detail_bounds;
@@ -170,7 +171,9 @@ float unpack_height(vec3 value)
 	return dot(value.rg, vec2(65280.0, 255.0)) * 0.5 - 10000.0;
 }
 
-float terrain_height(vec3 p)
+vec3 detail_coordinates(vec3 p);
+
+float coarse_height(vec3 p)
 {
 	float band = polar_height_weight(p);
 	vec3 polar = vec3(0.0);
@@ -186,31 +189,87 @@ float terrain_height(vec3 p)
 	return mix(global, unpack_height(polar), band);
 }
 
+float terrain_height(vec3 p)
+{
+	if (u_detail_kind != 2) return coarse_height(p);
+	vec3 window = detail_coordinates(p);
+	if (window.z <= 0.0) return coarse_height(p);
+	vec2 packed_height = textureLod(u_detail_height, window.xy, 0.0).rg;
+	float fine = dot(packed_height, vec2(65280.0, 255.0)) * 0.5 - 15000.0;
+	if (window.z >= 1.0) return fine;
+	return mix(coarse_height(p), fine, window.z);
+}
+
+float detail_spacing(vec3 p)
+{
+	vec2 span = u_detail_bounds.zw;
+	if (u_detail_pole == 0)
+		span *= (PI * 1737400.0 / 180.0) * vec2(max(length(p.xz), 0.02), 1.0);
+	else span *= (1.0 + abs(p.y)) * 0.5;
+	return min(span.x, span.y) / 512.0;
+}
+
 float solar_visibility(vec3 p)
 {
 	const float R = 1737400.0;
-	const float SUN_RADIUS = 0.265 * PI / 180.0;
+	const float SUN_RADIUS = 0.267 * PI / 180.0;
 	vec3 sun = normalize(u_sun);
-	vec3 origin = p * (R + terrain_height(p) + 3.0);
+	float spacing = mix(2.0 * PI * R / float(textureSize(u_height, 0).x),
+		2.0 * u_polar_extent / float(textureSize(u_polar_height, 0).x), polar_height_weight(p));
+	bool fine = u_detail_kind == 2 && detail_coordinates(p).z > 0.0;
+	if (fine) spacing = detail_spacing(p);
+	float bias = fine ? 0.5 : 3.0;
+	vec3 origin = p * (R + terrain_height(p) + bias);
 	float along = dot(origin, sun);
 	// Even the lowest terrain blocks this ray; mapped normals cannot leak sunlight into deep night.
 	if (along < 0.0 && dot(origin, origin) - along * along < (R - 10000.0) * (R - 10000.0)) return 0.0;
-	float global_spacing = 2.0 * PI * R / float(textureSize(u_height, 0).x);
-	float polar_spacing = 2.0 * u_polar_extent / float(textureSize(u_polar_height, 0).x);
-	float distance = 0.5 * mix(global_spacing, polar_spacing, polar_height_weight(p));
-	float growth = pow(600000.0 / distance, 1.0 / float(u_shadow_steps - 1));
+	float distance = spacing * 0.5;
 	float clearance_angle = 1.0;
+	// Resolve local ridges at the DEM spacing before growing steps toward distant terrain.
+	if (fine)
+	{
+		for (int i = 0; i < 768; ++i)
+		{
+			vec3 ray = origin + distance * sun;
+			float radius = length(ray);
+			vec3 direction = ray / radius;
+			if (detail_coordinates(direction).z <= 0.0 || distance >= 600000.0) break;
+			float clearance = radius - R - terrain_height(direction);
+			clearance_angle = min(clearance_angle, clearance / distance);
+			if (clearance_angle <= -SUN_RADIUS) return 0.0;
+			if (radius > R + 15000.0 && dot(ray, sun) > 0.0) break;
+			distance += spacing;
+		}
+	}
+	float growth = pow(max(600000.0 / distance, 1.0), 1.0 / float(u_shadow_steps - 1));
+	float best_far_distance = 0.0;
 	for (int i = 0; i < 48; ++i)
 	{
 		if (i >= u_shadow_steps) break;
 		vec3 ray = origin + distance * sun;
 		float radius = length(ray);
-		// All encoded valid lunar terrain is below 12 km; the ray rises monotonically beyond this point.
-		if (radius > R + 12000.0 && dot(ray, sun) > 0.0) break;
+		// The ray rises above all validated terrain beyond this point.
+		if (radius > R + 15000.0 && dot(ray, sun) > 0.0) break;
 		float clearance = radius - R - terrain_height(ray / radius);
-		clearance_angle = min(clearance_angle, clearance / distance);
+		if (clearance / distance < clearance_angle)
+		{
+			clearance_angle = clearance / distance;
+			best_far_distance = distance;
+		}
 		if (clearance_angle <= -SUN_RADIUS) return 0.0;
 		distance *= growth;
+	}
+	if (fine && best_far_distance > 0.0)
+	{
+		float start = best_far_distance / growth;
+		float stride = best_far_distance * (growth - 1.0 / growth) / 16.0;
+		for (int i = 0; i < 16; ++i)
+		{
+			float d = min(start + (float(i) + 0.5) * stride, 600000.0);
+			vec3 ray = origin + d * sun;
+			float radius = length(ray);
+			clearance_angle = min(clearance_angle, (radius - R - terrain_height(ray / radius)) / d);
+		}
 	}
 	float x = clamp(clearance_angle / SUN_RADIUS, -1.0, 1.0);
 	return (acos(-x) + x * sqrt(max(0.0, 1.0 - x * x))) / PI;
@@ -241,9 +300,9 @@ vec4 satellite(vec2 uv, int pole, vec2 gx, vec2 gy)
 }
 #endif
 
-vec4 zoom_detail(vec3 p)
+vec3 detail_coordinates(vec3 p)
 {
-	if (u_detail_kind == 0) return vec4(0.0);
+	if (u_detail_kind == 0) return vec3(0.0);
 	vec2 xy;
 	if (u_detail_pole == 0)
 	{
@@ -251,14 +310,21 @@ vec4 zoom_detail(vec3 p)
 	}
 	else
 	{
-		if (p.y * float(u_detail_pole) < 0.0) return vec4(0.0);
+		if (p.y * float(u_detail_pole) < 0.0) return vec3(0.0);
 		xy = 3474800.0 * vec2(p.x, u_detail_pole < 0 ? p.z : -p.z) / max(1.0 + abs(p.y), 0.000001);
 	}
 	vec2 uv = (xy - u_detail_bounds.xy) / u_detail_bounds.zw;
 	uv.y = 1.0 - uv.y;
 	vec2 edge = min(uv, 1.0 - uv);
 	float weight = smoothstep(0.0, 0.06, min(edge.x, edge.y));
-	return vec4(texture(u_detail, uv).rgb, weight);
+	return vec3(uv, weight);
+}
+
+vec4 zoom_detail(vec3 p)
+{
+	if (u_detail_kind == 0) return vec4(0.0);
+	vec3 window = detail_coordinates(p);
+	return vec4(texture(u_detail, window.xy).rgb, window.z);
 }
 
 // Analytic sphere intersection avoids mesh facets and remains stable near the surface.
@@ -354,11 +420,9 @@ void main()
 	// Add physically distinct direct solar and phase-scaled reflected Earth contributions.
 	bool resolved = u_live_shadows != 0 && u_height_ready != 0;
 	float visibility = 1.0;
-	if (resolved)
+	if (resolved && u_mask_ready != 0)
 	{
-		visibility = u_mask_ready != 0
-			? texture(u_shadow_mask, (gl_FragCoord.xy - u_shadow_viewport.xy) / u_shadow_viewport.zw).r
-			: solar_visibility(p);
+		visibility = texture(u_shadow_mask, (gl_FragCoord.xy - u_shadow_viewport.xy) / u_shadow_viewport.zw).r;
 	}
 	float reflectance = 0.0;
 	if (u_sun_scale > 0.0 && visibility > 0.0)

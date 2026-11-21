@@ -344,7 +344,13 @@ fn decode(spec: Spec, bytes: &[u8]) -> Result<Vec<u8>, String>
 	{
 		return Err("Expected F32 zoom DEM".into());
 	};
-	normals(spec, &values)
+	let mut pixels = normals(spec, &values)?;
+	for height in values
+	{
+		let packed = ((height + 15000.0) * 2.0).round() as u16;
+		pixels.extend_from_slice(&[(packed >> 8) as u8, packed as u8, 255, 255]);
+	}
+	Ok(pixels)
 }
 
 #[derive(Default)]
@@ -610,8 +616,13 @@ mod tests
 			.unwrap();
 		assert_eq!(
 			decode(spec, bytes.get_ref()).unwrap().len(),
-			(SIDE * SIDE * 3) as usize
+			(SIDE * SIDE * 7) as usize
 		);
+		let decoded = decode(spec, bytes.get_ref()).unwrap();
+		for pixel in decoded[(SIDE * SIDE * 3) as usize..].as_chunks::<4>().0
+		{
+			assert_eq!(pixel, &[117, 48, 255, 255]);
+		}
 		let ctx = egui::Context::default();
 		let shared = Shared::default();
 		finish(&shared, spec, Ok(vec![1, 2, 3]), &ctx);

@@ -90,6 +90,14 @@ impl Mask
 
 impl Renderer
 {
+	pub(super) fn invalidate_shadow_mask(&mut self)
+	{
+		if let Some(mask) = &mut self.mask
+		{
+			mask.key.clear();
+		}
+	}
+
 	pub(super) unsafe fn shadow_mask(
 		&mut self,
 		gl: &glow::Context,
