@@ -45,6 +45,7 @@ impl Renderer
 			pending: None,
 			polar: None,
 			deep: None,
+			detail: None,
 			heights: Vec::new(),
 			height_tier: 0,
 			surface_tier: None,
@@ -148,6 +149,7 @@ impl Renderer
 				"u_height",
 				"u_polar_height",
 				"u_shadow_mask",
+				"u_detail",
 			]
 			.iter()
 			.enumerate()

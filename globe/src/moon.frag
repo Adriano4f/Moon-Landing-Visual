@@ -8,6 +8,10 @@ uniform mat4 u_projection;
 uniform highp sampler2DArray u_deep_color;
 uniform sampler2D u_deep_pages;
 uniform highp int u_deep_ready;
+uniform sampler2D u_detail;
+uniform int u_detail_kind;
+uniform int u_detail_pole;
+uniform vec4 u_detail_bounds;
 // SRGB8_ALPHA8 albedo is decoded to linear before filtering.
 uniform sampler2D u_albedo;
 // Object-space normals use linear RGB8.
@@ -237,6 +241,26 @@ vec4 satellite(vec2 uv, int pole, vec2 gx, vec2 gy)
 }
 #endif
 
+vec4 zoom_detail(vec3 p)
+{
+	if (u_detail_kind == 0) return vec4(0.0);
+	vec2 xy;
+	if (u_detail_pole == 0)
+	{
+		xy = vec2(atan(p.x, p.z), asin(clamp(p.y, -1.0, 1.0))) * (180.0 / PI);
+	}
+	else
+	{
+		if (p.y * float(u_detail_pole) < 0.0) return vec4(0.0);
+		xy = 3474800.0 * vec2(p.x, u_detail_pole < 0 ? p.z : -p.z) / max(1.0 + abs(p.y), 0.000001);
+	}
+	vec2 uv = (xy - u_detail_bounds.xy) / u_detail_bounds.zw;
+	uv.y = 1.0 - uv.y;
+	vec2 edge = min(uv, 1.0 - uv);
+	float weight = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+	return vec4(texture(u_detail, uv).rgb, weight);
+}
+
 // Analytic sphere intersection avoids mesh facets and remains stable near the surface.
 bool surface_point(out vec3 position, out vec3 object, out float coverage)
 {
@@ -298,6 +322,7 @@ void main()
 	float polar_blend = polar_normal_blend;
 #endif
 	vec3 light = normalize(u_model * u_sun);
+	vec4 close_detail = zoom_detail(p);
 	vec3 earth_light = normalize(u_model * u_earth);
 	vec3 geometric = normalize(position);
 	float polar_fallback = smoothstep(cos(15.0 * PI / 180.0), cos(10.0 * PI / 180.0), abs(p.y));
@@ -311,6 +336,7 @@ void main()
 	{
 		n = normalize(mix(n, texture(u_polar_normal, polar_uv).rgb * 2.0 - 1.0, polar_normal_blend));
 	}
+	n = normalize(mix(n, close_detail.rgb * 2.0 - 1.0, close_detail.a));
 	// Apply the camera's rigid rotation to the normal, preserving lighting-space consistency.
 	n = normalize(u_model * n);
 	vec3 view = normalize(vec3(0.0, 0.0, u_camera_distance) - position);
@@ -378,6 +404,7 @@ void main()
 			albedo *= mix(vec3(1.0), clamp(mosaic / 0.2, vec3(0.65), vec3(1.35)), 0.25 * polar_blend * valid * (1.0 - satellite_weight));
 		}
 		// Solid-angle-weighted mean linear luminance; this is not a per-pixel inversion.
+		satellite_factor = mix(satellite_factor, clamp(close_detail.rgb / 0.2, vec3(0.2), vec3(2.0)), close_detail.a);
 		albedo *= mix(vec3(1.0), satellite_factor, 0.85);
 	}
 #endif

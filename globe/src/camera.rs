@@ -39,7 +39,7 @@ impl Globe
 			}
 			help::question(
 				ui,
-				"Scroll or pinch to approach the surface with satellite imagery, up to 1,024x.",
+				"Scroll or pinch to approach the surface, up to 2,048x. Sharper detail loads where available.",
 			);
 		});
 		self.site_camera(ui);

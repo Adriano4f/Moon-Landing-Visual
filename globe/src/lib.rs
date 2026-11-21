@@ -4,6 +4,7 @@
 mod assets;
 mod camera;
 mod deep;
+mod detail;
 mod phase;
 mod polar;
 mod renderer;
@@ -17,7 +18,7 @@ mod space;
 pub mod help;
 
 /// Source pixels eventually overzoom; the camera remains above the illustrative sphere.
-const MAX_ZOOM: f32 = 1024.0;
+const MAX_ZOOM: f32 = 2048.0;
 const MIN_ZOOM: f32 = 0.5;
 
 use egui::mutex::Mutex;
@@ -85,6 +86,7 @@ pub struct Globe
 	live_shadows: bool,
 	polar: polar::Shared,
 	deep: deep::Shared,
+	zoom_detail: detail::Shared,
 	/// Selected size label 2/4/8, or zero for the private 512-pixel browser preview.
 	tier: u32,
 	target_tier: u32,
@@ -130,6 +132,7 @@ mod scene_tests
 			live_shadows: true,
 			polar: Arc::new(Mutex::new(polar::State::default())),
 			deep: Arc::new(Mutex::new(deep::State::default())),
+			zoom_detail: Arc::new(Mutex::new(detail::State::default())),
 			tier: 2,
 			target_tier: 2,
 			max_tier: 8,
@@ -315,6 +318,7 @@ impl Globe
 			live_shadows: tier > 2 && !mobile,
 			polar: Arc::new(Mutex::new(polar::State::default())),
 			deep: Arc::new(Mutex::new(deep::State::default())),
+			zoom_detail: Arc::new(Mutex::new(detail::State::default())),
 			tier: assets::first_tier(),
 			target_tier: tier,
 			max_tier: assets::select(

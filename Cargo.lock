@@ -1033,6 +1033,8 @@ dependencies = [
  "ehttp",
  "image",
  "send_wrapper",
+ "tiff 0.10.3",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
 ]

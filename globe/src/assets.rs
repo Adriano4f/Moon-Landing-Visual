@@ -101,6 +101,11 @@ pub(crate) fn preferences() -> (bool, Option<String>)
 
 pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 {
+	load_files(files(tier, cfg!(target_arch = "wasm32")), ctx)
+}
+
+fn files(tier: u32, browser: bool) -> [String; 2]
+{
 	let suffix = if tier == 0
 	{
 		"preview".into()
@@ -109,7 +114,12 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 	{
 		format!("{tier}k")
 	};
-	let normal = if cfg!(target_arch = "wasm32")
+	let normal = if tier == 0
+	{
+		// The Fast-only preview never samples normals.
+		"albedo_preview.jpg".into()
+	}
+	else if browser
 	{
 		format!("normal_{suffix}.webp")
 	}
@@ -117,7 +127,7 @@ pub(crate) fn load(tier: u32, ctx: Option<egui::Context>) -> Arc<Mutex<Loading>>
 	{
 		format!("normal_{suffix}.png")
 	};
-	load_files([format!("albedo_{suffix}.jpg"), normal], ctx)
+	[format!("albedo_{suffix}.jpg"), normal]
 }
 
 pub(crate) fn load_surface(tier: u32, ctx: egui::Context) -> Arc<Mutex<Loading<5>>>
@@ -209,6 +219,13 @@ impl<const N: usize> Loading<N>
 mod tests
 {
 	use super::*;
+	#[test]
+	fn preview_reuses_color_without_downloading_unused_normals()
+	{
+		assert_eq!(files(0,true),["albedo_preview.jpg","albedo_preview.jpg"]);
+		assert_eq!(files(4,true),["albedo_4k.jpg","normal_4k.webp"]);
+		assert_eq!(files(2,false),["albedo_2k.jpg","normal_2k.png"]);
+	}
 	#[test]
 	fn surface_waits_for_every_image_and_keeps_failed_sets_unconsumed()
 	{

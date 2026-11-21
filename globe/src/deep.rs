@@ -317,7 +317,7 @@ impl Camera
 	}
 
 	/// Model-space surface point under NDC (x, y), or None when the ray misses.
-	fn hit(self, x: f32, y: f32) -> Option<[f32; 3]>
+	pub(crate) fn hit(self, x: f32, y: f32) -> Option<[f32; 3]>
 	{
 		let r = normalize([(x - self.pan[0]) / self.sx, (y - self.pan[1]) / self.sy, -1.0]);
 		// |o + t r|^2 = 1 with o = (0, 0, distance): t^2 + 2 b t + c = 0.

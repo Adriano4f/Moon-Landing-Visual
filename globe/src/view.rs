@@ -47,6 +47,10 @@ impl Globe
 		{
 			deep::advance(&self.deep, view, ui.ctx());
 		}
+		if self.has_visible_moon()
+		{
+			detail::advance(&self.zoom_detail, view, self.live_shadows, ui.ctx());
+		}
 		self.queue_gl(ui, rect, view, lighting);
 		self.paint_grid(ui, rect, view);
 		self.paint_points(ui, rect, view);
@@ -320,6 +324,7 @@ impl Globe
 		let live_shadows = self.live_shadows;
 		let polar = Arc::clone(&self.polar);
 		let deep = Arc::clone(&self.deep);
+		let zoom_detail = Arc::clone(&self.zoom_detail);
 		let rays = self.scene_rays();
 		// Capture shared state for egui's later current-context draw.
 		let surface_rays = self.surface_rays;
@@ -346,6 +351,7 @@ impl Globe
 					}
 					renderer.update_polar(painter.gl(), &polar);
 					renderer.update_deep(painter.gl(), &deep, view);
+					renderer.update_detail(painter.gl(), &zoom_detail);
 					renderer.paint(
 						painter,
 						view,
