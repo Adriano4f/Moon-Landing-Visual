@@ -216,9 +216,10 @@ float solar_visibility(vec3 p)
 	vec3 sun = normalize(u_sun);
 	float spacing = mix(2.0 * PI * R / float(textureSize(u_height, 0).x),
 		2.0 * u_polar_extent / float(textureSize(u_polar_height, 0).x), polar_height_weight(p));
-	bool fine = u_detail_kind == 2 && detail_coordinates(p).z > 0.0;
+	float detail_weight = u_detail_kind == 2 ? detail_coordinates(p).z : 0.0;
+	bool fine = detail_weight > 0.0;
 	if (fine) spacing = detail_spacing(p);
-	float bias = fine ? 0.5 : 3.0;
+	float bias = mix(3.0, 0.5, detail_weight);
 	vec3 origin = p * (R + terrain_height(p) + bias);
 	float along = dot(origin, sun);
 	// Even the lowest terrain blocks this ray; mapped normals cannot leak sunlight into deep night.

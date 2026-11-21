@@ -12,12 +12,19 @@ fn shadow_basis(lat: f64, lon: f64) -> [[f64; 3]; 3]
 	[[c * sl, s, c * cl], [cl, 0.0, -sl], [-s * sl, c, -s * cl]]
 }
 
-fn shadow_dem(p: [f64; 3], basis: [[f64; 3]; 3], rim: f64) -> TerrainSample
+fn shadow_window_weight(p: [f64; 3], basis: [[f64; 3]; 3]) -> f64
 {
 	let x = MOON_RADIUS_M * shadow_dot(p, basis[1]);
 	let y = MOON_RADIUS_M * shadow_dot(p, basis[2]);
 	let edge = ((12800.0 - x.abs().max(y.abs())) / 1536.0).clamp(0.0, 1.0);
-	let weight = edge * edge * (3.0 - 2.0 * edge);
+	edge * edge * (3.0 - 2.0 * edge)
+}
+
+fn shadow_dem(p: [f64; 3], basis: [[f64; 3]; 3], rim: f64) -> TerrainSample
+{
+	let x = MOON_RADIUS_M * shadow_dot(p, basis[1]);
+	let y = MOON_RADIUS_M * shadow_dot(p, basis[2]);
+	let weight = shadow_window_weight(p, basis);
 	let height = |spacing: f64| {
 		let ix = (x / spacing).floor();
 		let iy = (y / spacing).floor();
@@ -40,7 +47,8 @@ fn shadow_dem(p: [f64; 3], basis: [[f64; 3]; 3], rim: f64) -> TerrainSample
 
 fn shadow_march(basis: [[f64; 3]; 3], sun: [f64; 3], rim: f64) -> f64
 {
-	let origin = basis[0].map(|x| x * (MOON_RADIUS_M + shadow_dem(basis[0], basis, rim).z_m + 0.5));
+	let bias = 3.0 - 2.5 * shadow_window_weight(basis[0], basis);
+	let origin = basis[0].map(|x| x * (MOON_RADIUS_M + shadow_dem(basis[0], basis, rim).z_m + bias));
 	let mut distance = 25.0;
 	let mut clearance_angle = 1.0_f64;
 	let mut visit = |distance: f64| {
@@ -160,6 +168,19 @@ fn detail_shadow_march_matches_core_horizons()
 			}
 		}
 	}
+}
+
+#[test]
+fn detail_shadow_origin_is_continuous_at_window_border()
+{
+	let basis = shadow_basis(0.0, 0.0);
+	let origin_height = |x: f64| {
+		let p = [x / MOON_RADIUS_M, 0.0, (1.0 - (x / MOON_RADIUS_M).powi(2)).sqrt()];
+		shadow_dem(p, basis, 300.0).z_m + 3.0 - 2.5 * shadow_window_weight(p, basis)
+	};
+	assert!((origin_height(12799.99) - origin_height(12800.01)).abs() < 1e-6);
+	assert_eq!(shadow_window_weight(basis[0], basis), 1.0);
+	assert!(origin_height(12032.0).is_finite());
 }
 
 #[test]
