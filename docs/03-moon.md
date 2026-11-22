@@ -2,7 +2,7 @@
 
 ## 1. What this image means
 
-This is a visual globe, not the landing-site simulation. The independent `globe` crate uses NASA color and relief products to draw an illustrative Moon. It does not query Horizons, calculate solar power, determine Earth visibility, ingest a scientific DEM into `lunar_core`, or predict terrain shadows. The current camera and illumination use the [real-time direction model](10-real-lighting-and-orbit.md). Historical fixed-pose numerical examples below remain examples, not the default camera or light. Optional Auto-rotate turns once per 60 seconds only when enabled. The model includes a measured lunar photometric parameter set, but its RGB modulation and display exposure are modeling choices, not a calibrated spectral inversion.
+This is a visual globe, not the landing-site simulation. The independent `globe` crate uses NASA color and relief products to draw an illustrative Moon. It does not query Horizons, calculate solar power, determine scientific Earth visibility or run the scientific `lunar_core` horizon. Current main does predict approximate DEM cast shadows in Realistic mode; that newer algorithm is separate from the original normal-only material derived below. Camera and illumination use the [dated direction model](10-real-lighting-and-orbit.md). Fixed-pose numerical examples below remain historical examples. Optional Auto-rotate is a presentation aid. The measured lunar photometric parameter set, RGB modulation and display exposure do not constitute a calibrated spectral inversion.
 
 Read this guide first, then [the Rust and complete code guide](04-globe-code.md). Its annotated listings quote every globe source and both app entry files exactly. [Asset provenance](../globe/assets/README.md) provides downloads, dimensions, units, sizes, and hashes. The earlier [scientific walkthrough](02-code.md) describes the original placeholder app, not the current renderer.
 
@@ -25,6 +25,19 @@ p = (cos(phi) sin(lambda), sin(phi), cos(phi) cos(lambda)).
 ```
 
 Thus north is +y, longitude zero faces +z, and longitude 90 degrees east faces +x. Tycho belongs in the southern hemisphere and Mare Crisium to the right of the near-side center. These are orientation checks, not an astronomical camera model. Implementation: [globe/src/math.rs:168](../globe/src/math.rs#L168).
+
+## Current-main reading map
+
+This chapter preserves the original rendering derivation and historical source
+links. Main `5e4d5b7` now renders the opaque sphere analytically inside a projected
+two-triangle quad, not the old sphere mesh described below. Perspective remains
+for intersection/picking; Hapke uses a parallel far-field observer. Realistic
+adds terrain-cast shadows; Fast uses a separate cheap photographic variant.
+Read [19](19-far-field-photometry.md), [20](20-terrain-shadows.md),
+[21](21-atomic-loading-and-flicker.md), [22](22-quality-and-antialiasing.md)
+and [23](23-deep-zoom-windows.md) for the current code walkthroughs. Mesh counts,
+old function line numbers and mesh-interpolation experiments below are historical,
+not current opaque-pass implementation claims.
 
 ## 3. Vertices, triangles, and the GPU
 
@@ -96,7 +109,7 @@ A texture is an image addressed by normalized coordinates u,v. Our equirectangul
 
 Bilinear filtering blends four neighboring texels at one resolution. A mipmap is a sequence of smaller images, each approximately half as wide and high. When many texels fit under one screen pixel, sampling an appropriate smaller level suppresses shimmering. LINEAR_MIPMAP_LINEAR also blends between two levels, often called trilinear filtering. The level chain costs about one third beyond the base image because 1+1/4+1/16+...=4/3. Implementation: [globe/src/renderer/textures.rs:8](../globe/src/renderer/textures.rs#L8).
 
-At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. The earlier renderer requested a ratio up to eight through the optional anisotropic-filtering extension. The current renderer deliberately leaves every new texture at its default anisotropy ratio of one, retaining isotropic trilinear mipmapping. This is a portable conservative choice rather than a GPU-vendor-name workaround. It can blur grazing detail more than a correctly functioning anisotropic path, but removes the observed dotted arc without removing mipmaps or 4x MSAA. Implementation: [globe/src/renderer/textures.rs:8](../globe/src/renderer/textures.rs#L8).
+At a grazing angle the projected footprint is elongated, not square. Anisotropic filtering samples along that footprint. Historically the renderer disabled anisotropy while investigating a dotted arc. Current main instead requests up to 2× on supported surface textures, bounded by the optional extension's maximum. Satellite arrays retain isotropic trilinear filtering. Numerical height textures have no mipmaps and page-table entries are not interpolated colors. See [chapter 22](22-quality-and-antialiasing.md) for the pinned implementation and why analytic silhouette coverage is needed in addition to native MSAA.
 
 Ordinary automatic UV derivatives see u jump from almost 1 to almost 0 at the longitude boundary. They can incorrectly select a very small mip level and produce a visible seam. The shader instead differentiates the continuous unit direction p. For a differential dp, du=(pz*dpx-px*dpz)/(2*pi*(px*px+pz*pz)), and dv=-dpy/(pi*sqrt(px*px+pz*pz)). It obtains dp with dFdx and dFdy, bounds the polar denominator, and passes these explicit gradients to textureGrad for both maps. The texture still repeats, but the footprint never differentiates the wrapped u value. Implementation: [globe/src/moon.frag:209](../globe/src/moon.frag#L209).
 
@@ -139,7 +152,7 @@ Radiometry measures electromagnetic energy. Irradiance E is incident power per a
 
 For a collimated beam with perpendicular irradiance J, our modeled quantity is radiance factor I/F=pi*L/J. It is dimensionless. The ISIS expression below is I/F, not a BRDF to multiply again by cos(i). Adding that cosine again would incorrectly darken the full Moon's limb. Our display uses a relative Sun intensity, not measured J. Implementation: [globe/src/moon.frag:73](../globe/src/moon.frag#L73).
 
-Let S be the unit direction toward the Sun, V toward the camera, and n the local mapped normal. Incidence i satisfies mu0=cos(i)=n dot S. Emission e satisfies mu=cos(e)=n dot V. Phase g satisfies cos(g)=S dot V. Opposition means g=0: observer and Sun are in the same direction. A locally unilluminated or invisible facet returns zero. A separate geometric-normal test prevents mapped normals from lighting the back side. There is no ambient or earthshine term.
+Let S be the unit direction toward the Sun, V the photometric observer direction, and n the local mapped normal. Incidence i satisfies mu0=cos(i)=n dot S. Emission e satisfies mu=cos(e)=n dot V. Phase g satisfies cos(g)=S dot V. Opposition means g=0: observer and Sun are in the same direction. Current main uses parallel V=(0,0,1) in view space for Hapke, not a separate close-camera vector at each surface point. Earthshine is a separate phase-scaled contribution; dynamic solar visibility is supplied by a DEM mask in Realistic. The old geometric-night cutoff remains relevant to unresolved lighting paths, not a blanket rejection of elevated, resolved terrain. See chapters 19 and 20.
 
 The verified implementation source is USGS ISIS3 commit `fadd004da2f733525209ee4f66ffdb3a9a9d193e`, [HapkeLROC.cpp](https://github.com/DOI-USGS/ISIS3/blob/fadd004da2f733525209ee4f66ffdb3a9a9d193e/isis/src/lro/apps/lrowacphomap/HapkeLROC.cpp). Its HGfunc and photometry functions define the equations and sign convention. The companion [HapkeLRO.cpp](https://github.com/DOI-USGS/ISIS3/blob/fadd004da2f733525209ee4f66ffdb3a9a9d193e/isis/src/lro/apps/lrowacphomap/HapkeLRO.cpp) was also read, but we specifically follow HapkeLROC's signed mixing convention. [lrowacphomap.cpp](https://github.com/DOI-USGS/ISIS3/blob/fadd004da2f733525209ee4f66ffdb3a9a9d193e/isis/src/lro/apps/lrowacphomap/lrowacphomap.cpp) dispatches these models. This verifies an open implementation; direct Wiley access to Sato's appendix was denied, so we do not claim to have read it.
 
@@ -272,4 +285,4 @@ Run cargo build -p app --release, cargo check -p app --target wasm32-unknown-unk
 
 A real visual check must wait for "Moon textures ready", inspect near-side orientation, then inspect the antimeridian during rotation. Check both poles and the terminator at high and forced low tier. A real browser check must use mobile emulation, record the selected-tier console message and both successful image requests, inspect the rendered screenshot, and collect page/console errors. A successful WASM compile is not a phone-rendering test.
 
-These approximations remain: a smooth spherical silhouette, no terrain occlusion or resolved cast shadows, a map-band mean parameter set rather than spatial Hapke fitting, one monochromatic parameter set applied to RGB, presentation camera/light/exposure, and heuristic quality selection. Grazing-angle relief shading is faded into the geometric response to suppress unresolved visibility artifacts; this is not a scientific terrain horizon. Future scientific work must keep those limitations separate from the existing terrain-ray computations.
+Current main retains a smooth spherical silhouette, map-band mean parameters rather than spatial Hapke fitting, a monochromatic parameter set applied to RGB, presentation exposure and heuristic default quality selection. Realistic now includes finite-sample DEM cast shadows, fine detail heights and a reduced-resolution visibility mask; it is no longer accurate to say the renderer has no terrain occlusion. Grazing relief is still faded for unresolved visibility. Source resolution, bounded marching and mask upsampling remain limitations, and the scientific terrain horizon is independent.

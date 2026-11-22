@@ -1,8 +1,14 @@
 # Portable apparent ephemeris
 
+> This chapter teaches the original portable format and preserves its annotated
+> source snapshot. The application now uses it for exact custom-point jobs and
+> shared dates; continue with [chapter 18](18-exact-points-and-feedback.md).
+> New rendering shadows and texture detail do not redefine this scientific
+> finite-distance observer conversion.
+
 ## 1. Scope and provenance
 
-`core/src/ephemeris.rs` supplies I/O-free finite-distance sky geometry for arbitrary lunar latitude, east longitude and radial altitude. `prep --ephemeris` prepares the compact input from the [NASA/JPL Horizons API](https://ssd-api.jpl.nasa.gov/doc/horizons.html). The current application still uses its original seven prepared tracks and dates; arbitrary-point terrain and timeline controls are not part of this foundation. The new asset is copied into the static distribution but is not requested at startup.
+`core/src/ephemeris.rs` supplies I/O-free finite-distance sky geometry for arbitrary lunar latitude, east longitude and radial altitude. `prep --ephemeris` prepares the compact input from the [NASA/JPL Horizons API](https://ssd-api.jpl.nasa.gov/doc/horizons.html). The foundation originally shipped before arbitrary-point UI controls. Current main uses it for continuous custom points and shared timeline handling while retaining the seven independent prepared tracks. The full asset is not needed for the initial preview; later custom/timeline work can request it lazily.
 
 The committed `app/assets/data/moon-ephemeris.bin` contains Sun and Earth positions every hour from 2027-01-01 00:00 UTC through 2035-01-01 00:00 UTC, inclusive: 70,129 samples per body. `moon-ephemeris.meta.json` records its frame, method, byte count and per-site validation maxima. Preparation also writes `moon-ephemeris.initial.bin`, a 56-byte versioned file containing exactly its first epoch. The application embeds that real initial Sun/Earth pair for a dated preview, without fetching the complete series or inventing terrain visibility. Original API responses remain in the external cache, including their DE441 source diagnostics. The independently prepared catalog tracks, terrain profiles and rounded-coordinate baseline are unchanged.
 

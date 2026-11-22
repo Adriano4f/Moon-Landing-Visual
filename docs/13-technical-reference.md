@@ -1,12 +1,19 @@
 # Karaya Explorer: Technical Reference
 
+> **Reading this archive.** The equations and prepared-data comparisons retain
+> their original provenance. The main-through-`5e4d5b7` continuation is in
+> [chapters 18–23](../README.md#learning-archive-and-current-main-continuation):
+> exact custom points, far-field photometry, DEM shadows, atomic loading,
+> Quality modes and bounded deep detail. Older annotated implementation details
+> should be read with those explicit updates, not as a second current renderer.
+
 ## 1. Purpose and interpretation
 
 Karaya Explorer compares fixed, published lunar south-polar observation points and dates for access to sunlight and a direct line of sight to Earth. It combines a terrain-derived local horizon, hourly Sun and Earth directions, duration-weighted availability statistics, a panoramic angular view, and an independently rendered Moon globe.
 
 The numerical results describe geometric opportunities, not electrical output, radio service, thermal conditions or landing safety. The globe is an illustration. Its coarse relief, photometric brightness, camera, direction diagrams and optional fill light do not determine the terrain horizon or availability statistics.
 
-The implementation described here is the four-crate Rust workspace, its Python asset tools, seven prepared site datasets, a portable eight-year Sun/Earth ephemeris, and the native and WebAssembly application. The ephemeris supports arbitrary observer coordinates through the scientific API; the current interface retains the prepared site catalog. Units are meters, seconds and radians internally where specified; serialized sky angles and horizon bins use degrees. Longitudes increase eastward. Times are UTC Unix seconds.
+The implementation is the four-crate Rust workspace, its Python asset tools, seven prepared site datasets, a portable eight-year Sun/Earth ephemeris, and the native and WebAssembly application. Current main also exposes continuous exact custom-point selection and bounded runtime terrain jobs; the prepared catalog remains available. Units are meters, seconds and radians internally where specified; serialized sky angles and horizon bins use degrees. Longitudes increase eastward. Times are UTC Unix seconds.
 
 ## 2. Architecture and data flow
 
@@ -16,7 +23,7 @@ The scientific and rendering preparation pipelines are independent:
 2. NASA CGI Moon Kit imagery and relief feed the globe asset tools. These bake color and object-space normal textures at three resolutions. The independent `globe` crate loads those textures and renders an illustrative sphere.
 3. `prep --ephemeris` obtains reference-observer apparent directions and ranges from Horizons. It reconstructs compact apparent Moon-centered positions, validates their decoded values against all seven independent prepared tracks, and writes a portable binary with a JSON provenance/validation sidecar. `lunar_core::ephemeris` converts these positions to arbitrary observer coordinates without I/O.
 
-At runtime, `app` embeds the small site catalog and a validated 56-byte initial ephemeris record for 2027-01-01 00:00 UTC. It shows real initial Sun/Earth directions with that explicit date, then starts the selected site's JSON only after the first lit Moon draw. No terrain or availability result is invented while it loads. The selected track permanently replaces the initial light. The application validates scientific arrays, computes availability through `lunar_core`, manages the shared epoch and radio margin, and draws the panorama and summary cards. It passes site metadata, current directions and visibility flags into `globe`. No TIFF, DEM tile or terrain ray tracing enters the application or browser. The complete portable ephemeris remains external and is not fetched at startup.
+At runtime, `app` embeds the small site catalog and a validated 56-byte initial ephemeris record for 2027-01-01 00:00 UTC. It shows real initial Sun/Earth directions with that explicit date, then starts deferred site work after the first lit Moon draw. No terrain or availability result is invented while it loads. The application validates arrays, computes availability through `lunar_core`, manages the shared epoch/radio margin and draws the panorama/cards. It passes metadata, directions and visibility flags into `globe`. Current custom-point jobs fetch bounded F32 TIFF windows and compute exact-location horizons; Realistic rendering separately fetches packed heights and visible-window DEMs. The multi-gigabyte prep DEM inventory remains external. The complete portable ephemeris is not required to render the preview.
 
 | Component | Responsibility | Principal modules |
 |:--|:--|:--|
@@ -209,9 +216,9 @@ Summary cards cover the applied start/end period, independent of the selected pa
 
 ## 8. Globe renderer
 
-### 8.1. Mesh, textures and normals
+### 8.1. Analytic sphere, textures and normals
 
-The unit sphere uses 256 longitude by 128 latitude cells: 33,153 vertices and 65,536 triangles. Its silhouette is spherical; relief is a normal map, not displaced geometry. Texture coordinates are equirectangular:
+The original mesh used 256 longitude by 128 latitude cells. Current main instead intersects an analytic unit sphere per fragment inside a tight projected two-triangle quad, with pixel-width silhouette coverage. Relief still does not displace that sphere. Chapters 20–23 cover the current height, quality and detail paths. Overview texture coordinates remain equirectangular:
 
 $$u=\frac{\mathrm{atan2}(x,z)}{2\pi}+\frac12,\qquad v=\frac{\arccos y}{\pi}.$$
 
@@ -219,15 +226,15 @@ Each tier is 2:1: 2,048 by 1,024; 4,096 by 2,048; or 8,192 by 4,096. Color is JP
 
 Encoding is $q_c=\mathrm{round}[255(n_c/2+1/2)]$. Decoding has maximum component quantization error $1/255$ before renormalization. The 8k normal texture resamples a 16-pixels-per-degree source and does not create additional independent terrain information.
 
-The shader derives texture gradients from the continuous normalized 3D direction, rather than differentiating wrapped longitude. It uses explicit-gradient, trilinear mipmap sampling, with repeat in longitude and clamp at the poles. An anisotropic override is deliberately absent. Normals are renormalized after filtering and transformed with the same rigid matrix as positions and lights.
+The shader derives texture gradients from the continuous normalized 3D direction rather than differentiating wrapped longitude. Surface textures use trilinear mipmaps; optional anisotropy is capped at 2×, while satellite arrays remain isotropic. Height/page data are not surface-color mip chains. Normals are renormalized after filtering and transformed with the same rigid matrix as positions/lights. See chapter 22 for filtering, implicit-limb AA, cached uniform locations and shader variants.
 
 ### 8.2. Tiers and progressive loading
 
-Browser startup uses a 512 by 256 preview; native retains 2k first. Its albedo is downsampled in linear light and its averaged object-space normals are renormalized. The two preview files total 193,091 bytes, compared with 2,975,280 bytes for the browser's 2k pair. A real lit draw precedes the selected site JSON and higher selected tier. Desktop browser default is 4k, phone default is 2k, and native default is 8k, subject to GPU texture-size limits and explicit selection. Native decoding runs on worker threads. Browser decoding uses `HtmlImageElement.decode()` asynchronously and uploads the browser image directly through WebGL, rather than decoding it through the WASM image library.
+Browser startup uses a 512 by 256 photographic preview; native retains 2k first. Current main reuses preview color in both initial slots instead of requesting the unused preview normal. The historical color/normal preview pair totaled 193,091 bytes; that is not the current preview transfer. Desktop browser normally targets 4k, phone 2k and native 8k, subject to limits/selection. Native decoding uses workers; browser decoding uses `HtmlImageElement.decode()` and direct WebGL upload. Realistic height resources are lazy and Fast does not request them for rendering.
 
 The browser-only `web-release` profile uses size optimization, LTO, one codegen unit and aborting panics, with optimization level 3 retained for `lunar_core`. Trunk applies `wasm-opt -Oz` and strips debug/name and producer metadata after wasm-bindgen. Renamed Latin, punctuation and geometric-symbol font subsets preserve interface glyph metrics; original licenses accompany the assets. Native fonts and release settings are unchanged. Final WASM size is 3,823,377 bytes, or 1,292,561 bytes with local gzip level 6.
 
-An existing renderer retains its old texture pair while an upgrade decodes. At most one replacement image uploads per frame; both replacements must succeed before the pair becomes active. Failed downloads, decoding or uploads retain the last successful Moon and expose a diagnostic. A failed initial picture releases the site-data gate instead of disabling the independent scientific graph. The first pair still requires initialization and upload before any Moon can be displayed. Mesh and shader objects are reused across upgrades.
+An existing renderer retains complete resources during upgrades. Current Realistic stages compatible color, normals and global/polar heights and requires a matching mask before dynamic activation. WAC protects published pages while a full replacement stages; photo/DEM detail also swaps complete windows. Recoverable failures retain an available complete surface, and capability failures use a consistent fallback. See chapter 21 rather than treating successful independent downloads as permission to publish partial shading. The WASM sizes and startup experiments retained below are historical, not new measurements of main `5e4d5b7`.
 
 Browser normals are lossless WebP copies of the native PNG values. Sizes are 2,250,260; 8,878,268; and 29,849,182 bytes, reducing the PNG transfer by 16.8%, 16.5% and 18.8%, respectively. Decoded RGB values and additional angular error match the PNGs exactly; this does not remove the preceding RGB8 quantization.
 
@@ -286,7 +293,7 @@ $$q=A_g\left(\frac{R_\oplus}{d}\right)^2\frac{\sin\alpha_\oplus+(\pi-\alpha_\opl
 
 NASA [Earth](https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html), [Moon](https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html) and [Sun](https://nssdc.gsfc.nasa.gov/planetary/factsheet/sunfact.html) fact-sheet values are $A_g=0.434$, $R_\oplus=6{,}371\ \mathrm{km}$ and $d=384{,}400\ \mathrm{km}$. Full-Earth $q$ is approximately 0.000119217, or 0.162 W per square meter for solar irradiance 1,361 W per square meter. This is an approximate Lambert-phase, mean-distance reflected-light model, not Earth weather or spatially resolved radiance. The explicitly labeled boosted setting multiplies only Earthshine by 1,000.
 
-Far side fill is separate and nonphysical. For object-space unit position $\mathbf p$, its mask is a smooth transition in $-p_z/\sqrt{p_x^2+p_z^2}$, positive beyond 90 degrees from mean Earth longitude zero. It adds linear gray-blue color proportional to $(0.035,0.045,0.065)$ and relative albedo. It follows the mean far hemisphere, not the instantaneous terminator or Earth-facing boundary. Neither boost nor fill changes any availability calculation.
+Historical far-side fill was a separate nonphysical gray-blue contribution following mean far-side longitude, not the instantaneous terminator. That original aid and its annotated uniform are not part of the current Fast/Realistic shader paths. Phase-scaled Earthshine and its explicitly boosted setting remain distinct from scientific availability.
 
 ### 8.5. Rays, markers, picking and camera
 
@@ -298,7 +305,7 @@ The optional whole-Moon Sun field samples 512 equal-area Fibonacci sphere candid
 
 All published markers have contrasting outlines. Unselected radius is 6 logical pixels; selected radius is 9, with a name label. Back-hemisphere points are hidden. Picking chooses the nearest projected point within 14 logical pixels; the site list disambiguates close overlaps without displacing coordinates.
 
-The shared model transform is $M=R_x(\theta)R_y(\alpha)R(t)$, where $R(t)$ maps Moon-fixed coordinates to J2000 equatorial space using all E1–E13 terms of the IAU lunar orientation model. Renderer axes are $(Y,Z,X)$, so inertial north is up. UTC approximates TDB for display only; this is not a DE-series attitude solution. See [dated Moon rotation](17-inertial-rotation.md) for the source, limitations and optional Earth-centered ecliptic orbit inset. The default camera follows Earth; dragging enters Free, which stays fixed in inertial space as time advances. The perspective camera remains at $(0,0,5)$ lunar radii; the same rigid transform applies to geometry, lights, normals, polar textures, markers, rays and tile overlays. Picking uses its transpose. Earth-following mode first transforms the Earth direction to $\mathbf e=R(t)\mathbf e_{fixed}$, then uses
+The shared model transform is $M=R_x(\theta)R_y(\alpha)R(t)$, where $R(t)$ maps Moon-fixed coordinates to J2000 equatorial space using all E1–E13 terms of the IAU lunar orientation model. Renderer axes are $(Y,Z,X)$, so inertial north is up. UTC approximates TDB for display only; this is not a DE-series attitude solution. See [dated Moon rotation](17-inertial-rotation.md). The default camera follows Earth; dragging enters Free, which stays fixed in inertial space as time advances. The camera is at distance $1+4/\mathrm{zoom}$, five lunar radii at 1×. The same rigid transform applies to geometry, lights, normals, textures, markers and decorative grid; inverse picking undoes it. Earth-following mode first transforms Earth to $\mathbf e=R(t)\mathbf e_{fixed}$, then uses
 
 $$\alpha=-\mathrm{atan2}(e_x,e_z),\qquad \theta=\arcsin(e_y).$$
 
@@ -414,11 +421,11 @@ Pixel 7 emulation exercises the drawer, zoom controls, site selection and ray to
 - Solar disk radius is fixed and its horizon crossing uses one local chord. Finite-time sampling, no eclipse model and no event-time solver limit short-window accuracy.
 - Earth visibility is an angular center-clearance test, not a communications system simulation. No relay, antenna, station, atmospheric or operational availability is included.
 - Printed published coordinates can identify different slopes or depressions from a study's internally selected maximum. Several comparisons remain non-reproduced. No parameters are tuned to published percentages.
-- Globe normals cannot produce resolved terrain shadows, topographic silhouettes or scientific local horizons. The northern cap and unloaded southern cap are schematic. Loaded southern photographic contrast includes recorded shadows; normal-map spacing is 535 or 1,070 m. Overview 8k does not add independent relief beyond its source map.
+- Normals alone cannot produce terrain occlusion. Current Realistic adds coarse/fine DEM cast shadows with bounded ray samples and reduced-resolution masks, not a topographic silhouette or replacement scientific horizon. Fast photographic contrast includes recorded shadows. Fallback polar normals remain coarse; demand-loaded detail can improve them within supported windows. Overview 8k does not add independent relief beyond its source map.
 - Globally averaged 566 nm Hapke parameters and relative RGB modulation are not a calibrated broadband spectral model. Normal safeguards, exposure, tone mapping, Earthshine boost and fill light affect appearance only.
 - Earthshine uses a Lambert phase and mean separation, with no clouds or spatial Earth map. Globe-wide Earth lighting/camera accepts topocentric parallax of about 0.26 degrees.
 - Progressive decoding does not eliminate synchronous GPU upload/mipmap stalls. Initial WASM, JSON and texture transfer remains network dependent; 8k remains an explicit large-memory/download choice in the browser.
-- The current interface compares only the fixed catalog and its original dates. An eight-year arbitrary-observer ephemeris API and asset exist, but there is no arbitrary-point DEM workflow, live ephemeris service, route planner or scale Sun-Earth-Moon orbital model. Apparent-position transport is empirically checked only for the seven south-polar sites over the original three-year overlap.
+- Current main supports exact arbitrary-point DEM jobs and shared timeline controls as well as the catalog. It is not a live ephemeris service, route planner or scale Sun-Earth-Moon orbital model. Apparent-position transport's original empirical comparison remains the seven south-polar sites over the original three-year overlap; wider UI capability does not broaden that validation by itself.
 
 ## 12. Source and artifact index
 

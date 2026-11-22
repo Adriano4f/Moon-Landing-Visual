@@ -1,5 +1,10 @@
 # Rust and the complete globe code
 
+> **Historical source walkthrough.** The exact annotated listings below match
+> the archived teaching source, not main `5e4d5b7`. For the later parallel
+> observer, analytic quad, shader variants, terrain heights and transactional
+> loaders, continue with [chapters 18–23](../README.md#learning-archive-and-current-main-continuation).
+
 ## 1. Rust from zero, with C++ comparisons
 
 Read [the rendering definitions and equations](03-moon.md) before the shaders below. This guide defines the language tools before quoting their uses. Rust syntax is case-sensitive. A statement ending in a semicolon discards its expression value; a block's final expression without a semicolon is its value. This is why a function can end in Ok(value) without a return statement. C++ normally needs return there.

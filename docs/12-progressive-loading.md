@@ -1,18 +1,24 @@
 # Progressive Moon loading
 
+> **Version scope.** The measurements and annotated source below preserve the
+> progressive-loading implementation of this chapter's original revision.
+> Main through `5e4d5b7` extends pair loading into complete compatible surface
+> transactions and published/staged WAC snapshots. Read
+> [chapter 21](21-atomic-loading-and-flicker.md) before changing current loaders.
+
 ## 1. What changed
 
-The browser first displays a 512 by 256 texture pair. Native startup retains the 2k pair. Only after a real, lit draw do the selected site's JSON and optional higher-quality textures start. Desktop browsers default to 4k, phones to 2k, and native to 8k. View / camera contains a Texture detail selector with its own question-mark explanation. `?moon_tier=8` or native `MOON_TIER=8` explicitly requests 8k; hardware texture-size limits still apply.
+The browser first displays a 512 by 256 photographic preview. Current main reuses that color asset in both initial slots instead of downloading an unused preview normal. Native startup retains the 2k pair. The first real lit draw gates deferred site/higher-quality work. Desktop browsers normally target 4k, phones 2k and native 8k, subject to limits and overrides. Texture tier and Quality: Fast / Realistic are separate controls. `?moon_tier=8` or native `MOON_TIER=8` explicitly requests 8k.
 
-The preview uses an embedded 56-byte, one-record ephemeris for 2027-01-01 00:00 UTC, derived reproducibly from the validated complete series. Its date is shown explicitly. It supplies real Moon-fixed Sun and Earth directions, not terrain visibility or invented horizon results. The selected track permanently replaces this initial state when ready. A later missing track cannot revive the initial epoch. The complete eight-year ephemeris and DEMs remain absent from startup traffic.
+The preview uses an embedded 56-byte, one-record ephemeris for 2027-01-01 00:00 UTC, derived reproducibly from the validated complete series. Its date is shown explicitly. It supplies real Moon-fixed Sun and Earth directions, not terrain visibility or invented horizon results. The selected track permanently replaces this initial state when ready. The full portable ephemeris and fine visible-window DEM exports are not needed for the first picture. Realistic subsequently requests packed rendering-height assets lazily; Fast does not. This must not be confused with a claim that every quality mode has zero height traffic throughout startup.
 
-`globe/assets/preview.py` averages the existing 2k albedo in linear light before JPEG encoding. It averages object-space normal vectors and renormalizes them before lossless WebP encoding. The files contain 29,555 and 163,536 bytes, respectively, totaling 193,091 bytes instead of the first 2k pair's 2,975,280 bytes. This is a coarse first picture, not additional terrain information. Selected 2k, 4k and 8k assets are unchanged.
+Historically `globe/assets/preview.py` produced both a 29,555-byte color preview and a 163,536-byte normal preview, totaling 193,091 bytes instead of the first 2k pair's 2,975,280 bytes. Current main no longer requests the unused preview normal. The color is averaged in linear light before JPEG encoding. It remains a coarse first picture, not additional terrain information; the historical measurements below include the then-current preview policy, not a fresh measurement of today's complete renderer.
 
 The browser's `web-release` Cargo profile uses size optimization, LTO, one codegen unit and aborting panics; `lunar_core` retains optimization level 3. Trunk runs `wasm-opt -Oz`, stripping names and producer metadata only after wasm-bindgen has consumed target-feature metadata. Native release settings are unchanged. Browser font subsets retain Latin text, punctuation, geometric symbols and interface metrics; native fonts remain complete. See `app/assets/fonts/README.md` for source fonts, licenses and deterministic regeneration.
 
 Native PNG/JPEG decoding remains on worker threads. Browser image requests instead use `HtmlImageElement.decode()`: the browser performs decoding, not the Rust image decoder in the WASM event callback. `glow` 0.17 uploads the decoded DOM image directly. `SendWrapper` checks creation-thread access without an unsafe Send implementation; no worker may dereference these DOM images.
 
-The first pair initializes the renderer. An upgrade retains its shader, geometry and old textures, uploads at most one replacement image per frame, and exposes the new pair only after both uploads succeed. HTTP, decoding and GL failures retain the last successful Moon and display a diagnostic. A failed initial pair requires reloading the page, but releases the data-loading gate so the independent terrain graph and scientific results remain usable. Camera, time and scientific data are not reset by an upgrade.
+The first resources initialize the renderer. Pair upgrades retain old textures until the replacement pair is uploaded. Current Realistic additionally stages global color/normals, global/polar heights and matching polar normals, then requires a matching visibility mask for dynamic lighting. WAC replacement protects the published page table while a complete new set stages; NAC/DEM windows also publish complete results. A failed or incomplete replacement keeps a consistent available surface/fallback. Camera, time and scientific data are not reset by an upgrade. Chapter 21 distinguishes recoverable download/upload failures from rendering-capability fallback.
 
 ## 2. Lossless browser normals
 

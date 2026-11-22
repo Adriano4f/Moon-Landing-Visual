@@ -1,5 +1,13 @@
 # South-polar visualization detail
 
+> **Historical fallback atlas.** This guide's projection, source provenance,
+> measurements and annotated code describe the original south-polar fallback.
+> Current main `5e4d5b7` also streams north/south WAC and optional polar NAC,
+> publishes compatible global/polar resources atomically and uses DEM detail
+> for Realistic normals/shadows. See [20](20-terrain-shadows.md),
+> [21](21-atomic-loading-and-flicker.md) and [23](23-deep-zoom-windows.md).
+> The 1k/2k tables below describe fallback spacing, not maximum zoom resolution.
+
 ## Data and provenance
 
 The south-polar visualization combines the official LROC WAC south-polar mosaic with normals derived from the unrendered LOLA 30 m south-polar DEM. These are rendering inputs, not the detailed PGDA scientific horizons. Site statistics, ephemerides and the terrain silhouette are unchanged.
@@ -44,7 +52,7 @@ The browser uses native image decoding and CORS-enabled DOM image uploads. Nativ
 
 Two complete atlas textures are retained, with nominal RGB8 normals plus RGBA8 imagery and mipmaps requiring approximately 9.79 or 39.15 MB. Driver storage and browser-managed caches can differ. The selected global overview textures remain separately owned.
 
-The photographic mosaic contains recorded shadows, not this epoch's illumination and not calibrated albedo. It therefore contributes only bounded contrast: linear mosaic values are divided by the display reference 0.2, clamped to [0.65, 1.35] and mixed with neutral contrast at weight 0.25. Zero-valued or missing imagery contributes no contrast. The displayed caption identifies recorded shadows. The actual dated Sun/Earth lighting still uses the DEM-derived normal and existing Hapke model. This is an illustrative rendering approximation, not terrain shadow tracing, thermal prediction or a landing-safety model.
+The historical photographic fallback contains recorded shadows, not this epoch's illumination and not calibrated albedo. Its bounded contrast divides linear values by 0.2, clamps to [0.65, 1.35] and mixes with neutral contrast at weight 0.25 when streamed imagery is not taking precedence. Current Fast uses photographic contrast with cheap geometric shading; Realistic excludes it and instead uses DEM normals and dynamic cast shadows. It would be incorrect to describe current Realistic as Hapke multiplied by this recorded-shadow mosaic. Neither path predicts thermal conditions or landing safety.
 
 ## Numeric elevation finding
 

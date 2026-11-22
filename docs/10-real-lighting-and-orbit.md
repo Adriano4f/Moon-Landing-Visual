@@ -1,5 +1,11 @@
 # Real lighting and a freely movable camera
 
+> The annotated shader below preserves the earlier lighting implementation.
+> Main `5e4d5b7` additionally has a parallel Hapke observer, Realistic DEM shadows
+> and 2048× navigation; see [19](19-far-field-photometry.md),
+> [20](20-terrain-shadows.md) and [23](23-deep-zoom-windows.md). The dated inertial
+> transform is explained in [17](17-inertial-rotation.md).
+
 ## 1. What changes with the date
 
 The project compares south-polar landing sites and dates for solar power and direct Earth communication. The panorama remains the scientific local-horizon view. The globe now also uses the selected site's actual hourly Horizons directions for its sunlight and Earth light. Moving the UTC time slider moves the terminator, the boundary between lunar day and night. It also changes the Earth direction, exposing libration: the small apparent rocking of the Moon seen from Earth. There is no synthetic sixty-second spin by default.
@@ -8,7 +14,7 @@ This is a Moon-centered direction visualization, not a scale drawing of three bo
 
 Earth view also identifies the approximate phase and geometric illuminated area. Near new Moon, the Earth-facing surface is naturally dark, not covered by an eclipse object. The shader does not simulate eclipses. A visible area percentage is not a brightness estimate. Below 10 percent lit, Boost earthshine enables the existing 1,000 times display aid with one click; it never changes the numerical availability results. Phase classification is isolated in `globe/src/phase.rs`.
 
-The perspective camera now sits five lunar radii from the center, instead of 3.3, so the default globe and ray field have more margin. Magnification ranges from 0.5 to 8 times; View from Earth restores one times. The shared CPU constant also supplies a matching high-precision uniform to both shader stages, preserving picking, ray alignment and photometric viewing geometry. This camera remains much closer than the real Earth. Its finite visible cap can hide a very small crescent, at most about 1.010 percent geometrically illuminated area, compared with 2.351 percent at the previous distance.
+At 1× the perspective camera sits five lunar radii from the center, instead of the earlier 3.3. Current navigation ranges from 1× to 2048×, with distance D=1+4/zoom; View from Earth restores 1×. CPU picking and GPU geometry share that distance/projection, while Hapke uses a separate parallel observer to prevent the moving opposition hotspot. At the 1× distance the finite visible cap can hide a crescent with at most about 1.010 percent geometrically illuminated area; that number is not a constant for every zoom.
 
 ## 2. One coordinate frame for bodies, lights and markers
 
@@ -16,17 +22,17 @@ The renderer's Moon-fixed axes are +y at the north pole, +z at latitude zero and
 
 The selected site's two current directions become a copied `Lighting` snapshot captured by the deferred GL callback. Local availability flags do not switch off global sunlight: a mountain hiding the Sun from one observer does not turn off the Sun for the rest of the Moon. If the selected data is missing or invalid, the app explicitly reports that real illumination is unavailable and supplies zero physical irradiance, not the former fixed presentation light.
 
-Both actual light directions are transformed by `u_model`, exactly like lunar geometry and mapped normals. Therefore dragging the camera rotates the view, not the Sun relative to a fixed lunar feature. A time change changes that physical relationship. The shader's `light_response` evaluates the existing Hapke response twice, once per light. A smooth-sphere night-side mask applies independently to both. Their linear reflected contributions add before tone mapping and the single sRGB encoding step. Rays retain their unlit diagram colors.
+Both actual light directions are transformed by `u_model`, exactly like lunar geometry and mapped normals. Therefore dragging the camera rotates the view, not the Sun relative to a fixed lunar feature. A time change changes that physical relationship. Realistic's `light_response` evaluates Hapke separately for Sun and Earth; direct sunlight additionally uses a DEM visibility mask. The geometric-night guard remains for unresolved paths, not a blanket cutoff for resolved elevated terrain. Fast uses a cheap geometric response instead. Contributions add before tone mapping and the single sRGB encoding step. Rays retain their unlit diagram colors.
 
 ## 3. Camera modes from zero
 
-Dragging changes yaw and tilt and leaves Earth-following mode. Yaw covers every longitude; tilt is clamped at the poles, avoiding an upside-down camera while allowing every face to be inspected. Wheel, pinch and plus/minus controls now clamp zoom to 1 through 8 to avoid misleading enlargement of polar texture streaks. These are camera controls, not changes to the observing site's coordinates. The grouped controls and display-resolution tradeoff are explained in [the menu guide](11-menu-and-help.md).
+Dragging changes yaw and tilt and leaves Earth-following mode. Wheel, pinch and plus/minus controls now clamp zoom to 1 through 2048. These remain camera controls, not changes to the observing site's coordinates. Higher zoom can request bounded WAC/NAC imagery or DEM detail; it does not manufacture information beyond source resolution. See chapter 23 for the shared camera and visible-window selection.
 
 The default is Earth view. For the current Moon-fixed Earth unit vector E=(x,y,z), choose yaw=-atan2(x,z) and tilt=asin(y). Substitution into the shared Rx(tilt)Ry(yaw) matrix rotates E onto +z, the camera axis. Earth view keeps recomputing these two angles when time changes, so libration is visible. The View from Earth button returns to this mode and resets zoom to the full-disk overview. Free orbit keeps its chosen angles when time changes, making the moving terminator easy to compare.
 
 Go to site leaves Earth view and retains the documented 0.8-second shortest-yaw, eased, logarithmic-zoom transition to the selected site's radial vector. The Auto-rotate checkbox is an optional presentation spin, off by default; enabling it leaves Earth view. This artificial spin is not an orbital period. The UI names the active camera mode.
 
-The camera remains the existing illustrative perspective camera at 3.3 lunar radii. View from Earth means the correct line of sight, not a camera literally at Earth distance or an Earth-sized angular image. Zoom is illustrative magnification. The Moon-fixed lighting is independent of that presentation distance.
+View from Earth means the dated Earth line of sight, not a camera literally at Earth distance or an Earth-sized angular image. The inspection camera is at five lunar radii at 1× and moves toward the surface with zoom. Moon-fixed Sun lighting is independent of that presentation distance; the far-field photometric approximation is explained in chapter 19.
 
 ## 4. Topocentric versus Moon-center direction
 
@@ -50,13 +56,13 @@ $$\Phi(\alpha)=\frac{\sin\alpha+(\pi-\alpha)\cos\alpha}{\pi},\qquad q=q_0\Phi(\a
 
 At full Earth Phi=1; at quarter Earth Phi=1/pi; at new Earth Phi=0. The numeric function normalizes the direction dot product, clamps roundoff before acos, and rejects zero or nonfinite vectors. Tests cover all three phases and malformed inputs. The shader adds q times the Earth-direction Hapke response to the direct Sun response. Both use the same solar-relative units.
 
-This is phase-dependent, not weather-dependent. Earth is not a perfect Lambert sphere; clouds, oceans and continents change its true phase curve and color. We use mean distance, so actual distance-driven brightness changes are not modeled. NASA lists actual lunar ranges around 357,000 through 407,000 km. Eclipses, Earth cloud maps, thermal emission and resolved terrain shadows on the globe are not simulated. These limitations do not alter the independently computed terrain-horizon data.
+This is phase-dependent, not weather-dependent. Earth is not a perfect Lambert sphere; clouds, oceans and continents change its true phase curve and color. We use mean distance, so actual distance-driven brightness changes are not modeled. NASA lists actual lunar ranges around 357,000 through 407,000 km. Eclipses, Earth cloud maps and thermal emission remain absent. Realistic now has finite-sample DEM terrain shadows, described in chapter 20; Fast retains recorded photographic shadows. These visual models do not alter the independently computed terrain-horizon data.
 
-## 6. Two clearly artificial viewing aids
+## 6. Earthshine boost and the historical far-side aid
 
 Earthshine boosted (1000x) multiplies only the reflected Earth-light contribution by 1,000. It is an exposure aid and is off by default. Sunlight, the scientific solar fraction, radio clearance, ray visibility and statistics are not multiplied. The word boosted and the factor remain visible beside the checkbox.
 
-Far side fill light is an independent, off-by-default visual aid, not physical illumination. Mean sub-Earth longitude is zero. The mean far side is the hemisphere with longitudes beyond plus/minus 90 degrees, equivalent to cos(longitude)<0. The shader computes cos(longitude)=p.z/length(p.xz), with a small denominator guard at the poles. A smooth boundary weights a soft gray-blue linear contribution (0.035,0.045,0.065), modulated by the color texture. This does not track the instantaneous Earth vector: it intentionally identifies the mean far side, even when libration reveals a narrow part of it from Earth. The globe caption and control tooltip call it a visual aid, not real light.
+The original renderer also had a nonphysical far-side fill: a gray-blue contribution following mean far-side longitude rather than the instantaneous Earth vector. Its implementation and `u_far_fill` appear in this chapter's historical listing/API map. They are not part of main `5e4d5b7`'s Fast/Realistic shader paths. Do not confuse that removed presentation aid with the still-supported physical Earthshine approximation or its explicit exposure boost.
 
 ## 7. Rust, GLSL and C++ API map
 
