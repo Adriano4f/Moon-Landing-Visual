@@ -3,11 +3,12 @@ use super::{Program, Renderer, assets, glow};
 use crate::deep::{Shared, Tile};
 use glow::HasContext as _;
 
-const SLOTS: usize = 96;
+const SLOTS: usize = 2 * crate::deep::BUDGET;
 const WIDTH: usize = 576;
 const HEIGHT: usize = 256;
 const UPLOADS_PER_FRAME: usize = 4;
 
+#[derive(Clone, Copy)]
 struct Entry
 {
 	tile: Tile,
@@ -19,12 +20,42 @@ pub(super) struct Atlas
 	color: glow::Texture,
 	pages: glow::Texture,
 	entries: Vec<Option<Entry>>,
+	published: Vec<Tile>,
 	clock: u64,
 	failed: bool,
 }
 
 impl Atlas
 {
+	fn replacement_slot(
+		entries: &[Option<Entry>],
+		wanted: &[Tile],
+		published: &[Tile],
+	) -> Option<usize>
+	{
+		entries.iter().position(Option::is_none).or_else(|| {
+			entries
+				.iter()
+				.enumerate()
+				.filter_map(|(slot, entry)| {
+					let entry = entry.as_ref()?;
+					(!wanted.contains(&entry.tile) && !published.contains(&entry.tile))
+						.then_some((slot, entry.used))
+				})
+				.min_by_key(|(_, used)| *used)
+				.map(|(slot, _)| slot)
+		})
+	}
+
+	fn published_pixels(entries: &[Option<Entry>], wanted: &[Tile]) -> Vec<u8>
+	{
+		let entries: Vec<_> = entries
+			.iter()
+			.map(|entry| entry.filter(|entry| wanted.contains(&entry.tile)))
+			.collect();
+		Self::page_pixels(&entries)
+	}
+
 	pub(super) fn new(gl: &glow::Context, slots: usize) -> Result<Self, String>
 	{
 		// SAFETY: the paint callback owns a current WebGL2/OpenGL context.
@@ -75,6 +106,7 @@ impl Atlas
 				color,
 				pages,
 				entries: (0..slots).map(|_| None).collect(),
+				published: Vec::new(),
 				clock: 0,
 				failed: false,
 			})
@@ -212,9 +244,9 @@ impl Atlas
 		pixels
 	}
 
-	fn publish(&self, gl: &glow::Context) -> Result<(), String>
+	fn publish(&self, gl: &glow::Context, wanted: &[Tile]) -> Result<(), String>
 	{
-		let pixels = Self::page_pixels(&self.entries);
+		let pixels = Self::published_pixels(&self.entries, wanted);
 		// SAFETY: page dimensions are fixed and all entries address allocated layers.
 		unsafe {
 			gl.active_texture(glow::TEXTURE4);
@@ -258,6 +290,74 @@ mod tests
 	use super::*;
 
 	#[test]
+	fn staged_tiles_cannot_change_published_pages_or_evict_active_layers()
+	{
+		let root = Tile {
+			z: 0,
+			row: 0,
+			col: 0,
+			pole: 0,
+		};
+		let child = root.children()[0];
+		let mut entries = vec![
+			Some(Entry {
+				tile: root,
+				used: 0,
+			}),
+			None,
+		];
+		let before = Atlas::published_pixels(&entries, &[root]);
+		entries[1] = Some(Entry {
+			tile: child,
+			used: 1,
+		});
+		assert_eq!(before, Atlas::published_pixels(&entries, &[root]));
+		assert_ne!(before, Atlas::published_pixels(&entries, &[root, child]));
+		assert_eq!(Atlas::replacement_slot(&entries, &[child], &[root]), None);
+		assert_eq!(Atlas::replacement_slot(&entries, &[], &[root]), Some(1));
+		assert_eq!(Atlas::replacement_slot(&[], &[], &[]), None);
+		assert_eq!(
+			Atlas::published_pixels(&[], &[]),
+			vec![0; WIDTH * HEIGHT * 4]
+		);
+	}
+
+	#[test]
+	fn full_disjoint_replacement_fits_without_overwriting_published_tiles()
+	{
+		let tiles: Vec<_> = (0..SLOTS)
+			.map(|col| Tile {
+				z: 8,
+				row: 0,
+				col: col as u32,
+				pole: 0,
+			})
+			.collect();
+		let published = &tiles[..crate::deep::BUDGET];
+		let wanted = &tiles[crate::deep::BUDGET..];
+		let mut entries: Vec<_> = published
+			.iter()
+			.map(|tile| {
+				Some(Entry {
+					tile: *tile,
+					used: 0,
+				})
+			})
+			.collect();
+		entries.resize(SLOTS, None);
+		for tile in wanted
+		{
+			let slot = Atlas::replacement_slot(&entries, wanted, published).unwrap();
+			assert!(slot >= crate::deep::BUDGET);
+			entries[slot] = Some(Entry {
+				tile: *tile,
+				used: 1,
+			});
+		}
+		assert_eq!(Atlas::replacement_slot(&entries, wanted, published), None);
+	}
+
+	#[test]
 	fn finer_pages_override_parents_and_polar_maps_are_disjoint()
 	{
 		let entry = |z, row, col, pole| {
@@ -297,13 +397,18 @@ impl Renderer
 	)
 	{
 		let mut state = shared.lock();
-		let enabled = view.zoom >= 2.0
-			&& (!crate::polar::wanted(view)
+		let enabled = view.zoom >= if self.deep_ready { 1.7 } else { 2.0 }
+			&& (self.deep_ready
+				|| !crate::polar::wanted(view)
 				|| self
 					.polar
 					.as_ref()
 					.is_some_and(|atlas| atlas.normal_ready()));
-		self.deep_ready = enabled && state.coverage_ready();
+		self.deep_ready = enabled
+			&& self
+				.deep
+				.as_ref()
+				.is_some_and(|atlas| !atlas.failed && !atlas.published.is_empty());
 		if !enabled
 		{
 			return;
@@ -313,7 +418,7 @@ impl Renderer
 			state.pending.clear();
 			return;
 		}
-		if state.pending.is_empty()
+		if state.pending.is_empty() && self.deep.is_none()
 		{
 			return;
 		}
@@ -351,7 +456,6 @@ impl Renderer
 				entry.used = atlas.clock;
 			}
 		}
-		let mut changed = false;
 		for _ in 0..UPLOADS_PER_FRAME
 		{
 			let Some((tile, image)) = state.pending.pop_front()
@@ -363,18 +467,7 @@ impl Renderer
 			{
 				continue;
 			}
-			let slot = atlas.entries.iter().position(Option::is_none).or_else(|| {
-				atlas
-					.entries
-					.iter()
-					.enumerate()
-					.filter_map(|(slot, entry)| {
-						let entry = entry.as_ref()?;
-						(!state.wanted.contains(&entry.tile)).then_some((slot, entry.used))
-					})
-					.min_by_key(|(_, used)| *used)
-					.map(|(slot, _)| slot)
-			});
+			let slot = Atlas::replacement_slot(&atlas.entries, &state.wanted, &atlas.published);
 			let Some(slot) = slot
 			else
 			{
@@ -384,7 +477,6 @@ impl Renderer
 			{
 				state.resident.remove(&old.tile);
 			}
-			changed = true;
 			match atlas.upload(gl, slot, &image)
 			{
 				Ok(()) =>
@@ -398,12 +490,19 @@ impl Renderer
 				Err(error) => state.error = Some(error),
 			}
 		}
-		if changed && let Err(error) = atlas.publish(gl)
+		if state.coverage_ready() && atlas.published != state.wanted
 		{
-			atlas.failed = true;
-			state.disable(error);
+			match atlas.publish(gl, &state.wanted)
+			{
+				Ok(()) => atlas.published = state.wanted.clone(),
+				Err(error) =>
+				{
+					atlas.failed = true;
+					state.disable(error);
+				}
+			}
 		}
-		self.deep_ready = state.coverage_ready() && !atlas.failed;
+		self.deep_ready = !atlas.published.is_empty() && !atlas.failed;
 	}
 
 	pub(super) fn bind_deep(&self, gl: &glow::Context, program: &Program)

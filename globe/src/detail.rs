@@ -99,8 +99,8 @@ impl Spec
 			{
 				return None;
 			}
-			let col = (u * cols - 2.0).floor().clamp(0.0, cols - 4.0) as u32;
-			let row = (v * rows - 2.0).floor().clamp(0.0, rows - 4.0) as u32;
+			let col = (u * cols - 2.0).round().clamp(0.0, cols - 4.0) as u32;
+			let row = (v * rows - 2.0).round().clamp(0.0, rows - 4.0) as u32;
 			let bbox = if pole == 0
 			{
 				[
@@ -245,6 +245,30 @@ impl Spec
 			self.source
 		)
 	}
+
+	fn retains(self, next: Self, view: math::View, zoom: f32) -> bool
+	{
+		if !self.photo
+			|| !next.photo
+			|| self.source != next.source
+			|| self.pole != next.pole
+			|| (self.level != next.level
+				&& (self.level.abs_diff(next.level) > 1 || (view.zoom / zoom).ln().abs() > 0.14))
+		{
+			return false;
+		}
+		let Some(point) = deep::Camera::new(view).hit(0.0, 0.0)
+		else
+		{
+			return false;
+		};
+		let lat = f64::from(point[1]).clamp(-1.0, 1.0).asin().to_degrees();
+		let lon = f64::from(point[0]).atan2(f64::from(point[2])).to_degrees();
+		let (x, y) = coordinates(lat, lon, self.pole);
+		let u = (x - self.bbox[0]) / (self.bbox[2] - self.bbox[0]);
+		let v = (y - self.bbox[1]) / (self.bbox[3] - self.bbox[1]);
+		(0.25..=0.75).contains(&u) && (0.25..=0.75).contains(&v)
+	}
 }
 
 fn coordinates(lat: f64, lon: f64, pole: i32) -> (f64, f64)
@@ -358,6 +382,7 @@ pub(super) struct State
 {
 	pub pending: Option<(Spec, Vec<u8>)>,
 	last: Option<Spec>,
+	last_zoom: f32,
 	flight: bool,
 }
 
@@ -372,11 +397,15 @@ pub(super) fn advance(shared: &Shared, view: math::View, realistic: bool, ctx: &
 	};
 	{
 		let mut state = shared.lock();
-		if state.flight || state.pending.is_some() || state.last == Some(spec)
+		if state.flight
+			|| state.pending.is_some()
+			|| state.last == Some(spec)
+			|| state.last.is_some_and(|last| last.retains(spec, view, state.last_zoom))
 		{
 			return;
 		}
 		state.last = Some(spec);
+		state.last_zoom = view.zoom;
 		state.flight = true;
 	}
 	if spec.photo
@@ -522,6 +551,49 @@ mod tests
 			pixels: [1000.0; 2],
 			scale: 1.0,
 		}
+	}
+
+	#[test]
+	fn photographic_windows_retain_overlap_with_bounded_zoom_hysteresis()
+	{
+		let camera = view(0.0, -125.6, 1024.0);
+		let spec = Spec::wanted(camera, false).unwrap();
+		let retains = |next, view| spec.retains(next, view, camera.zoom);
+		assert!(retains(spec, camera));
+		assert!(!retains(Spec { source: "other", ..spec }, camera));
+		assert!(!retains(Spec { pole: 1, ..spec }, camera));
+		let finer = Spec { level: spec.level + 1, ..spec };
+		assert!(retains(finer, camera));
+		assert!(!retains(finer, math::View { zoom: 1200.0, ..camera }));
+		assert!(retains(
+			Spec {
+				first: [spec.first[0] + 1, spec.first[1]],
+				..spec
+			},
+			camera
+		));
+		assert!(!retains(
+			Spec {
+				level: spec.level + 2,
+				..spec
+			},
+			camera
+		));
+		assert!(!retains(
+			Spec {
+				photo: false,
+				..spec
+			},
+			camera
+		));
+		assert!(!retains(spec, view(0.0, -120.0, 1024.0)));
+		assert!(!retains(
+			spec,
+			math::View {
+				pan: [1000.0; 2],
+				..camera
+			}
+		));
 	}
 
 	#[test]

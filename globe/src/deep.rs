@@ -521,11 +521,35 @@ pub(crate) struct State
 	flight: HashSet<Tile>,
 	failed: HashMap<Tile, Failure>,
 	failed_order: VecDeque<Tile>,
-	view_key: Option<([u32; 9], [u32; 6])>,
+	selection_view: Option<math::View>,
 }
 
 impl State
 {
+	fn needs_selection(&self, view: math::View) -> bool
+	{
+		let Some(previous) = self.selection_view
+		else
+		{
+			return true;
+		};
+		let motion = view
+			.model()
+			.iter()
+			.zip(previous.model())
+			.map(|(a, b)| (a - b).abs())
+			.fold(0.0_f32, f32::max);
+		view.aspect != previous.aspect
+			|| view.pixels != previous.pixels
+			|| (view.zoom / previous.zoom).ln().abs() > 0.14
+			|| motion * view.zoom.max(previous.zoom) > 0.15
+			|| view
+				.pan
+				.iter()
+				.zip(previous.pan)
+				.any(|(a, b)| (a - b).abs() > 0.1)
+	}
+
 	pub fn coverage_ready(&self) -> bool
 	{
 		!self.disabled
@@ -647,11 +671,7 @@ pub(crate) type Shared = Arc<Mutex<State>>;
 /// Recompute the visible set and start at most MAX_FLIGHT downloads, pending + in flight <= MAX_QUEUE.
 pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 {
-	let key = (
-		view.model().map(f32::to_bits),
-		[view.zoom, view.aspect, view.pixels[0], view.pixels[1], view.pan[0], view.pan[1]].map(f32::to_bits),
-	);
-	let changed = shared.lock().view_key != Some(key);
+	let changed = shared.lock().needs_selection(view);
 	let wanted = changed.then(|| select(view));
 	let now = ctx.input(|i| i.time);
 	let jobs = {
@@ -660,7 +680,7 @@ pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 		{
 			state.pending.retain(|(tile, _)| wanted.contains(tile));
 			state.wanted = wanted;
-			state.view_key = Some(key);
+			state.selection_view = Some(view);
 		}
 		state.plan(now)
 	};
@@ -679,6 +699,27 @@ pub(crate) fn advance(shared: &Shared, view: math::View, ctx: &egui::Context)
 mod tests
 {
 	use super::*;
+
+	#[test]
+	fn selection_hysteresis_ignores_small_motion_but_tracks_accumulated_motion()
+	{
+		let initial = view(0.0, 0.0, 4.0);
+		let mut state = State::default();
+		assert!(state.needs_selection(initial));
+		state.selection_view = Some(initial);
+		assert!(!state.needs_selection(initial));
+		assert!(!state.needs_selection(view(0.001, -0.001, 4.1)));
+		assert!(state.needs_selection(view(0.0, 0.1, 4.0)));
+		assert!(state.needs_selection(view(0.0, 0.0, 5.0)));
+		assert!(state.needs_selection(math::View {
+			pan: [0.2, 0.0],
+			..initial
+		}));
+		assert!(state.needs_selection(math::View {
+			pixels: [1200.0, 1000.0],
+			..initial
+		}));
+	}
 
 	#[test]
 	fn imagery_requires_complete_visible_coverage()
